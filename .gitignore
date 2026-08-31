@@ -1,0 +1,81 @@
+# === CLINE & AI ASSISTANTS ===
+# Логи Cline, история промптов и артефакты генерации
+.cline/
+cline_logs/
+*.cline
+# Логи и кэш других популярных ИИ-инструментов (Roo Code, Continue)
+.continue/
+.roo/
+
+# === СЕКРЕТЫ И НАСТРОЙКИ (КРИТИЧЕСКИ ВАЖНО) ===
+# Файлы с API-ключами Anthropic, OpenAI, DeepSeek и др.
+.env
+.env.*
+!.env.example
+secrets.toml
+config.private.toml
+
+# === PYTHON ===
+# Байт-код и кэш компиляции
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Виртуальные окружения
+.venv/
+venv/
+ENV/
+env/
+
+# Дистрибутивы, сборка и пакеты
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Тестирование, покрытие (Pytest, Coverage)
+.htmlcov/
+.tox/
+.nosenv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.scallop/
+.coverage
+.coverage.*
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# === Окружение IDE и ОС ===
+# VS Code (где обычно запущен Cline)
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Системные файлы
+.DS_Store
+Thumbs.db
+
+# 1. Игнорируем абсолютно все файлы, начинающиеся на .env во всех папках
+.env*
+
+# 2. Делаем исключение (!) конкретно для шаблонов .env.example
+!.env.example
