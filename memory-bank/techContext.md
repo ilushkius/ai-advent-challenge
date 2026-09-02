@@ -4,7 +4,8 @@
 - **ОС:** Windows (PowerShell, VS Code). Путь: `C:\Users\ilushkius\ai-challenge`.
 - **Python:** 3.14.7 (64-bit). Виртуальное окружение: `day2/.venv` (создано из
   `C:\Users\ilushkius\AppData\Local\Python\pythoncore-3.14-64`).
-- **Git:** ветка `main`, remote `origin`. По одному коммиту на день.
+- **Git:** ветка `main`, remote `origin`. По одному коммиту на день; рефакторинг
+  и документация закоммичены отдельно (`5aa6898` «Day 3 Refactoring»).
 - Кодировка файлов UTF-8; комментарии и UI — на русском.
 
 ## Технологии и зависимости
