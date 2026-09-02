@@ -14,10 +14,21 @@
 import html
 import json
 import os
+import sys
 import time
+from pathlib import Path
 
 import streamlit as st
 from openai import OpenAI
+
+# Общие утилиты лежат в корне репозитория (папка shared/).
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from shared.deepseek_utils import (
+    DEEPSEEK_BASE_URL,
+    parse_stop_sequences,
+    read_key_from_env_file,
+    usage_to_dict,
+)
 
 # ---------------------------------------------------------------------------
 # Константы и конфигурация
@@ -25,10 +36,7 @@ from openai import OpenAI
 APP_TITLE = "🎛️ День 2 · Формат ответа"
 APP_SUBTITLE = "Управление детерминизмом, длиной и Stop Sequences через DeepSeek API"
 
-# Официальный endpoint DeepSeek (синтаксис полностью совместим с OpenAI SDK).
-# ВАЖНО: корректный адрес — https://api.deepseek.com (с поддоменом "api").
-# Адрес "https://deepseek.com" без "api." не принимает API-запросы.
-DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+# Endpoint DeepSeek импортируется из shared/deepseek_utils.py (DEEPSEEK_BASE_URL).
 
 # System-промпт, который автоматически подмешивается в JSON-режиме
 SYSTEM_PROMPT_JSON = (
@@ -48,30 +56,8 @@ FINISH_REASON_LABELS = {
 # ---------------------------------------------------------------------------
 # Вспомогательные функции
 # ---------------------------------------------------------------------------
-def read_key_from_env_file(path=".env"):
-    """Достаёт DEEPSEEK_API_KEY из файла .env (по образцу Дня 1)."""
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if line.startswith("export "):
-                    line = line[len("export "):].strip()
-                if "=" in line:
-                    name, value = line.split("=", 1)
-                    if name.strip() == "DEEPSEEK_API_KEY":
-                        return value.strip().strip('"').strip("'")
-    except OSError:
-        return None
-    return None
-
-
-def parse_stop_sequences(raw):
-    """'КРИТИКА, Конец' -> ['КРИТИКА', 'Конец'] (убираем пробелы и пустые элементы)."""
-    if not raw or not raw.strip():
-        return []
-    return [part.strip() for part in raw.split(",") if part.strip()]
+# read_key_from_env_file() и parse_stop_sequences() импортированы из
+# shared/deepseek_utils.py (см. шапку файла).
 
 
 def build_request_params(prompt, mode, model_name, max_tokens, temperature, seed, stop_list):
@@ -282,13 +268,7 @@ if run:
                 finish_reason = response.choices[0].finish_reason
                 usage = response.usage
 
-                usage_dict = {}
-                if usage is not None:
-                    usage_dict = {
-                        "prompt_tokens": usage.prompt_tokens,
-                        "completion_tokens": usage.completion_tokens,
-                        "total_tokens": usage.total_tokens,
-                    }
+                usage_dict = usage_to_dict(usage)
 
                 st.session_state["result"] = {
                     "content": content,
