@@ -6,6 +6,27 @@ cline_logs/
 # Логи и кэш других популярных ИИ-инструментов (Roo Code, Continue)
 .continue/
 .roo/
+.opencode/
+.cursor/
+.windsurf/
+.aider/
+.codeium/
+
+# === OPENSEP + SUPERPOWERS + CAVEMAN ===
+# Активные черновики изменений (трекаем только завершенные)
+openspec/changes/
+
+# Локальные конфигурации AI-агентов (если есть персональные настройки)
+.clinerules.local/
+cline_custom_instructions.md
+
+# Временные файлы сессий AI-инструментов
+*.cline-session
+*.cline-cache
+*.aider.chat.history.md
+*.aider.input.history
+*.claude-session.json
+*.opencode-session
 
 # === СЕКРЕТЫ И НАСТРОЙКИ (КРИТИЧЕСКИ ВАЖНО) ===
 # Файлы с API-ключами Anthropic, OpenAI, DeepSeek и др.
@@ -14,6 +35,15 @@ cline_logs/
 !.env.example
 secrets.toml
 config.private.toml
+
+# Ключи и сертификаты
+*.key
+*.pem
+*.crt
+*.secret
+*.private
+credentials/
+secrets/
 
 # === PYTHON ===
 # Байт-код и кэш компиляции
@@ -64,18 +94,74 @@ coverage.xml
 # Jupyter Notebooks
 .ipynb_checkpoints
 
+# === БОЛЬШИЕ ДАННЫЕ (RAG-ХРАНИЛИЩА) ===
+# Векторные базы данных
+*.faiss
+*.hnsw
+*.ann
+*.milvus
+*.qdrant
+*.weaviate
+*.pinecone
+
+# Эмбеддинги и кэш моделей
+embeddings/
+vectors/
+*.vec
+*.npy
+*.npz
+*.h5
+*.onnx
+*.pb
+*.tflite
+*.pkl
+
+# Загруженные и обработанные документы
+uploads/
+documents/
+data/raw/
+data/processed/
+*.pdf
+*.docx
+*.txt
+*.csv
+*.jsonl
+
+# ML-модели
+models/
+*.model
+*.bin
+*.safetensors
+*.gguf
+*.onnx
+
+# === ЛОГИ ===
+logs/
+*.log
+*.pid
+*.lock
+*.tmp
+*.temp
+
 # === Окружение IDE и ОС ===
 # VS Code (где обычно запущен Cline)
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
 
+# IntelliJ IDEA
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+
 # Системные файлы
 .DS_Store
 Thumbs.db
 
-# 1. Игнорируем абсолютно все файлы, начинающиеся на .env во всех папках
+# === 1. Игнорируем абсолютно все файлы, начинающиеся на .env во всех папках ===
 .env*
 
-# 2. Делаем исключение (!) конкретно для шаблонов .env.example
+# === 2. Делаем исключение (!) конкретно для шаблонов .env.example ===
 !.env.example

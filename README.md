@@ -4,6 +4,9 @@
 реальном API **DeepSeek** (OpenAI-совместимый endpoint). Каждый день — одно
 небольшое, самодостаточное приложение в папке `dayN/`.
 
+Проект ведётся вместе с Cline по spec-driven процессу **OpenSpec**
+(см. [Процесс разработки](#процесс-разработки) и [`docs/development.md`](docs/development.md)).
+
 ## Структура проекта
 
 | Папка | Что это | Назначение |
@@ -12,13 +15,59 @@
 | `day2/` | **День 2 · «Формат ответа»** | Streamlit-демо управления генерацией: `temperature`, `seed`, `max_tokens`, `stop`, JSON-режим (`app.py`) |
 | `day3/` | **День 3 · «Способы рассуждения ИИ»** | Streamlit-демо: Zero-Shot, Chain-of-Thought, мета-промпт, «консилиум экспертов» (`app.py`) |
 | `shared/` | Общие утилиты | Чтение API-ключа, разбор stop-строк, `usage_to_dict`, endpoint DeepSeek (`deepseek_utils.py`) |
-| `memory-bank/` | Память проекта | Контекст проекта для Cline между сессиями (см. ниже) |
-| `.clinerules/` | Правила Cline | Инструкция по работе с Memory Bank |
+| `openspec/` | Спецификации проекта | `specs/` — эталонные capability-спеки; `changes/` — изменения (active/archive); `config.yaml` — контекст и правила |
+| `docs/` | Документация | `development.md` — процесс разработки (OpenSpec + Superpowers + Caveman) |
+| `.clinerules/` | Правила Cline | Индекс навыков Superpowers, автоактивация Caveman, workflow-команды `opsx-*`, указатель на OpenSpec-процесс |
+| `.cline/skills/` | Навыки Cline | Тела навыков Superpowers и OpenSpec (SKILL.md) |
+| `.agents/skills/` | Навыки Caveman | 20 навыков Caveman (универсальное расположение `npx skills add`) |
+
+## Стек технологий
+
+| Слой | Технология | Где используется |
+|---|---|---|
+| Язык | Python 3.14+ (Windows, PowerShell, VS Code) | все дни |
+| UI демо | Streamlit ≥ 1.30 (установлен 1.62.0) | day2, day3 |
+| API DeepSeek | официальный OpenAI SDK (`openai>=1.40.0`, установлен 3.6.0), `base_url=https://api.deepseek.com` | все дни |
+| Модели | `deepseek-chat` (основная), `deepseek-reasoner` (ограничения: может игнорировать `temperature`/`response_format`) | все дни |
+| Виртуальное окружение | `day2/.venv` (streamlit 1.62.0, openai 3.6.0) | day2/day3 |
+| Инструменты разработки | OpenSpec CLI 1.11, Superpowers-ZH (20 навыков), Caveman (20 навыков), Node.js 24 / npm | спецификации и AI-воркфлоу |
+
+Код написан в синтаксисе, совместимом с OpenAI SDK 1.x/2.x/3.x
+(`OpenAI(api_key=..., base_url=...)`). Автотестов, линтеров и CI в проекте нет
+(см. [docs/development.md](docs/development.md#проверка-качества)).
 
 ## Требования
 
-- Windows, **Python 3.14+**.
+- Windows, **Python 3.14+** и `pip`.
 - API-ключ DeepSeek (https://platform.deepseek.com → API Keys).
+- Для OpenSpec/инструментов: **Node.js 18+** и `npm`.
+
+## Установка
+
+### 1. Зависимости приложений (Python)
+
+У каждого дня свой `requirements.txt` — устанавливайте из папки дня:
+
+```bash
+cd day1 && pip install -r requirements.txt
+cd day2 && pip install -r requirements.txt
+cd day3 && pip install -r requirements.txt
+```
+
+Для дня 2 локально доступно готовое виртуальное окружение `day2/.venv` —
+его можно переиспользовать и для дня 3.
+
+### 2. Инструменты разработки (глобально, один раз)
+
+```bash
+npm install -g @fission-ai/openspec@latest   # OpenSpec CLI (проверка: openspec --version)
+npx superpowers-zh --tool cline              # навыки Superpowers → .cline/skills/
+npx skills add JuliusBrussee/caveman -a cline --with-init   # Caveman + автоактивация
+openspec init --tools cline                  # структура openspec/ и воркфлоу для Cline
+```
+
+> В этом репозитории инструменты уже установлены и настроены; повторная
+> установка нужна только на новой машине.
 
 ## Как запустить
 
@@ -43,24 +92,42 @@ streamlit run app.py
 > `streamlit run` выполняйте **из самой папки дня**. Приложения дня 2/3
 > импортируют общий пакет `shared/` из корня репозитория — не удаляйте его.
 
-Для дня 2 локально доступно готовое виртуальное окружение `day2/.venv`
-(streamlit 1.62.0, openai 3.6.0) — его можно переиспользовать и для дня 3.
-
 ## Секреты
 
 - Файлы `.env` **не коммитятся** (правило в корневом `.gitignore`).
 - В git хранятся только шаблоны `.env.example` (по одному на день).
+- Ключ DeepSeek начинается с `sk-`; заглушки вида `sk-вставьте-сюда-ваш-ключ`
+  приложения распознают как неподходящие и запрашивают настоящий ключ.
 
-## Память проекта (Memory Bank)
+## Процесс разработки
 
-Проект ведётся вместе с Cline. Между сессиями контекст хранится в `memory-bank/`:
+Проект ведётся по spec-driven процессу **OpenSpec** с навыками Superpowers и
+Caveman. Каждое изменение проходит ритуал:
 
-- `projectbrief.md` — цель, аудитория, требования;
-- `productContext.md` — проблемы и пользовательские сценарии;
-- `systemPatterns.md` — архитектура и паттерны;
-- `techContext.md` — стек, окружение, команды запуска;
-- `activeContext.md` — текущий фокус и активные решения;
-- `progress.md` — статус по дням, известные проблемы.
+1. `/opsx:propose <задача>` — создать change: `proposal.md`, `specs/` (дельты),
+   `design.md`, `tasks.md`. Пишется только план, код не трогается.
+2. `/opsx:apply` — реализация задач по TDD (Superpowers), проверка перед
+   завершением (`verification-before-completion`).
+3. `/opsx:archive` — архивация change и слияние дельт в основные спецификации
+   `openspec/specs/`.
 
-В новой сессии достаточно сказать Cline **«follow your custom instructions»**, чтобы
-он восстановил контекст, а после работы — **«update memory bank»** для обновления.
+Полное описание — в [`docs/development.md`](docs/development.md).
+
+### Где искать контекст
+
+- Поведение проекта: `openspec/specs/<capability>/spec.md`
+  (`project`, `architecture`, `tech-stack`, `day1-console-chat`,
+  `day2-response-format`, `day3-reasoning-methods`).
+- Конвенции и стек: `openspec/config.yaml` (раздел `context`).
+- Правила Cline: `.clinerules/` (индекс Superpowers `superpowers-zh.md`,
+  автоактивация Caveman `caveman.md`, workflow-команды `workflows/opsx-*.md`,
+  общий процесс `openspec-workflow.md`).
+
+### Навыки и режимы
+
+- **Superpowers** — 20 навыков в `.cline/skills/` (TDD, планирование, ревью,
+  отладка). Активируются по триггерам из индекса `.clinerules/superpowers-zh.md`.
+- **Caveman** — экономит токены ответов. Автоактивируется в каждой сессии
+  (правило `.clinerules/caveman.md`, режим `full`). Сменить режим:
+  `/caveman lite|ultra|off`. Код/коммиты/документация пишутся обычным языком.
+
