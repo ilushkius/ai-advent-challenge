@@ -20,7 +20,7 @@
 - **Источник правды о поведении** — эталонные спецификации
   `openspec/specs/<capability>/spec.md`. Сейчас: `project`, `architecture`,
   `tech-stack`, `day1-console-chat`, `day2-response-format`,
-  `day3-reasoning-methods`.
+  `day3-reasoning-methods`, `day4-temperature-experiment`.
 - **Изменения** — папки в `openspec/changes/<change-name>/` (активные) и
   `openspec/changes/archive/` (завершённые). Каждый change содержит артефакты
   схемы `spec-driven`: `proposal.md`, `specs/` (дельты), `design.md`,
@@ -50,11 +50,15 @@
 Пример начала нового дня:
 
 ```
-/opsx:propose day4: RAG по собственным заметкам (embeddings + поиск по тексту)
+/opsx:propose day5: RAG по собственным заметкам (embeddings + поиск по тексту)
 ```
 
 Cline предложит план; вы ревьюите `proposal.md`/`specs/`/`design.md`/`tasks.md`,
 затем запускаете `/opsx:apply`, а после реализации — `/opsx:archive`.
+
+Дни могут быть и документными — без кода приложения, как день 4 (эксперимент с
+`temperature`): результатом такого дня становится документ `dayN/results.md`,
+а вместо `py_compile`/AppTest он проверяется наличием файла.
 
 > **Форма команды в Cline.** OpenSpec пишет команды файлами
 > `.clinerules/workflows/opsx-<id>.md`, поэтому в Cline они срабатывают и в
@@ -136,7 +140,8 @@ caveman-commit, caveman-review, investigate-first, safe-refactor и др.).
    приложений (params-dict, session_state, мета-промпт, безопасный вывод).
 4. `openspec/specs/tech-stack/spec.md` — DeepSeek/OpenAI SDK, секреты, запуск.
 5. Capability-спеки дней: `day1-console-chat`, `day2-response-format`,
-   `day3-reasoning-methods` — что именно реализовано.
+   `day3-reasoning-methods`, `day4-temperature-experiment` — что именно
+   сделано в каждом дне.
 
 ## Проверка качества
 
@@ -155,6 +160,10 @@ openspec validate --all
 ```
 
 Для проверки в venv дня 2 используйте `day2/.venv/Scripts/python`.
+
+Команды 1–2 применяются к прикладным дням, содержащим `.py`-файлы.
+Документные дни без кода (например, day4) компиляции и AppTest не требуют —
+для них проверяется наличие документа результатов `day4/results.md`.
 
 ## Известные ограничения и советы
 

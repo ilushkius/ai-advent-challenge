@@ -14,6 +14,7 @@
 | `day1/` | **День 1 · «Первый запрос к DeepSeek»** | Консольный потоковый чат с моделью `deepseek-chat` (`deepseek_chat.py`) |
 | `day2/` | **День 2 · «Формат ответа»** | Streamlit-демо управления генерацией: `temperature`, `seed`, `max_tokens`, `stop`, JSON-режим (`app.py`) |
 | `day3/` | **День 3 · «Способы рассуждения ИИ»** | Streamlit-демо: Zero-Shot, Chain-of-Thought, мета-промпт, «консилиум экспертов» (`app.py`) |
+| `day4/` | **День 4 · «Эксперимент с температурой»** | Документный день (без кода): сравнение ответов `deepseek-chat` при `temperature` 0 / 0.7 / 1.2 с оценками и выводами (`results.md`) |
 | `shared/` | Общие утилиты | Чтение API-ключа, разбор stop-строк, `usage_to_dict`, endpoint DeepSeek (`deepseek_utils.py`) |
 | `openspec/` | Спецификации проекта | `specs/` — эталонные capability-спеки; `changes/` — изменения (active/archive); `config.yaml` — контекст и правила |
 | `docs/` | Документация | `development.md` — процесс разработки (OpenSpec + Superpowers + Caveman) |
@@ -46,7 +47,7 @@
 
 ### 1. Зависимости приложений (Python)
 
-У каждого дня свой `requirements.txt` — устанавливайте из папки дня:
+У каждого прикладного дня свой `requirements.txt` — устанавливайте из папки дня:
 
 ```bash
 cd day1 && pip install -r requirements.txt
@@ -56,6 +57,9 @@ cd day3 && pip install -r requirements.txt
 
 Для дня 2 локально доступно готовое виртуальное окружение `day2/.venv` —
 его можно переиспользовать и для дня 3.
+
+День 4 — документный день без кода: `requirements.txt` для него нет, а результат
+эксперимента лежит в `day4/results.md`.
 
 ### 2. Инструменты разработки (глобально, один раз)
 
@@ -92,6 +96,9 @@ streamlit run app.py
 > `streamlit run` выполняйте **из самой папки дня**. Приложения дня 2/3
 > импортируют общий пакет `shared/` из корня репозитория — не удаляйте его.
 
+День 4 — не приложение, а документный день: эксперимент с `temperature` уже
+выполнен, результаты открываются в `day4/results.md` (запуск не требуется).
+
 ## Секреты
 
 - Файлы `.env` **не коммитятся** (правило в корневом `.gitignore`).
@@ -117,7 +124,8 @@ Caveman. Каждое изменение проходит ритуал:
 
 - Поведение проекта: `openspec/specs/<capability>/spec.md`
   (`project`, `architecture`, `tech-stack`, `day1-console-chat`,
-  `day2-response-format`, `day3-reasoning-methods`).
+  `day2-response-format`, `day3-reasoning-methods`,
+  `day4-temperature-experiment`).
 - Конвенции и стек: `openspec/config.yaml` (раздел `context`).
 - Правила Cline: `.clinerules/` (индекс Superpowers `superpowers-zh.md`,
   автоактивация Caveman `caveman.md`, workflow-команды `workflows/opsx-*.md`,
