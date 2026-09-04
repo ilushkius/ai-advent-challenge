@@ -38,7 +38,9 @@ Caveman активен по умолчанию (правило `.clinerules/cave
 ## Проверки перед завершением
 
 - Синтаксис Python: `python -m py_compile day1/deepseek_chat.py day2/app.py
-  day3/app.py shared/deepseek_utils.py`
-- Запуск Streamlit-приложений без API: `streamlit.testing.AppTest`
+  day3/app.py day5/app.py shared/deepseek_utils.py`
+- Запуск Streamlit-приложений без API: `streamlit.testing.AppTest` (для day5 —
+  интерпретатором `day5/.venv/Scripts/python`, там установлены streamlit и
+  huggingface_hub)
 - Валидация OpenSpec: `openspec validate --all`
 - Секреты: `.env` не коммитить; при изменении ключей — обновить `.env.example`

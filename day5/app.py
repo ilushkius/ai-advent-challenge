@@ -1,16 +1,17 @@
 """
 ============================================================
  День 5 AI-челленджа: «Сравнение трёх моделей Hugging Face»
- Один запрос → три модели разного размера (2B / 8B / 72B)
- через Hugging Face Inference API (OpenAI-совместимый эндпоинт)
+ Один запрос → три модели разного размера (8B / 70B / 235B-A22B)
+ через Hugging Face Inference: huggingface_hub.InferenceClient
+  (chat_completion, OpenAI-совместимый формат)
 ============================================================
 
-Стек: Streamlit + официальный OpenAI SDK.
+Стек: Streamlit + huggingface_hub (InferenceClient).
 
 Что делает приложение:
   - отправляет один и тот же запрос последовательно трём моделям;
   - для каждой модели замеряет время ответа, токены (вход/выход/всего) и
-    показывает стоимость (Inference API цену не возвращает → «бесплатно»);
+    показывает стоимость (провайдер цену в ответе не возвращает → «цена не сообщена»);
   - считает эвристическую оценку качества ответа 0–10 и показывает
     сравнительную таблицу;
   - умеет сохранять отчёт эксперимента в day5/results.md.
@@ -28,7 +29,8 @@ from datetime import date
 from pathlib import Path
 
 import streamlit as st
-from openai import OpenAI
+from huggingface_hub import InferenceClient
+from huggingface_hub.errors import HfHubHTTPError
 
 # ---------------------------------------------------------------------------
 # Константы и конфигурация эксперимента
@@ -37,23 +39,25 @@ from openai import OpenAI
 APP_TITLE = "⚖️ День 5 · Сравнение трёх моделей Hugging Face"
 APP_SUBTITLE = (
     "Один и тот же запрос отправляется в модели разного размера "
-    "(2B / 8B / 72B) — сравниваем время, токены, стоимость и качество ответа."
+    "(8B / 70B / 235B-A22B) — сравниваем время, токены, стоимость и качество ответа."
 )
 
 APP_DIR = Path(__file__).resolve().parent
 RESULTS_PATH = APP_DIR / "results.md"
 ENV_FILE = APP_DIR / ".env"
 
-# OpenAI-совместимый эндпоинт Hugging Face Inference API (чат-модели).
-HF_BASE_URL = "https://api-inference.huggingface.co/v1"
+# Ключ Hugging Face: файл .env → переменная окружения → ручной ввод.
 HF_TOKEN_ENV = "HF_TOKEN"
+
+# Клиент huggingface_hub.InferenceClient.chat_completion работает по
+# OpenAI-совместимому формату с тем же роутером Hugging Face Inference.
 
 # Набор моделей эксперимента. Порядок вставки = порядок опроса и таблицы:
 # слабая → средняя → сильная.
 MODELS = {
-    "слабая": {"model_id": "google/gemma-2-2b-it", "size": "2B"},
-    "средняя": {"model_id": "meta-llama/Llama-3.1-8B-Instruct", "size": "8B"},
-    "сильная": {"model_id": "Qwen/Qwen2.5-72B-Instruct", "size": "72B"},
+    "слабая": {"model_id": "meta-llama/Llama-3.1-8B-Instruct", "size": "8B"},
+    "средняя": {"model_id": "meta-llama/Llama-3.3-70B-Instruct", "size": "70B"},
+    "сильная": {"model_id": "Qwen/Qwen3-235B-A22B-Instruct-2507", "size": "235B-A22B MoE"},
 }
 
 DEFAULT_PROMPT = (
@@ -65,36 +69,48 @@ DEFAULT_PROMPT = (
 # эвристической оценкой качества.
 SENTENCE_LIMIT = 5
 
+# Лимит токенов ответа: задаём явно, потому что серверный дефолт маленький
+# и мог бы обрезать длинные ответы (finish_reason = "length"), искажая
+# сравнение моделей между собой.
+MAX_TOKENS = 600
+
 FINISH_REASON_LABELS = {
     "stop": "Модель закончила ответ естественно.",
+    "eos_token": "Модель закончила ответ естественно (eos-токен, TGI).",
     "length": "Ответ обрезан лимитом длины токенов.",
     "content_filter": "Ответ отклонён фильтром контента.",
 }
+
+# Значения finish_reason, означающие естественное завершение ответа.
+# "stop" — OpenAI-совместимый формат; "eos_token" — TGI/самохостинг HF.
+NATURAL_FINISH = {"stop", "eos_token"}
 
 # Практические рекомендации для отчёта results.md: какая роль — под какие
 # задачи. Текст статичен (см. design.md, D8).
 RECOMMENDATIONS = {
     "слабая": (
-        "`google/gemma-2-2b-it` (2B) лучше всего подходит для прототипов и "
-        "быстрых экспериментов: задач, где важны скорость, бесплатность и "
-        "низкая сложность ответа (короткие FAQ, классификация, извлечение "
-        "простых фактов), а качество можно проверить глазами."
+        "`meta-llama/Llama-3.1-8B-Instruct` (8B) — младшая модель набора: быстрые и "
+        "дешёвые ответы для прототипов и простых задач (короткие FAQ, "
+        "классификация, извлечение простых фактов), где важны скорость, "
+        "низкая стоимость и предсказуемое качество — его легко "
+        "проверить глазами."
     ),
     "средняя": (
-        "`meta-llama/Llama-3.1-8B-Instruct` (8B) — сбалансированный выбор для "
-        "продакшена: стабильные ответы среднего качества без долгого ожидания "
-        "(ассистенты, суммаризация, генерация кода средней сложности), когда "
-        "топ-модель избыточна."
+        "`meta-llama/Llama-3.3-70B-Instruct` (70B) — баланс скорость/качество: "
+        "стабильные ответы средней и высокой сложности без долгого ожидания "
+        "(ассистенты, суммаризация, генерация кода) — выбор, когда младшая "
+        "модель слабовата, а самая большая избыточна."
     ),
     "сильная": (
-        "`Qwen/Qwen2.5-72B-Instruct` (72B) лучше всего подходит для сложных "
-        "рассуждений: многошаговая логика, глубокий анализ, сложные "
-        "инструкции и задачи высокого качества, где готовы ждать дольше."
+        "`Qwen/Qwen3-235B-A22B-Instruct-2507` (235B, MoE ~22B активных) — "
+        "самая сильная: многошаговая логика, глубокий анализ и сложные "
+        "инструкции, где готовы ждать дольше и платить за максимальное "
+        "качество рассуждений."
     ),
 }
 
 # Человекочитаемая подпись про стоимость для карточек/таблицы.
-FREE_COST_TEXT = "бесплатно (биллинг Inference API отсутствует)"
+FREE_COST_TEXT = "цена не сообщена"
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +164,7 @@ def format_duration(elapsed_sec):
 
 
 def _usage_get(usage, attr):
-    """Достаёт поле из usage: объекта (openai) или dict."""
+    """Достаёт поле из usage: объекта ответа (huggingface_hub / OpenAI-совместимого) или dict."""
     if usage is None:
         return None
     if isinstance(usage, dict):
@@ -180,10 +196,10 @@ def _tokens_cell(tokens):
 
 
 def format_cost(usage=None, model_id=""):
-    """Стоимость ответа: цена провайдера (если вернул) или «бесплатно».
+    """Стоимость ответа: цена провайдера (если вернул) или «цена не сообщена».
 
-    Стандарт OpenAI-совместимого API цену в ответе не отдаёт, а тариф
-    Inference API не биллингует за токены — поэтому по умолчанию «бесплатно».
+    OpenAI-совместимый API цену в ответе не отдаёт, а биллинг
+    Inference Providers ведётся в аккаунте Hugging Face (кредиты/оплата).
     Если в usage всё же пришло поле price/cost, показываем его.
     """
     price = None
@@ -208,7 +224,7 @@ def quality_assessment(text, finish_reason, sentence_limit=SENTENCE_LIMIT):
       - раскрытие темы RAG (расшифровка, поиск/извлечение, генерация,
         контекст/база знаний) — до 3 баллов (по 1 за найденную группу);
       - наличие примера — до 2 баллов;
-      - полнота завершения (finish_reason == "stop") — 1 балл.
+      - полнота завершения (finish_reason stop/eos_token) — 1 балл.
 
     Возвращает dict {"score": int, "reasons": [str]} — обоснование для UI и
     отчёта. Оценка — грубый эвристический фильтр, не «мнение» LLM.
@@ -263,10 +279,13 @@ def quality_assessment(text, finish_reason, sentence_limit=SENTENCE_LIMIT):
         score += 2
         reasons.append("Присутствует пример (+2).")
 
-    # 4. Полнота завершения (1 балл за finish_reason = "stop").
-    if finish_reason == "stop":
+    # 4. Полнота завершения (1 балл за естественный конец ответа).
+    #    HF-инференс сообщает конец как "stop" (OpenAI-совместимый роутер)
+    #    либо "eos_token" (TGI/самохостинг) — оба считаем нормальным финалом.
+    if finish_reason in NATURAL_FINISH:
         score += 1
-        reasons.append("Ответ завершён полностью, finish_reason=stop (+1).")
+        label = "eos_token" if finish_reason == "eos_token" else "stop"
+        reasons.append(f"Ответ завершён полностью, finish_reason={label} (+1).")
     elif finish_reason == "length":
         reasons.append("Ответ обрезан лимитом токенов (finish_reason=length).")
     else:
@@ -484,16 +503,41 @@ def _friendly_error(exc, model_id):
     if len(message) > 300:
         message = message[:300] + "…"
     lowered = message.lower()
-    if "401" in message or "unauthorized" in lowered:
+
+    # HTTP-статус из исключений huggingface_hub, когда он доступен.
+    status = exc.response.status_code if isinstance(exc, HfHubHTTPError) else None
+
+    if status == 401 or "401" in message or "unauthorized" in lowered:
         hint = " Неверный ключ HF_TOKEN или нет доступа к модели."
         return f"`{model_id}`: {message}{hint}"
-    if "403" in message or "forbidden" in lowered or "gated" in lowered:
+    if (
+        status == 403
+        or "403" in message
+        or "forbidden" in lowered
+        or "gated" in lowered
+    ):
         hint = (" Модель gated: откройте доступ на странице модели в Hugging "
                 "Face (Agree and access repository).")
         return f"`{model_id}`: {message}{hint}"
-    if "429" in message or "rate limit" in lowered:
-        hint = " Превышен лимит запросов бесплатного тарифа — повторите позже."
+    if status == 429 or "429" in message or "rate limit" in lowered:
+        hint = " Превышен лимит запросов — повторите прогон позже."
         return f"`{model_id}`: {message}{hint}"
+    if status == 402 or "402" in message or "credits" in lowered or "payment" in lowered:
+        hint = (" Исчерпаны месячные включённые кредиты Hugging Face (Inference "
+                "Providers). Пополните кредиты в настройках биллинга HF либо "
+                "дождитесь обновления лимита в начале месяца.")
+        return f"`{model_id}`: {message}{hint}"
+
+    if (
+        status == 503
+        or "503" in message
+        or "too busy" in lowered
+        or "loading" in lowered
+    ):
+        hint = (" Модель временно недоступна (холодный старт/перегрузка) — "
+                "повторите прогон позже.")
+        return f"`{model_id}`: {message}{hint}"
+
     return f"`{model_id}`: {message}"
 
 
@@ -505,9 +549,13 @@ def query_one(client, model_cfg, prompt):
     """
     model_id = model_cfg["model_id"]
     start = time.perf_counter()
-    response = client.chat.completions.create(
+    # huggingface_hub.InferenceClient.chat_completion — OpenAI-совместимый
+    # вызов к Hugging Face Inference. max_tokens передаём явно: серверный
+    # дефолт маленький и мог бы обрезать длинные ответы.
+    response = client.chat_completion(
         model=model_id,
         messages=[{"role": "user", "content": prompt}],
+        max_tokens=MAX_TOKENS,
     )
     elapsed_sec = time.perf_counter() - start
 
@@ -628,8 +676,9 @@ def _run_and_store(token, prompt):
     def _update_progress(done, total, role, model_id):
         progress.progress(done / total, text=f"Опрашиваю «{role}» — `{model_id}`…")
 
-    # Таймаут 300 с: серверный инференс 72B может долго «прогреваться».
-    client = OpenAI(base_url=HF_BASE_URL, api_key=token, timeout=300)
+    # Таймаут 300 с: серверный инференс больших моделей (Qwen3-235B) может
+    # долго «прогреваться» (холодный старт).
+    client = InferenceClient(api_key=token, timeout=300)
     results = run_comparison(client, MODELS, prompt, progress_cb=_update_progress)
     progress.progress(1.0, text="Готово")
 
@@ -662,13 +711,14 @@ def main():
     with st.expander("🧭 Что и зачем мы сравниваем"):
         st.markdown(
             "Это исследовательский день: **один и тот же запрос** отправляется в "
-            "три модели разного размера через Hugging Face Inference API "
-            "(OpenAI-совместимый эндпоинт). Модели отвечают по очереди, "
+            "три модели разного размера через клиент `huggingface_hub` "
+            "(InferenceClient.chat_completion, OpenAI-совместимый формат). "
+            "Модели отвечают по очереди, "
             "приложение замеряет метрики:"
         )
         st.markdown("- ⏱️ **время ответа** (включает «холодный старт» серверного инференса);")
         st.markdown("- 🔢 **токены**: входные / выходные / всего (если провайдер вернул usage);")
-        st.markdown("- 💰 **стоимость**: тариф Inference API не биллингует — «бесплатно»;")
+        st.markdown("- 💰 **стоимость**: цену запроса API не возвращает — «цена не сообщена»;")
         st.markdown("- 🧮 **оценку качества** 0–10 — эвристический фильтр по тексту ответа.")
         st.markdown("Участники эксперимента:")
         st.markdown(

@@ -1,0 +1,4 @@
+# День 5: Streamlit-приложение «Сравнение трёх моделей Hugging Face»
+# Установка:  pip install -r requirements.txt
+streamlit>=1.30.0
+huggingface_hub>=0.24.0

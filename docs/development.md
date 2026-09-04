@@ -20,7 +20,8 @@
 - **Источник правды о поведении** — эталонные спецификации
   `openspec/specs/<capability>/spec.md`. Сейчас: `project`, `architecture`,
   `tech-stack`, `day1-console-chat`, `day2-response-format`,
-  `day3-reasoning-methods`, `day4-temperature-experiment`.
+  `day3-reasoning-methods`, `day4-temperature-experiment`,
+  `day5-model-comparison`.
 - **Изменения** — папки в `openspec/changes/<change-name>/` (активные) и
   `openspec/changes/archive/` (завершённые). Каждый change содержит артефакты
   схемы `spec-driven`: `proposal.md`, `specs/` (дельты), `design.md`,
@@ -50,7 +51,7 @@
 Пример начала нового дня:
 
 ```
-/opsx:propose day5: RAG по собственным заметкам (embeddings + поиск по тексту)
+/opsx:propose day6: RAG по собственным заметкам (embeddings + поиск по тексту)
 ```
 
 Cline предложит план; вы ревьюите `proposal.md`/`specs/`/`design.md`/`tasks.md`,
@@ -138,10 +139,11 @@ caveman-commit, caveman-review, investigate-first, safe-refactor и др.).
 2. `openspec/specs/project/spec.md` — цель и сквозные требования челленджа.
 3. `openspec/specs/architecture/spec.md` — моно-репозиторий, паттерны
    приложений (params-dict, session_state, мета-промпт, безопасный вывод).
-4. `openspec/specs/tech-stack/spec.md` — DeepSeek/OpenAI SDK, секреты, запуск.
+4. `openspec/specs/tech-stack/spec.md` — DeepSeek/OpenAI SDK (base_url), секреты,
+   запуск; клиент Hugging Face (`huggingface_hub`) дня 5 — в его capability-спеке.
 5. Capability-спеки дней: `day1-console-chat`, `day2-response-format`,
-   `day3-reasoning-methods`, `day4-temperature-experiment` — что именно
-   сделано в каждом дне.
+   `day3-reasoning-methods`, `day4-temperature-experiment`,
+   `day5-model-comparison` — что именно сделано в каждом дне.
 
 ## Проверка качества
 
@@ -150,20 +152,25 @@ caveman-commit, caveman-review, investigate-first, safe-refactor и др.).
 
 ```bash
 # 1. Синтаксис всех Python-файлов
-python -m py_compile day1/deepseek_chat.py day2/app.py day3/app.py shared/deepseek_utils.py
+python -m py_compile day1/deepseek_chat.py day2/app.py day3/app.py day5/app.py shared/deepseek_utils.py
 
 # 2. Smoke-запуск Streamlit-приложений без реальных запросов к API
 python -c "from streamlit.testing.v1 import AppTest; AppTest.from_file('day2/app.py').run(); AppTest.from_file('day3/app.py').run(); print('AppTest OK')"
+
+# День 5 проверяется своим venv (там установлены streamlit и huggingface_hub):
+day5/.venv/Scripts/python -c "from streamlit.testing.v1 import AppTest; AppTest.from_file('day5/app.py').run(); print('AppTest day5 OK')"
 
 # 3. Валидация OpenSpec
 openspec validate --all
 ```
 
-Для проверки в venv дня 2 используйте `day2/.venv/Scripts/python`.
+Для проверки в venv дня 2 используйте `day2/.venv/Scripts/python`; для дня 5 —
+`day5/.venv/Scripts/python`.
 
-Команды 1–2 применяются к прикладным дням, содержащим `.py`-файлы.
-Документные дни без кода (например, day4) компиляции и AppTest не требуют —
-для них проверяется наличие документа результатов `day4/results.md`.
+Команды 1–2 применяются к прикладным дням, содержащим `.py`-файлы
+(day1–day3, day5). Документные дни без кода (например, day4) компиляции и
+AppTest не требуют — для них проверяется наличие документа результатов
+`day4/results.md`.
 
 ## Известные ограничения и советы
 

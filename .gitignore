@@ -127,6 +127,10 @@ data/processed/
 *.csv
 *.jsonl
 
+# Исключение: requirements.txt в папках дней должны попадать в git
+# (конвенция проекта: у каждого дня свой requirements.txt).
+!requirements.txt
+
 # ML-модели
 models/
 *.model
