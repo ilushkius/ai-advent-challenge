@@ -19,6 +19,7 @@
 | `day5/` | **День 5 · «Сравнение моделей Hugging Face»** | Streamlit-приложение: один запрос через три модели HF разного размера (8B / 70B / 235B), метрики, оценка качества 0–10, отчёт (`app.py`) |
 | `day6/` | **День 6 · «Менеджер агентов DeepSeek»** | FastAPI + Streamlit: пул независимых агентов с единым менеджером-синглтоном и историей запросов в памяти (`backend/`, `app.py`) |
 | `day7/` | **День 7 · «Агент с контекстной памятью»** | FastAPI + Streamlit + SQLite: каждый агент хранит полный диалог в SQLite и отправляет его в DeepSeek целиком; память переживает рестарт (`backend/`, `app.py`) |
+| `day8/` | **День 8 · «Агент с контролем токенов»** | FastAPI + Streamlit + SQLite + tiktoken: подсчёт токенов каждого запроса (история/ответ), таблица `token_usage`, панель лимита в UI и автообрезка истории при переполнении контекста (`backend/`, `app.py`) |
 | `shared/` | Общие утилиты | Чтение API-ключа, разбор stop-строк, `usage_to_dict`, endpoint DeepSeek (`deepseek_utils.py`) |
 | `openspec/` | Спецификации проекта | `specs/` — эталонные capability-спеки; `changes/` — изменения (active/archive); `config.yaml` — контекст и правила |
 | `docs/` | Документация | `development.md` — процесс разработки (OpenSpec + Superpowers + Caveman) |
@@ -31,18 +32,20 @@
 | Слой | Технология | Где используется |
 |---|---|---|
 | Язык | Python 3.14+ (Windows, PowerShell, VS Code) | все дни |
-| UI демо | Streamlit ≥ 1.30 (day2/.venv — 1.62.0; day5/.venv — 1.63.0) | day2, day3, day5–day7 |
-| API DeepSeek | официальный OpenAI SDK (`openai>=1.40.0`, установлен 3.6.0), `base_url=https://api.deepseek.com` | day1–day4, day6–day7 |
+| UI демо | Streamlit ≥ 1.30 (day2/.venv — 1.62.0; day5/.venv — 1.63.0) | day2, day3, day5–day8 |
+| API DeepSeek | официальный OpenAI SDK (`openai>=1.40.0`, установлен 3.6.0), `base_url=https://api.deepseek.com` | day1–day4, day6–day8 |
 | API Hugging Face | `huggingface_hub>=0.24` (установлен 1.30.0): `InferenceClient.chat_completion` через роутер Inference Providers | day5 |
 | Модели | DeepSeek: `deepseek-chat` (основная), `deepseek-reasoner` (ограничения: может игнорировать `temperature`/`response_format`); HF (день 5): `Llama-3.1-8B-Instruct`, `Llama-3.3-70B-Instruct`, `Qwen3-235B-A22B-Instruct-2507` | все дни |
-| Хранилище | SQLite + SQLAlchemy 2.0 (день 7): файл `day7/agents.db`, таблицы `agents` (конфигурация) и `messages` (диалог) | day7 |
-| Виртуальные окружения | `day2/.venv` (streamlit 1.62.0, openai 3.6.0); `day5/.venv` (streamlit 1.63.0, huggingface_hub 1.30.0) | day2–day3, day5 |
+| Хранилище | SQLite + SQLAlchemy 2.0 (дни 7–8): файлы `day7/agents.db`, `day8/agents.db`; таблицы `agents` (конфигурация), `messages` (диалог) и `token_usage` (метрики токенов, день 8) | day7–day8 |
+| Токенизация | `tiktoken` (`cl100k_base`) — локальный подсчёт токенов, оценки близки к токенизатору DeepSeek | day8 |
+| Виртуальные окружения | `day2/.venv` (streamlit 1.62.0, openai 3.6.0); `day5/.venv` (streamlit 1.63.0, huggingface_hub 1.30.0); `day8/.venv` (fastapi, sqlalchemy, tiktoken и др.) | day2–day3, day5, day8 |
 | Инструменты разработки | OpenSpec CLI 1.11, Superpowers-ZH (20 навыков), Caveman (20 навыков), Node.js 24 / npm | спецификации и AI-воркфлоу |
 
-Код дней 1–4 и 6–7 написан в синтаксисе, совместимом с OpenAI SDK 1.x/2.x/3.x
+Код дней 1–4 и 6–8 написан в синтаксисе, совместимом с OpenAI SDK 1.x/2.x/3.x
 (`OpenAI(api_key=..., base_url=...)`); день 5 использует
 `huggingface_hub.InferenceClient`; день 7 добавляет слой персистентности
-(SQLAlchemy 2.0 + SQLite). Автотестов, линтеров и CI в проекте нет
+(SQLAlchemy 2.0 + SQLite), день 8 — подсчёт токенов (tiktoken) и таблицу
+`token_usage`. Автотестов, линтеров и CI в проекте нет
 (см. [docs/development.md](docs/development.md#проверка-качества)).
 
 ## Требования
@@ -150,7 +153,7 @@ Caveman. Каждое изменение проходит ритуал:
   (`project`, `architecture`, `tech-stack`, `day1-console-chat`,
   `day2-response-format`, `day3-reasoning-methods`,
   `day4-temperature-experiment`, `day5-model-comparison`,
-  `day6-agent-manager`, `day7-agent-memory`).
+  `day6-agent-manager`, `day7-agent-memory`, `day8-token-usage`).
 - Конвенции и стек: `openspec/config.yaml` (раздел `context`).
 - Правила Cline: `.clinerules/` (индекс Superpowers `superpowers-zh.md`,
   автоактивация Caveman `caveman.md`, workflow-команды `workflows/opsx-*.md`,
