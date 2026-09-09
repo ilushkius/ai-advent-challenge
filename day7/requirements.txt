@@ -1,0 +1,8 @@
+# День 7: «Агент с контекстной памятью» (FastAPI + Streamlit + SQLite)
+# Установка:  pip install -r requirements.txt
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+streamlit>=1.30.0
+openai>=1.0.0
+requests>=2.31.0
+sqlalchemy>=2.0.0
