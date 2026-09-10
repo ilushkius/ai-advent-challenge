@@ -21,6 +21,7 @@
 | `day6/` | **День 6 · «Менеджер агентов DeepSeek»** | FastAPI + Streamlit: пул независимых агентов с единым менеджером-синглтоном и историей запросов в памяти (`backend/`, `app.py`) |
 | `day7/` | **День 7 · «Агент с контекстной памятью»** | FastAPI + Streamlit + SQLite: каждый агент хранит полный диалог в SQLite и отправляет его в DeepSeek целиком; память переживает рестарт (`backend/`, `app.py`) |
 | `day8/` | **День 8 · «Агент с контролем токенов»** | FastAPI + Streamlit + SQLite + tiktoken: подсчёт токенов каждого запроса (история/ответ), таблица `token_usage`, панель лимита в UI и автообрезка истории при переполнении контекста (`backend/`, `app.py`) |
+| `day9/` | **День 9 · «Управление контекстом: сжатие истории»** | FastAPI + Streamlit + SQLite + tiktoken: последние N реплик уходят «как есть», остальные заменяются конспектом (таблица `summaries`), метрики экономии токенов, сравнение режимов «без сжатия / со сжатием»; первая стейт-машина (`Enum` + State) и первые `pytest`-тесты (`backend/`, `app.py`, `tests/`) |
 | `shared/` | Общие утилиты | Чтение API-ключа, разбор stop-строк, `usage_to_dict`, endpoint DeepSeek (`deepseek_utils.py`) |
 | `.clauderules` | Правила проекта для агента | Свод правил ai-challenge: стек, конвенции, процесс, проверки, секреты |
 | `AGENTS.md` | Архитектурные цели | Стейт-машина на Python, `Enum` + паттерн State, тесты через `pytest` |
@@ -35,17 +36,22 @@
 | API DeepSeek | официальный OpenAI SDK (`openai>=1.40.0`, установлен 3.6.0), `base_url=https://api.deepseek.com` | day1–day4, day6–day8 |
 | API Hugging Face | `huggingface_hub>=0.24` (установлен 1.30.0): `InferenceClient.chat_completion` через роутер Inference Providers | day5 |
 | Модели | DeepSeek: `deepseek-chat` (основная), `deepseek-reasoner` (ограничения: может игнорировать `temperature`/`response_format`); HF (день 5): `Llama-3.1-8B-Instruct`, `Llama-3.3-70B-Instruct`, `Qwen3-235B-A22B-Instruct-2507` | все дни |
-| Хранилище | SQLite + SQLAlchemy 2.0 (дни 7–8): файлы `day7/agents.db`, `day8/agents.db`; таблицы `agents` (конфигурация), `messages` (диалог) и `token_usage` (метрики токенов, день 8) | day7–day8 |
-| Токенизация | `tiktoken` (`cl100k_base`) — локальный подсчёт токенов, оценки близки к токенизатору DeepSeek | day8 |
-| Виртуальные окружения | `day2/.venv` (streamlit 1.62.0, openai 3.6.0); `day5/.venv` (streamlit 1.63.0, huggingface_hub 1.30.0); `day8/.venv` (fastapi, sqlalchemy, tiktoken и др.) | day2–day3, day5, day8 |
+| Хранилище | SQLite + SQLAlchemy 2.0 (дни 7–9): файлы `day7/agents.db`, `day8/agents.db`, `day9/agents.db`; таблицы `agents` (конфигурация), `messages` (диалог), `token_usage` (метрики токенов, день 8+) и `summaries` (конспекты истории, день 9) | day7–day9 |
+| Токенизация | `tiktoken` (`cl100k_base`) — локальный подсчёт токенов, оценки близки к токенизатору DeepSeek | day8–day9 |
+| Стейт-машина | `enum.Enum` + паттерн State (чистый Python, `backend/context_fsm.py`) — первая реализация архитектурной цели `AGENTS.md` | day9 |
+| Тесты | `pytest` (день 9: 167 тестов — FSM, политика сжатия, хранилище, компрессор, агент, API) | day9 |
+| Виртуальные окружения | `day2/.venv` (streamlit 1.62.0, openai 3.6.0); `day5/.venv` (streamlit 1.63.0, huggingface_hub 1.30.0); `day6/.venv` (fastapi, streamlit, openai, requests); `day9/.venv` (fastapi, sqlalchemy, tiktoken, pytest и др.) | day2–day3, day5, day6, day9 |
 | Инструменты разработки | терминальный агент **omp.sh** (модель `deepseek/deepseek-flash`), Python LSP `pyright`, `debugpy` | AI-воркфлоу |
 
-Код дней 1–4 и 6–8 написан в синтаксисе, совместимом с OpenAI SDK 1.x/2.x/3.x
+Код дней 1–4 и 6–9 написан в синтаксисе, совместимом с OpenAI SDK 1.x/2.x/3.x
 (`OpenAI(api_key=..., base_url=...)`); день 5 использует
 `huggingface_hub.InferenceClient`; день 7 добавляет слой персистентности
 (SQLAlchemy 2.0 + SQLite), день 8 — подсчёт токенов (tiktoken) и таблицу
-`token_usage`. Автотестов, линтеров и CI пока нет; целевой стандарт новых
-дней — тесты `pytest` (см. [AGENTS.md](AGENTS.md)).
+`token_usage`, день 9 — сжатие истории (таблица `summaries`, конспект вместо
+старых реплик), стейт-машину на `Enum` + паттерн State и первые автотесты
+`pytest`. Автотесты есть только у дня 9 (`day9/tests/`, 167 тестов); для
+остальных прикладных дней проверка — `py_compile` и smoke-запуск, а целевой
+стандарт новых дней — `pytest` (см. [AGENTS.md](AGENTS.md)).
 
 ## Требования
 
@@ -68,11 +74,15 @@ cd day1 && pip install -r requirements.txt
 cd day2 && pip install -r requirements.txt
 cd day3 && pip install -r requirements.txt
 cd day5 && pip install -r requirements.txt
+cd day9 && pip install -r requirements.txt
 ```
 
 Для дня 2 локально доступно готовое виртуальное окружение `day2/.venv` —
 его можно переиспользовать и для дня 3; у дня 5 своё окружение `day5/.venv`
-(streamlit + huggingface_hub).
+(streamlit + huggingface_hub), у дня 6 — `day6/.venv` (fastapi + streamlit).
+Дни 7–9 отдельного окружения в репозитории не имеют: создайте его командой
+`python -m venv .venv` из папки дня (см. `README.md` дня) — в окружении дня 9
+дополнительно нужен `pytest` для автотестов.
 
 День 4 — документный день без кода: `requirements.txt` для него нет, а результат
 эксперимента лежит в `day4/results.md`.
@@ -110,6 +120,12 @@ streamlit run app.py
 # День 5 — «Сравнение моделей Hugging Face» (из папки day5)
 pip install -r requirements.txt
 streamlit run app.py
+
+# День 9 — «Сжатие истории» (из папки day9): сначала бэкенд, потом UI
+pip install -r requirements.txt
+python -m uvicorn backend.main:app --port 8000   # терминал 1
+streamlit run app.py                             # терминал 2
+python -m pytest -q                              # автотесты дня 9 (167 тестов)
 ```
 
 > **Важно:** приложение ищет `.env` в текущей рабочей директории, поэтому
@@ -122,6 +138,10 @@ streamlit run app.py
 
 День 5 можно запустить из готового окружения (PowerShell, из папки `day5`):
 `.venv\Scripts\streamlit run app.py`.
+
+Дни 6–8 запускаются так же, как день 9, но одним приложением: бэкенд
+`uvicorn backend.main:app --port 8000` из папки дня и `streamlit run app.py`
+во втором терминале.
 
 ## Секреты
 

@@ -20,24 +20,31 @@
 | `day6/` | «Менеджер агентов DeepSeek» | FastAPI-бэкенд + Streamlit-фронтенд (`backend/`, `app.py`) |
 | `day7/` | «Агент с контекстной памятью» | FastAPI + Streamlit + SQLite: диалог хранится в БД и переживает рестарт (`backend/`, `app.py`) |
 | `day8/` | «Агент с контролем токенов» | FastAPI + Streamlit + SQLite + tiktoken: подсчёт токенов, таблица `token_usage`, автообрезка истории (`backend/`, `app.py`) |
+| `day9/` | «Управление контекстом: сжатие истории» | FastAPI + Streamlit + SQLite + tiktoken: конспект старых реплик вместо полной истории (таблица `summaries`), сравнение режимов, стейт-машина на `Enum` + State, автотесты `pytest` (`backend/`, `app.py`, `tests/`) |
 | `shared/` | — | общие утилиты DeepSeek (`deepseek_utils.py`) |
 
 ## 2. Стек
 
 - Python 3.14+ (Windows, PowerShell, VS Code).
-- UI: Streamlit ≥ 1.30 (day2/day3/day5/day6/day7/day8).
+- UI: Streamlit ≥ 1.30 (day2/day3/day5/day6/day7/day8/day9).
 - API: официальный OpenAI SDK — клиент DeepSeek, `base_url` строго
   `https://api.deepseek.com` (с поддоменом `api.`; без него запросы не идут).
-- day6–day8: FastAPI + uvicorn (бэкенд, порт 8000), Streamlit + `requests`
-  (фронтенд, порт 8501). Хранилище day7–day8: SQLite + SQLAlchemy 2.0 (файлы
-  `agents.db`, таблицы `agents`, `messages`, `token_usage`).
-- day8: `tiktoken` (`cl100k_base`) — локальный подсчёт токенов.
+- day6–day9: FastAPI + uvicorn (бэкенд, порт 8000), Streamlit + `requests`
+  (фронтенд, порт 8501). Хранилище day7–day9: SQLite + SQLAlchemy 2.0 (файлы
+  `agents.db`, таблицы `agents`, `messages`, `token_usage`; день 9 добавляет
+  `summaries` — конспекты истории).
+- day8: `tiktoken` (`cl100k_base`) — локальный подсчёт токенов; day9 использует
+  его же для метрик экономии.
+- day9: стейт-машина `enum.Enum` + паттерн State (`backend/context_fsm.py`,
+  `backend/context_policy.py`) и конспект вместо старых реплик в запросе.
 - day5: `huggingface_hub.InferenceClient.chat_completion` (роутер Inference
   Providers), автономен, `shared/` не использует.
 - Модели DeepSeek: `deepseek-chat` (основная), `deepseek-reasoner` (может
   игнорировать `temperature`/`response_format` — поведение провайдера, не баг).
-- Тесты: **pytest** — целевой стандарт (см. `AGENTS.md`). В прикладных днях
-  автотестов пока нет; там проверка — `py_compile` + smoke-запуск.
+  В day9 суммаризация всегда идёт на `deepseek-chat`.
+- Тесты: **pytest** — стандарт проекта; day9 — первый день с автотестами
+  (`day9/tests/`, 167 тестов, запуск из папки дня). В остальных прикладных днях
+  автотестов нет: проверка — `py_compile` + smoke-запуск.
 
 ## 3. Конвенции кодинга
 
@@ -79,10 +86,11 @@
 
 ```powershell
 # 1. Синтаксис Python (прикладные дни)
-python -m py_compile day1/deepseek_chat.py day2/app.py day3/app.py day5/app.py day6/app.py day7/app.py day8/app.py shared/deepseek_utils.py
+python -m py_compile day1/deepseek_chat.py day2/app.py day3/app.py day5/app.py day6/app.py day7/app.py day8/app.py day9/app.py day9/backend/*.py shared/deepseek_utils.py
 
-# 2. Тесты (pytest) — целевой стандарт
-python -m pytest -q
+# 2. Тесты (pytest) — day9 (запускать из папки дня: .env ищется здесь)
+cd day9
+.venv/Scripts/python -m pytest -q
 
 # 3. Smoke-запуск Streamlit без реальных API-запросов (day2/day3)
 python -c "from streamlit.testing.v1 import AppTest; AppTest.from_file('day2/app.py').run(); AppTest.from_file('day3/app.py').run(); print('AppTest OK')"
@@ -90,12 +98,19 @@ python -c "from streamlit.testing.v1 import AppTest; AppTest.from_file('day2/app
 # 4. day5 — своим venv (там streamlit + huggingface_hub)
 day5/.venv/Scripts/python -c "from streamlit.testing.v1 import AppTest; AppTest.from_file('day5/app.py').run(); print('AppTest day5 OK')"
 
-# 5. day6–day8 — бэкенд и фронтенд
+# 5. day6–day9 — бэкенд и фронтенд
 day6/.venv/Scripts/python -m uvicorn backend.main:app --port 8000
 day6/.venv/Scripts/python -m streamlit run app.py
+# day9 — своим venv из папки дня
+day9/.venv/Scripts/python -m uvicorn backend.main:app --port 8000
+day9/.venv/Scripts/python -m streamlit run app.py
+
+# 6. day9 — smoke UI и бэкенда без ключа API (генерация вернёт 502, CRUD работает)
+day9/.venv/Scripts/python -c "from streamlit.testing.v1 import AppTest; AppTest.from_file('day9/app.py').run(); print('AppTest day9 OK')"
 ```
 
-- Прикладные дни (day1–day3, day5–day8): `py_compile` + smoke-запуск.
+- Прикладные дни (day1–day3, day5–day8): `py_compile` + smoke-запуск; день 9
+  дополнительно обязан иметь зелёный `pytest`.
 - Документные дни (например, day4): компиляции/AppTest не требуют — проверяется
   наличие `day4/results.md`.
 - Запуск приложений — **из папки дня** (`streamlit run app.py`).

@@ -1,0 +1,759 @@
+"""День 9: Streamlit-чат агентов DeepSeek со сжатием истории.
+
+Приложение общается с FastAPI-бэкендом (порт 8000) по HTTP через `requests`.
+Ключ DEEPSEEK_API_KEY фронтенду НЕ нужен — его читает бэкенд (day9/.env или
+переменная окружения). Диалог, конспекты и метрики хранит бэкенд в SQLite
+(day9/agents.db), поэтому всё переживает рестарт.
+
+Что нового по сравнению с днём 8: агент держит не всю историю в запросе, а
+конспект старых реплик плюс последние N сообщений «как есть». Интерфейс это
+показывает и позволяет измерить:
+
+- панель «🗜 Сжатие контекста» — состояние процесса, покрытые реплики, текст
+  конспекта, экономия токенов и её цена (вызовы суммаризации), кнопка
+  «Сжать сейчас»;
+- панель «📊 Токены диалога» — счётчики, индикатор лимита, график роста и
+  накопленной экономии, таблица записей token_usage с режимом хода;
+- «⚖️ Сравнить режимы» — один промпт отправляется (или только считается по
+  токенам) в двух вариантах: полная история и конспект + последние N реплик;
+- переключатель сжатия на живом агенте (PATCH), чтобы показать разницу в
+  одном диалоге;
+- маркер в истории: где именно реплики заменены конспектом.
+
+Запуск из папки day9/:  streamlit run app.py  (бэкенд запускается отдельно:
+uvicorn backend.main:app --port 8000)
+"""
+import html
+import os
+
+import pandas as pd
+import requests
+import streamlit as st
+
+# Куда стучится фронтенд (можно переопределить переменной окружения).
+BACKEND_URL = os.environ.get("DAY9_BACKEND_URL", "http://127.0.0.1:8000")
+TIMEOUT = 90.0  # сек; compare с вызовами API делает два запроса к DeepSeek
+
+# Подписи ролей для отрисовки сообщений чата.
+ROLE_LABELS = {"user": "🧑 Вы", "assistant": "🤖 Ассистент"}
+
+# Состояния стейт-машины сжатия (бэкенд отдаёт их строкой) — для человека.
+STATE_LABELS = {
+    "idle": "💤 накапливать нечего",
+    "tracking": "📥 накопление реплик",
+    "summary_pending": "⏳ пора сжимать",
+    "summarizing": "🗜 сжатие выполняется",
+    "error": "⚠️ ошибка сжатия (повтор на следующем ходу)",
+}
+
+
+class BackendError(Exception):
+    """Ошибка общения с бэкендом (недоступен либо вернул HTTP-ошибку)."""
+
+    def __init__(self, message, status_code=None):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+
+
+# ---------- HTTP-клиент к бэкенду ----------
+def _extract_error(resp) -> str:
+    """Достаёт человекочитаемый текст ошибки из тела бэкенда.
+
+    Бэкенд отвечает ошибками в двух формах: {"detail": ...} (FastAPI для 404/422)
+    и {status: "error", error: ...} (наша структурированная ошибка 502).
+    """
+    try:
+        data = resp.json()
+    except ValueError:
+        data = {}
+    if isinstance(data, dict):
+        if data.get("error"):
+            return data["error"]
+        if data.get("detail"):
+            detail = data["detail"]
+            return detail if isinstance(detail, str) else str(detail)
+        if data.get("message"):
+            return data["message"]
+    return f"Бэкенд вернул HTTP {resp.status_code}"
+
+
+def _request(method, path, **kwargs):
+    """Делает запрос к бэкенду; HTTP-ошибки превращает в BackendError."""
+    try:
+        resp = requests.request(method, BACKEND_URL.rstrip("/") + path,
+                                timeout=TIMEOUT, **kwargs)
+    except requests.RequestException as exc:
+        raise BackendError(
+            f"Бэкенд недоступен ({BACKEND_URL}). Запустите его из папки day9/: "
+            f"uvicorn backend.main:app --port 8000 "
+            f"({exc.__class__.__name__})"
+        ) from exc
+    if resp.status_code >= 400:
+        raise BackendError(_extract_error(resp), resp.status_code)
+    return resp.json()
+
+
+def api_fetch_agents():
+    """GET /agents -> список записей (id, имя, модель, сообщения, сжатие)."""
+    return _request("GET", "/agents")
+
+
+def api_create_agent(config):
+    """POST /agents -> полная информация о созданном агенте."""
+    return _request("POST", "/agents", json=config)
+
+
+def api_patch_agent(agent_id, payload):
+    """PATCH /agents/{agent_id} -> обновлённая конфигурация агента."""
+    return _request("PATCH", f"/agents/{agent_id}", json=payload)
+
+
+def api_delete_agent(agent_id):
+    """DELETE /agents/{agent_id}."""
+    return _request("DELETE", f"/agents/{agent_id}")
+
+
+def api_generate(agent_id, prompt):
+    """POST /agents/{agent_id}/generate -> ответ + метрики + обновлённая история.
+
+    При сбое генерации бэкенд отвечает 502: _request поднимет BackendError с
+    понятным текстом (например, «Ключ API не задан...»).
+    """
+    return _request("POST", f"/agents/{agent_id}/generate", json={"prompt": prompt})
+
+
+def api_history(agent_id):
+    """GET /agents/{agent_id}/history -> сообщения диалога (по возрастанию)."""
+    return _request("GET", f"/agents/{agent_id}/history")
+
+
+def api_clear_history(agent_id):
+    """DELETE /agents/{agent_id}/history -> очистка диалога, конспектов и метрик."""
+    return _request("DELETE", f"/agents/{agent_id}/history")
+
+
+def api_usage(agent_id):
+    """GET /agents/{agent_id}/usage -> сводка токенов и экономии."""
+    return _request("GET", f"/agents/{agent_id}/usage")
+
+
+def api_usage_graph(agent_id):
+    """GET /agents/{agent_id}/usage/graph -> записи token_usage (по возрастанию)."""
+    return _request("GET", f"/agents/{agent_id}/usage/graph")
+
+
+def api_summary(agent_id):
+    """GET /agents/{agent_id}/summary -> конспект, watermark, экономика."""
+    return _request("GET", f"/agents/{agent_id}/summary")
+
+
+def api_summarize(agent_id, force=False):
+    """POST /agents/{agent_id}/summarize -> отчёт о попытке сжатия."""
+    return _request("POST", f"/agents/{agent_id}/summarize", json={"force": force})
+
+
+def api_compare(agent_id, prompt, call_api=False):
+    """POST /agents/{agent_id}/compare -> сравнение режимов на одном промпте."""
+    return _request("POST", f"/agents/{agent_id}/compare",
+                    json={"prompt": prompt, "call_api": call_api})
+
+
+# ---------- форматирование для UI ----------
+def esc(text):
+    """Безопасный вывод: экранирует HTML и сохраняет переносы строк."""
+    if text is None:
+        return ""
+    return html.escape(str(text)).replace("\n", "<br>")
+
+
+def fmt_time(ts):
+    """'2026-09-09T12:00:00...' -> '09.09 12:00' (или '' при None)."""
+    if not ts:
+        return ""
+    return str(ts)[:16].replace("T", " ")
+
+
+def fmt_int(value) -> str:
+    """1234567 -> '1 234 567' (удобное чтение больших чисел токенов)."""
+    try:
+        return f"{int(value):,}".replace(",", " ")
+    except (TypeError, ValueError):
+        return "—"
+
+
+def plural(n: int, one: str, few: str, many: str) -> str:
+    """Русская форма слова для числа: 1 сообщение / 2 сообщения / 5 сообщений."""
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+        return few
+    return many
+
+
+def label_agent(agent) -> str:
+    """Подпись агента: имя · модель · сообщения · режим сжатия."""
+    n = agent.get("message_count", 0)
+    mode = "🗜 сжатие" if agent.get("summary_enabled") else "📜 полная история"
+    return f"{agent['name']} · {agent['model']} · {n} {plural(n, 'сообщение', 'сообщения', 'сообщений')} · {mode}"
+
+
+def render_message(role: str, content: str, ts: str = ""):
+    """Отрисовывает одно сообщение диалога в виде «пузыря» чата."""
+    who = ROLE_LABELS.get(role, role)
+    time_suffix = f" · {fmt_time(ts)}" if ts else ""
+    color = "#dbeafe" if role == "user" else "#dcfce7"
+    st.markdown(
+        f"<div style='background:{color};color:#111827;border-radius:10px;"
+        f"padding:10px 14px;margin:6px 0;text-align:left'>"
+        f"<b>{esc(who)}</b><span style='color:#6b7280;font-size:0.8em'>"
+        f"{esc(time_suffix)}</span><br>{esc(content)}</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_summary_marker(count: int, tokens: int) -> None:
+    """Маркер на границе сжатия: сколько реплик заменено конспектом."""
+    st.markdown(
+        f"<div style='background:#fef3c7;color:#78350f;border:1px dashed #d97706;"
+        f"border-radius:8px;padding:6px 12px;margin:8px 0;text-align:center;"
+        f"font-size:0.9em'>🗜 выше {count} "
+        f"{plural(count, 'реплика', 'реплики', 'реплик')} заменены конспектом "
+        f"(в запрос идёт ~{fmt_int(tokens)} токенов вместо полного текста)</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def format_usage(usage) -> str:
+    if not usage:
+        return "—"
+    return (f"вход {usage.get('prompt_tokens', '?')} · "
+            f"выход {usage.get('completion_tokens', '?')} · "
+            f"всего {usage.get('total_tokens', '?')}")
+
+
+def render_token_panel(active) -> None:
+    """Панель «📊 Токены диалога»: счётчики, лимит, экономия, график, таблица."""
+    agent_id = active.get("agent_id")
+    try:
+        summary = api_usage(agent_id)
+        rows = api_usage_graph(agent_id)
+    except BackendError:
+        return  # бэкенд недоступен/ошибка — панель пропускается, чат живёт
+
+    st.subheader("📊 Токены диалога")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Использовано за диалог",
+                f"{fmt_int(summary.get('total_tokens'))} токенов")
+    col2.metric("Запросов", fmt_int(summary.get("total_requests")))
+    col3.metric("Стоимость", f"${summary.get('total_cost', 0.0):.6f}")
+    col4.metric("Сэкономлено сжатием",
+                f"{fmt_int(summary.get('total_saved_tokens'))} токенов",
+                help="Разница между полной историей и отправленным контекстом; "
+                     "чистая экономия (минус стоимость конспектов) — в панели "
+                     "«🗜 Сжатие контекста».")
+
+    limit = int(summary.get("context_limit_tokens") or 0)
+    current = int(summary.get("current_history_tokens") or 0)
+    remaining = int(summary.get("remaining_tokens") or 0)
+    ratio = min(1.0, current / limit) if limit else 0.0
+    st.progress(ratio)
+    st.caption(f"Контекст диалога: занято **{fmt_int(current)}** из "
+               f"**{fmt_int(limit)}** токенов · до лимита осталось "
+               f"**{fmt_int(remaining)}**")
+    if limit and remaining < limit * 0.1:
+        st.warning("⚠️ Контекст почти заполнен. Со сжатием агент отправит конспект "
+                   "старых реплик — включите сжатие или очистите историю.")
+
+    if rows:
+        df = pd.DataFrame([
+            {
+                "time": fmt_time(r.get("timestamp")),
+                "prompt_tokens": r.get("prompt_tokens", 0),
+                "completion_tokens": r.get("completion_tokens", 0),
+                "total_tokens": r.get("total_tokens", 0),
+                "full_context_tokens": r.get("full_context_tokens", 0),
+                "sent_context_tokens": r.get("sent_context_tokens", 0),
+                "saved_tokens": r.get("saved_tokens", 0),
+                "mode": "🗜 сжатие" if r.get("summary_used") else "📜 полная",
+                "cost": r.get("cost", 0.0),
+            }
+            for r in rows
+        ])
+        df["cumulative"] = df["total_tokens"].cumsum()
+        df["saved_cumulative"] = df["saved_tokens"].cumsum()
+        chart = df.set_index("time")[["cumulative", "saved_cumulative",
+                                      "sent_context_tokens"]]
+        st.markdown("**📈 Рост токенов и накопленная экономия** "
+                    "(total за диалог · сэкономлено · отправлено в последнем запросе):")
+        st.line_chart(chart)
+        with st.expander("Таблица записей token_usage"):
+            st.dataframe(df.rename(columns={
+                "time": "время", "prompt_tokens": "запрос",
+                "completion_tokens": "ответ", "total_tokens": "всего",
+                "full_context_tokens": "без сжатия",
+                "sent_context_tokens": "отправлено",
+                "saved_tokens": "сэкономлено", "mode": "режим",
+                "cost": "стоимость $", "cumulative": "накоплено",
+                "saved_cumulative": "накопл. экономия",
+            }))
+    else:
+        st.info("Записей токенов пока нет — отправьте первый запрос, и здесь "
+                "появится график и таблица.")
+
+
+def render_compression_panel(active) -> None:
+    """Панель «🗜 Сжатие контекста»: конспект, watermark, экономика, кнопка сжатия."""
+    agent_id = active.get("agent_id")
+    try:
+        state = api_summary(agent_id)
+    except BackendError:
+        return
+
+    st.subheader("🗜 Сжатие контекста")
+    keep_last = int(state.get("keep_last_messages") or 0)
+    every = int(state.get("summarize_every") or 0)
+    st.caption(f"Состояние процесса: **{STATE_LABELS.get(state.get('state'), state.get('state'))}** "
+               f"· режим: {'включено' if state.get('enabled') else 'выключено'} "
+               f"· последние **{keep_last}** "
+               f"{plural(keep_last, 'реплика', 'реплики', 'реплик')} — как есть "
+               f"· сжатие каждые **{every}** "
+               f"{plural(every, 'новая реплика', 'новые реплики', 'новых реплик')}")
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Конспектов", fmt_int(state.get("summary_count")))
+    col2.metric("Реплик в конспекте", fmt_int(state.get("covered_messages")),
+                help="Сколько реплик заменено конспектом в запросах.")
+    col3.metric("Сэкономлено", f"{fmt_int(state.get('saved_tokens'))} токенов")
+    col4.metric("Чистая экономия",
+                f"{fmt_int(state.get('net_saved_tokens'))} токенов",
+                help="Сэкономленные токены запросов минус токены вызовов "
+                     "суммаризации (стоимость конспектов).")
+
+    total = int(state.get("message_count") or 0)
+    covered = int(state.get("covered_messages") or 0)
+    ratio = min(1.0, covered / total) if total else 0.0
+    st.progress(ratio)
+    st.caption(f"Покрыто конспектом: **{fmt_int(covered)}** из "
+               f"**{fmt_int(total)}** реплик · до следующего сжатия осталось "
+               f"**{fmt_int(state.get('next_compression_in'))}** непокрытых "
+               f"· стоимость конспектов ${state.get('summary_cost', 0.0):.6f}")
+
+    current = state.get("current")
+    if current:
+        covered_n = int(current.get("covered_messages") or 0)
+        with st.expander(f"📝 Текущий конспект ({covered_n} "
+                         f"{plural(covered_n, 'реплика', 'реплики', 'реплик')}, "
+                         f"{fmt_int(current.get('summary_tokens'))} токенов):"):
+            st.markdown(esc(current.get("content")))
+            st.caption(f"Создан: {fmt_time(current.get('created_at'))} · "
+                       f"исходный текст: {fmt_int(current.get('source_tokens'))} "
+                       f"токенов · сжатие ×"
+                       f"{(current.get('source_tokens') or 0) / max(1, current.get('summary_tokens') or 1):.1f}")
+    else:
+        st.info("Конспекта пока нет: истории не хватает для порога сжатия. "
+                "Кнопка ниже сжимает принудительно (демо).")
+
+    col_left, col_right = st.columns([3, 1])
+    with col_right:
+        if st.button("🗜 Сжать сейчас", help="Принудительное сжатие: всё, кроме "
+                                             "последних N реплик, уходит в конспект"):
+            try:
+                report = api_summarize(agent_id, force=True)
+            except BackendError as exc:
+                _flash("error", f"Сжатие не выполнено: {exc.message}")
+            else:
+                if report.get("created"):
+                    _flash("success",
+                           f"Конспект обновлён: в него ушло "
+                           f"{report.get('summarized_messages')} реплик. "
+                           f"Состояние: {STATE_LABELS.get(report.get('state'), report.get('state'))}")
+                else:
+                    _flash("info", f"Сжимать пока нечего: {report.get('error') or 'нет данных'}")
+            st.rerun()
+    with col_left:
+        if state.get("enabled"):
+            if st.button("⏸ Отключить сжатие",
+                         help="Агент снова начнёт отправлять всю историю (день 8)"):
+                try:
+                    api_patch_agent(agent_id, {"summary_enabled": False})
+                except BackendError as exc:
+                    _flash("error", f"Не удалось изменить режим: {exc.message}")
+                else:
+                    _flash("info", "Сжатие выключено: в запрос снова идёт вся история.")
+                st.rerun()
+        else:
+            if st.button("▶️ Включить сжатие",
+                         help="Агент будет отправлять конспект + последние N реплик"):
+                try:
+                    api_patch_agent(agent_id, {"summary_enabled": True})
+                except BackendError as exc:
+                    _flash("error", f"Не удалось изменить режим: {exc.message}")
+                else:
+                    _flash("success", "Сжатие включено.")
+                st.rerun()
+
+
+def render_compare(active) -> None:
+    """Блок «⚖️ Сравнить режимы»: один промпт в двух вариантах контекста."""
+    agent_id = active.get("agent_id")
+    with st.expander("⚖️ Сравнить режимы: без сжатия и со сжатием",
+                     expanded=False):
+        st.caption("Один и тот же промпт считается (и, по желанию, отправляется) "
+                   "дважды: со всей историей и с конспектом + последними "
+                   "репликами. История диалога при этом не меняется.")
+        compare_prompt = st.text_area(
+            "Промпт для сравнения", key=f"compare_{agent_id}", height=80,
+            placeholder="Например: что мы решили по лимитам контекста?",
+        )
+        call_api = st.checkbox(
+            "Вызвать DeepSeek дважды (сравнить и ответы, и токены)",
+            value=False, key=f"compare_api_{agent_id}",
+            help="Без галочки считаются только токены — это работает без ключа API.",
+        )
+        if st.button("⚖️ Сравнить", disabled=not (compare_prompt or "").strip(),
+                     key=f"compare_btn_{agent_id}"):
+            try:
+                result = api_compare(agent_id, compare_prompt.strip(),
+                                     call_api=call_api)
+            except BackendError as exc:
+                st.error(f"Сравнение не выполнено: {exc.message}")
+            else:
+                st.session_state["compare_result"] = result
+
+        result = st.session_state.get("compare_result")
+        if result and result.get("agent_id") == agent_id:
+            del st.session_state["compare_result"]  # показываем один раз
+            col_full, col_comp = st.columns(2)
+            full = result.get("full", {})
+            comp = result.get("compressed", {})
+            with col_full:
+                st.markdown("**📜 Без сжатия** (вся история)")
+                st.metric("Токенов контекста", fmt_int(full.get("sent_context_tokens")))
+                if full.get("total_tokens") is not None:
+                    st.caption(f"usage: вход {full.get('prompt_tokens')} · "
+                               f"выход {full.get('completion_tokens')} · "
+                               f"${full.get('cost', 0):.6f}")
+                if full.get("error"):
+                    st.error(full["error"])
+                elif full.get("response"):
+                    st.markdown(esc(full["response"]))
+            with col_comp:
+                st.markdown("**🗜 Со сжатием** (конспект + последние реплики)")
+                st.metric("Токенов контекста", fmt_int(comp.get("sent_context_tokens")),
+                          delta=f"-{fmt_int(result.get('saved_tokens'))}")
+                if comp.get("total_tokens") is not None:
+                    st.caption(f"usage: вход {comp.get('prompt_tokens')} · "
+                               f"выход {comp.get('completion_tokens')} · "
+                               f"${comp.get('cost', 0):.6f}")
+                if comp.get("error"):
+                    st.error(comp["error"])
+                elif comp.get("response"):
+                    st.markdown(esc(comp["response"]))
+            st.success(
+                f"Экономия контекста: **{fmt_int(result.get('saved_tokens'))}** токенов "
+                f"(**{result.get('saved_percent')}%**) · "
+                f"конспект: {'использован' if comp.get('summary_used') else 'не использован'}"
+                f" · покрыто реплик: {fmt_int(comp.get('summarized_messages'))}"
+            )
+            if result.get("warning"):
+                st.warning(result["warning"])
+
+
+# ================= UI: состояние и helpers =================
+st.set_page_config(page_title="Сжатие контекста · День 9",
+                   page_icon="🗜", layout="wide")
+
+# Состояние, переживающее rerun'ы Streamlit.
+if "agents" not in st.session_state:
+    st.session_state["agents"] = []
+if "active_agent_id" not in st.session_state:
+    st.session_state["active_agent_id"] = None
+if "backend_ok" not in st.session_state:
+    st.session_state["backend_ok"] = False
+if "backend_error" not in st.session_state:
+    st.session_state["backend_error"] = None
+# Кэш показанного диалога: chat_agent_id — какому агенту принадлежит список.
+if "chat_agent_id" not in st.session_state:
+    st.session_state["chat_agent_id"] = None
+if "chat_messages" not in st.session_state:
+    st.session_state["chat_messages"] = []
+# Одноразовое сообщение-флеш (kind, text) для следующего прохода скрипта.
+if "flash" not in st.session_state:
+    st.session_state["flash"] = None
+
+
+def _flash(kind: str, message: str) -> None:
+    """Показывает сообщение на СЛЕДУЮЩЕМ проходе (после st.rerun)."""
+    st.session_state["flash"] = (kind, message)
+
+
+def _load_agents():
+    """Свежий список агентов; ошибка соединения — в состояние, без падения."""
+    try:
+        st.session_state["agents"] = api_fetch_agents()
+        st.session_state["backend_ok"] = True
+        st.session_state["backend_error"] = None
+    except BackendError as exc:
+        st.session_state["agents"] = []
+        st.session_state["backend_ok"] = False
+        st.session_state["backend_error"] = str(exc)
+
+
+def _active_agent():
+    """Возвращает выбранного агента (словарь) или None; чинит active_agent_id."""
+    agents = st.session_state.get("agents") or []
+    if not agents:
+        st.session_state["active_agent_id"] = None
+        st.session_state["chat_agent_id"] = None
+        return None
+    current = st.session_state.get("active_agent_id")
+    if current is None or not any(a["agent_id"] == current for a in agents):
+        current = agents[0]["agent_id"]
+        st.session_state["active_agent_id"] = current
+    return next(a for a in agents if a["agent_id"] == current)
+
+
+def _ensure_chat(active):
+    """Подгружает диалог активного агента, если он ещё не в состоянии."""
+    if active is None:
+        return
+    if st.session_state.get("chat_agent_id") == active["agent_id"]:
+        return
+    try:
+        st.session_state["chat_messages"] = api_history(active["agent_id"])
+        st.session_state["chat_agent_id"] = active["agent_id"]
+    except BackendError as exc:
+        st.session_state["chat_messages"] = []
+        st.session_state["chat_agent_id"] = active["agent_id"]
+        st.warning(f"Диалог не загружен: {exc.message}")
+
+
+# ================= UI: боковая панель =================
+_load_agents()
+st.sidebar.title("🗜 Агенты со сжатием истории")
+if st.session_state["backend_ok"]:
+    st.sidebar.caption(f"🟢 Бэкенд: {BACKEND_URL} · агентов: "
+                       f"{len(st.session_state['agents'])}")
+else:
+    st.sidebar.caption(f"🔴 Бэкенд недоступен: {BACKEND_URL}")
+if st.sidebar.button("🔄 Обновить список"):
+    _load_agents()
+
+# --- создание нового агента ---
+st.sidebar.subheader("➕ Новый агент")
+with st.sidebar.form("create_agent_form", clear_on_submit=True):
+    form_name = st.text_input("Имя агента", placeholder="Например: Конспектёр")
+    form_model = st.selectbox(
+        "Модель",
+        ["deepseek-chat", "deepseek-reasoner"],
+        help="deepseek-reasoner может игнорировать temperature.",
+    )
+    form_temp = st.slider("Температура", 0.0, 2.0, 0.7, 0.1)
+    form_system = st.text_area(
+        "Системный промпт (роль)", height=90,
+        placeholder="Пусто — системное сообщение не добавляется.",
+    )
+    form_max_tokens = st.number_input("max_tokens", 1, 8192, 2048, step=128)
+    st.markdown("**🗜 Сжатие истории**")
+    form_summary = st.checkbox("Сжимать историю в конспект", value=True)
+    form_keep_last = st.slider(
+        "Последних реплик «как есть»", 2, 20, 6,
+        help="Столько последних сообщений всегда уходит в запрос дословно.",
+    )
+    form_summarize_every = st.slider(
+        "Сжимать каждые N новых реплик", 2, 40, 10,
+        help="Порог: когда непокрытых реплик накопилось N, старые уходят в конспект.",
+    )
+    form_submit = st.form_submit_button("Создать агента")
+
+if form_submit:
+    if not form_name.strip():
+        st.sidebar.error("Укажите имя агента.")
+    else:
+        try:
+            info = api_create_agent({
+                "name": form_name,
+                "model": form_model,
+                "temperature": float(form_temp),
+                "system_prompt": form_system,
+                "max_tokens": int(form_max_tokens),
+                "summary_enabled": bool(form_summary),
+                "keep_last_messages": int(form_keep_last),
+                "summarize_every": int(form_summarize_every),
+            })
+        except BackendError as exc:
+            st.sidebar.error(f"Не удалось создать: {exc.message}")
+        else:
+            _load_agents()
+            st.session_state["active_agent_id"] = info["agent_id"]
+            st.session_state["chat_agent_id"] = None  # перечитаем диалог
+            st.sidebar.success(f"Создан: {info['name']} ({info['agent_id']})")
+
+
+# ================= UI: основная область — чат =================
+st.title("💬 Чат с агентами DeepSeek")
+st.caption("Агент помнит весь диалог (SQLite), но в запрос отправляет конспект "
+           "старых реплик и последние N сообщений — это экономит токены.")
+
+flash = st.session_state.pop("flash", None)
+if flash:
+    kind, message = flash
+    if kind == "success":
+        st.success(message)
+    elif kind == "error":
+        st.error(message)
+    else:
+        st.info(message)
+
+if not st.session_state["backend_ok"]:
+    st.warning("🔌 Бэкенд недоступен. Запустите его из папки day9/:")
+    st.code("uvicorn backend.main:app --port 8000", language="bash")
+    if st.session_state.get("backend_error"):
+        st.caption(f"Причина: {st.session_state['backend_error']}")
+else:
+    agents = st.session_state["agents"]
+    if not agents:
+        st.info("Агентов пока нет — создайте первого в боковой панели. "
+                "Его диалог, конспекты и метрики сохранятся в day9/agents.db.")
+    else:
+        # --- выбор агента (список с числом сообщений и режимом сжатия) ---
+        labels = [label_agent(a) for a in agents]
+        active = _active_agent()
+        idx = next(i for i, a in enumerate(agents)
+                   if a["agent_id"] == active["agent_id"])
+        chosen = st.selectbox("Агент", labels, index=idx,
+                              help="Переключение загружает диалог агента.")
+        active = agents[labels.index(chosen)]
+        st.session_state["active_agent_id"] = active["agent_id"]
+
+        col_card, col_del = st.columns([5, 1])
+        with col_card:
+            st.subheader(f"🤖 {active['name']}")
+            mode = "🗜 сжатие включено" if active.get("summary_enabled") \
+                else "📜 полная история"
+            st.caption(
+                f"id `{active['agent_id']}` · модель **{active['model']}** · "
+                f"температура {active.get('temperature', '—')} · "
+                f"max_tokens {active.get('max_tokens', '—')} · {mode} "
+                f"(keep_last {active.get('keep_last_messages', '—')}, "
+                f"каждые {active.get('summarize_every', '—')})"
+            )
+            if active.get("system_prompt"):
+                st.caption(f"Роль: _{active['system_prompt']}_")
+        with col_del:
+            if st.button("🗑 Удалить агента",
+                         help="Удалить вместе с диалогом, конспектами и метриками"):
+                try:
+                    api_delete_agent(active["agent_id"])
+                except BackendError as exc:
+                    st.error(f"Не удалось удалить: {exc.message}")
+                else:
+                    _load_agents()
+                    st.session_state["chat_agent_id"] = None
+                    st.success("Агент удалён.")
+
+        # --- панель сжатия (день 9) и панель токенов (день 8 + экономия) ---
+        render_compression_panel(active)
+        render_token_panel(active)
+
+        st.divider()
+
+        # --- диалог: роль + текст каждого сообщения + маркер сжатия ---
+        _ensure_chat(active)
+        st.subheader("💬 Диалог")
+        chat_box = st.container(height=420, border=False)
+        messages = st.session_state.get("chat_messages") or []
+        with chat_box:
+            if not messages:
+                st.info("Диалог пуст. Напишите первое сообщение — и агент "
+                        "запомнит его после перезапуска.")
+            # Маркер ставим на границе: где кончаются покрытые конспектом
+            # реплики и начинается отправляемый «как есть» хвост.
+            marker_done = False
+            for msg in messages:
+                if (not marker_done and msg.get("summarized") is False
+                        and any(m.get("summarized") for m in messages)):
+                    covered = sum(1 for m in messages if m.get("summarized"))
+                    try:
+                        state = api_summary(active["agent_id"])
+                        summary_tokens = (state.get("current") or {}).get(
+                            "summary_tokens", 0)
+                    except BackendError:
+                        summary_tokens = 0
+                    render_summary_marker(covered, summary_tokens)
+                    marker_done = True
+                render_message(msg.get("role", ""),
+                               msg.get("content", ""),
+                               msg.get("timestamp", ""))
+
+        # --- сравнение режимов (день 9) ---
+        render_compare(active)
+
+        # --- поле ввода и кнопки внизу ---
+        prompt = st.text_area(
+            "Сообщение агенту", key=f"prompt_{active['agent_id']}",
+            height=90, placeholder="Введите сообщение и нажмите «Отправить»…",
+        )
+        col_send, col_clear = st.columns(2)
+        can_send = bool(prompt and prompt.strip())
+        if col_send.button("🚀 Отправить", type="primary", disabled=not can_send,
+                           help="Уходит конспект + последние N реплик (или вся "
+                                "история, если сжатие выключено)"):
+            with st.spinner("🤖 Агент думает… это занимает несколько секунд"):
+                try:
+                    record = api_generate(active["agent_id"], prompt)
+                except BackendError as exc:
+                    _flash("error", f"Запрос не выполнен: {exc.message}")
+                    st.rerun()
+                else:
+                    if record.get("status") == "ok":
+                        # Сервер вернул актуальную историю — рисуем из неё.
+                        st.session_state["chat_messages"] = record.get("messages", [])
+                        st.session_state["chat_agent_id"] = active["agent_id"]
+                        _load_agents()  # обновить счётчики в боковой панели
+                        tm = record.get("token_metrics") or {}
+                        ctx = record.get("context") or {}
+                        comp = ctx.get("compression") or {}
+                        notes = []
+                        if comp.get("summary_used"):
+                            notes.append(
+                                f"🗜 конспект: сэкономлено "
+                                f"{fmt_int(comp.get('saved_tokens'))} токенов "
+                                f"({comp.get('saved_percent')}%)")
+                        if ctx.get("trimmed_messages"):
+                            notes.append(f"⚠️ пропущено реплик в запросе: "
+                                         f"{ctx['trimmed_messages']}")
+                        if ctx.get("warning"):
+                            notes.append(ctx["warning"])
+                        if comp.get("error"):
+                            notes.append(f"⚠️ сжатие не выполнено: {comp['error']}")
+                        note_text = (" · " + " · ".join(notes)) if notes else ""
+                        # Одна плашка на ход: ошибка сжатия — красная, остальное —
+                        # успешная сводка (иначе второе сообщение затирает первое).
+                        kind = "error" if comp.get("error") else "success"
+                        _flash(kind,
+                               f"Ответ получен за {record.get('duration_sec', 0):.2f} с · "
+                               f"токены {format_usage(record.get('usage'))} · "
+                               f"стоимость ~${tm.get('cost', 0):.6f} · "
+                               f"finish_reason {record.get('finish_reason') or '—'}"
+                               f"{note_text}")
+                    else:
+                        _flash("error", f"Генерация завершилась ошибкой: "
+                                        f"{record.get('error')}")
+                    st.rerun()
+        if col_clear.button("🧹 Очистить историю",
+                            help="Удаляет диалог, конспекты и метрики. "
+                                 "Конфигурация агента не меняется."):
+            try:
+                api_clear_history(active["agent_id"])
+            except BackendError as exc:
+                _flash("error", f"Не удалось очистить: {exc.message}")
+                st.rerun()
+            else:
+                st.session_state["chat_messages"] = []
+                st.session_state["chat_agent_id"] = active["agent_id"]
+                _load_agents()
+                _flash("success", "История, конспекты и метрики очищены. "
+                                  "Новый диалог начнётся с нуля.")
+                st.rerun()
