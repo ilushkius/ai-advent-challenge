@@ -1,0 +1,21 @@
+{
+  "model": "deepseek/deepseek-flash",
+  "hashline_edits": true,
+  "hindsight_memory": true,
+  "tools": {
+    "lsp": {
+      "python": {
+        "command": ["pyright", "--stdio"],
+        "languageId": "python",
+        "fileExtensions": [".py"]
+      }
+    },
+    "debugger": {
+      "python": {
+        "type": "debugpy",
+        "request": "launch",
+        "justMyCode": true
+      }
+    }
+  }
+}

@@ -5,8 +5,9 @@
 (Inference Providers). Каждый день — одно
 небольшое, самодостаточное приложение в папке `dayN/`.
 
-Проект ведётся вместе с Cline по spec-driven процессу **OpenSpec**
-(см. [Процесс разработки](#процесс-разработки) и [`docs/development.md`](docs/development.md)).
+Проект ведётся вместе с терминальным агентом **omp.sh**, который читает правила
+проекта из [`.clauderules`](.clauderules) и [`AGENTS.md`](AGENTS.md)
+(см. [Процесс разработки](#процесс-разработки)).
 
 ## Структура проекта
 
@@ -21,11 +22,9 @@
 | `day7/` | **День 7 · «Агент с контекстной памятью»** | FastAPI + Streamlit + SQLite: каждый агент хранит полный диалог в SQLite и отправляет его в DeepSeek целиком; память переживает рестарт (`backend/`, `app.py`) |
 | `day8/` | **День 8 · «Агент с контролем токенов»** | FastAPI + Streamlit + SQLite + tiktoken: подсчёт токенов каждого запроса (история/ответ), таблица `token_usage`, панель лимита в UI и автообрезка истории при переполнении контекста (`backend/`, `app.py`) |
 | `shared/` | Общие утилиты | Чтение API-ключа, разбор stop-строк, `usage_to_dict`, endpoint DeepSeek (`deepseek_utils.py`) |
-| `openspec/` | Спецификации проекта | `specs/` — эталонные capability-спеки; `changes/` — изменения (active/archive); `config.yaml` — контекст и правила |
-| `docs/` | Документация | `development.md` — процесс разработки (OpenSpec + Superpowers + Caveman) |
-| `.clinerules/` | Правила Cline | Индекс навыков Superpowers, автоактивация Caveman, workflow-команды `opsx-*`, указатель на OpenSpec-процесс |
-| `.cline/skills/` | Навыки Cline | Тела навыков Superpowers и OpenSpec (SKILL.md) |
-| `.agents/skills/` | Навыки Caveman | 20 навыков Caveman (универсальное расположение `npx skills add`) |
+| `.clauderules` | Правила проекта для агента | Свод правил ai-challenge: стек, конвенции, процесс, проверки, секреты |
+| `AGENTS.md` | Архитектурные цели | Стейт-машина на Python, `Enum` + паттерн State, тесты через `pytest` |
+| `.omp.json` | Конфигурация omp.sh | Модель, `hashline_edits`, `hindsight_memory`, Python LSP (`pyright`) + `debugpy` |
 
 ## Стек технологий
 
@@ -39,14 +38,14 @@
 | Хранилище | SQLite + SQLAlchemy 2.0 (дни 7–8): файлы `day7/agents.db`, `day8/agents.db`; таблицы `agents` (конфигурация), `messages` (диалог) и `token_usage` (метрики токенов, день 8) | day7–day8 |
 | Токенизация | `tiktoken` (`cl100k_base`) — локальный подсчёт токенов, оценки близки к токенизатору DeepSeek | day8 |
 | Виртуальные окружения | `day2/.venv` (streamlit 1.62.0, openai 3.6.0); `day5/.venv` (streamlit 1.63.0, huggingface_hub 1.30.0); `day8/.venv` (fastapi, sqlalchemy, tiktoken и др.) | day2–day3, day5, day8 |
-| Инструменты разработки | OpenSpec CLI 1.11, Superpowers-ZH (20 навыков), Caveman (20 навыков), Node.js 24 / npm | спецификации и AI-воркфлоу |
+| Инструменты разработки | терминальный агент **omp.sh** (модель `deepseek/deepseek-flash`), Python LSP `pyright`, `debugpy` | AI-воркфлоу |
 
 Код дней 1–4 и 6–8 написан в синтаксисе, совместимом с OpenAI SDK 1.x/2.x/3.x
 (`OpenAI(api_key=..., base_url=...)`); день 5 использует
 `huggingface_hub.InferenceClient`; день 7 добавляет слой персистентности
 (SQLAlchemy 2.0 + SQLite), день 8 — подсчёт токенов (tiktoken) и таблицу
-`token_usage`. Автотестов, линтеров и CI в проекте нет
-(см. [docs/development.md](docs/development.md#проверка-качества)).
+`token_usage`. Автотестов, линтеров и CI пока нет; целевой стандарт новых
+дней — тесты `pytest` (см. [AGENTS.md](AGENTS.md)).
 
 ## Требования
 
@@ -55,7 +54,8 @@
 - Для дня 5: токен Hugging Face (`hf_...`, https://huggingface.co/settings/tokens);
   бесплатные аккаунты HF получают небольшие месячные включённые кредиты Inference
   Providers (~$0.10), при исчерпании — ошибка 402.
-- Для OpenSpec/инструментов: **Node.js 18+** и `npm`.
+- Для агента **omp.sh**: CLI omp.sh, Python LSP `pyright` и дебаггер `debugpy`
+  (`pip install pyright debugpy`).
 
 ## Установка
 
@@ -80,14 +80,13 @@ cd day5 && pip install -r requirements.txt
 ### 2. Инструменты разработки (глобально, один раз)
 
 ```bash
-npm install -g @fission-ai/openspec@latest   # OpenSpec CLI (проверка: openspec --version)
-npx superpowers-zh --tool cline              # навыки Superpowers → .cline/skills/
-npx skills add JuliusBrussee/caveman -a cline --with-init   # Caveman + автоактивация
-openspec init --tools cline                  # структура openspec/ и воркфлоу для Cline
+# терминальный агент omp.sh — правила берёт из .clauderules и AGENTS.md,
+# конфигурацию — из .omp.json
+pip install pyright debugpy                  # Python LSP и дебаггер для агента
 ```
 
-> В этом репозитории инструменты уже установлены и настроены; повторная
-> установка нужна только на новой машине.
+> Конфигурация и правила уже лежат в репозитории (`.omp.json`, `.clauderules`,
+> `AGENTS.md`); повторная настройка нужна только на новой машине.
 
 ## Как запустить
 
@@ -135,35 +134,31 @@ streamlit run app.py
 
 ## Процесс разработки
 
-Проект ведётся по spec-driven процессу **OpenSpec** с навыками Superpowers и
-Caveman. Каждое изменение проходит ритуал:
+Проект ведётся вместе с терминальным агентом **omp.sh**. Перед стартом агент
+автоматически читает два файла из корня:
 
-1. `/opsx:propose <задача>` — создать change: `proposal.md`, `specs/` (дельты),
-   `design.md`, `tasks.md`. Пишется только план, код не трогается.
-2. `/opsx:apply` — реализация задач по TDD (Superpowers), проверка перед
-   завершением (`verification-before-completion`).
-3. `/opsx:archive` — архивация change и слияние дельт в основные спецификации
-   `openspec/specs/`.
+- [`.clauderules`](.clauderules) — полный свод правил: стек, конвенции кодинга,
+  рабочий процесс, команды проверки, секреты и Git, стиль ответов.
+- [`AGENTS.md`](AGENTS.md) — архитектурные цели: стейт-машина на Python, правила
+  работы с `Enum` и паттерном State, запуск тестов через `pytest`.
 
-Полное описание — в [`docs/development.md`](docs/development.md).
+Конфигурация агента — [`.omp.json`](.omp.json): модель по умолчанию
+`deepseek/deepseek-flash`, правки по хэшу строк (`hashline_edits`), локальная
+память (`hindsight_memory`), встроенный Python LSP (`pyright --stdio`) и
+дебаггер `debugpy`.
+
+### Как проходит работа
+
+1. **Разведка и план** — агент читает файлы дня и `AGENTS.md`, предлагает план.
+2. **Реализация по TDD** — сначала падающий тест (`pytest`), затем реализация до
+   зелёного; изменения минимальны и в рамках задачи.
+3. **Проверка перед «готово»** — `py_compile`, `pytest`, smoke-запуск приложения
+   (см. `.clauderules`, раздел «Проверки перед завершением»).
 
 ### Где искать контекст
 
-- Поведение проекта: `openspec/specs/<capability>/spec.md`
-  (`project`, `architecture`, `tech-stack`, `day1-console-chat`,
-  `day2-response-format`, `day3-reasoning-methods`,
-  `day4-temperature-experiment`, `day5-model-comparison`,
-  `day6-agent-manager`, `day7-agent-memory`, `day8-token-usage`).
-- Конвенции и стек: `openspec/config.yaml` (раздел `context`).
-- Правила Cline: `.clinerules/` (индекс Superpowers `superpowers-zh.md`,
-  автоактивация Caveman `caveman.md`, workflow-команды `workflows/opsx-*.md`,
-  общий процесс `openspec-workflow.md`).
-
-### Навыки и режимы
-
-- **Superpowers** — 20 навыков в `.cline/skills/` (TDD, планирование, ревью,
-  отладка). Активируются по триггерам из индекса `.clinerules/superpowers-zh.md`.
-- **Caveman** — экономит токены ответов. Автоактивируется в каждой сессии
-  (правило `.clinerules/caveman.md`, режим `full`). Сменить режим:
-  `/caveman lite|ultra|off`. Код/коммиты/документация пишутся обычным языком.
+- Правила проекта и конвенции по коду: `.clauderules`.
+- Архитектурные цели и стандарт тестов: `AGENTS.md`.
+- Описание конкретного дня: `README.md` и `docs/` внутри папки дня
+  (например, `day6/docs/`).
 

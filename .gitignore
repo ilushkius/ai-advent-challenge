@@ -1,32 +1,24 @@
-# === CLINE & AI ASSISTANTS ===
-# Логи Cline, история промптов и артефакты генерации
-.cline/
-cline_logs/
-*.cline
-# Логи и кэш других популярных ИИ-инструментов (Roo Code, Continue)
+# === OMP AGENT (omp.sh) ===
+# Служебные папки агента: кэш, логи, рабочие данные сессии.
+# Логи и кэш сессий не должны улетать в Git.
+.omp/cache/
+.omp/logs/
+.omp/agent/
+
+# Локальная память / история агента (hindsight_memory) — файловые БД
+*.db
+*.sqlite
+
+# Логи и кэш других популярных ИИ-инструментов (на случай разовых запусков)
 .continue/
 .roo/
-.opencode/
 .cursor/
 .windsurf/
 .aider/
 .codeium/
-
-# === OPENSEP + SUPERPOWERS + CAVEMAN ===
-# Активные черновики изменений (трекаем только завершенные)
-openspec/changes/
-
-# Локальные конфигурации AI-агентов (если есть персональные настройки)
-.clinerules.local/
-cline_custom_instructions.md
-
-# Временные файлы сессий AI-инструментов
-*.cline-session
-*.cline-cache
 *.aider.chat.history.md
 *.aider.input.history
 *.claude-session.json
-*.opencode-session
 
 # === СЕКРЕТЫ И НАСТРОЙКИ (КРИТИЧЕСКИ ВАЖНО) ===
 # Файлы с API-ключами Anthropic, OpenAI, DeepSeek и др.
@@ -148,7 +140,7 @@ logs/
 *.temp
 
 # === Окружение IDE и ОС ===
-# VS Code (где обычно запущен Cline)
+# VS Code — основной редактор разработки
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
