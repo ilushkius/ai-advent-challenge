@@ -1,0 +1,161 @@
+"""Общие фейки и утилиты тестов дня 9 (импортируется как ``from support import ...``).
+
+Тесты не ходят в сеть и не пишут в рабочую БД `day9/agents.db`: движок создаётся
+на временном файле (`tmp_path`), а клиент DeepSeek подменяется `FakeClient`.
+Подменяется ровно одна точка — `Agent._make_client`, поэтому проверяется реальная
+логика агента (сборка payload, метрики, транзакции), а не заглушка вместо неё.
+
+Сюда же вынесен `seed_dialog` — наполнение диалога без вызовов API.
+"""
+from datetime import datetime, timezone
+from types import SimpleNamespace
+
+from backend.agent import Agent
+from backend.compressor import SUMMARY_SYSTEM_PROMPT
+from backend.database import AgentRecord
+from backend.models import AgentConfig
+
+
+# ---------- фейковый клиент DeepSeek ----------
+class FakeUsage:
+    """usage-блок ответа: числа запроса/ответа, как у OpenAI SDK."""
+
+    def __init__(self, prompt_tokens: int, completion_tokens: int) -> None:
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+        self.total_tokens = prompt_tokens + completion_tokens
+
+
+class FakeResponse:
+    """Минимальный ответ chat.completions: choices[0].message.content + usage."""
+
+    def __init__(self, content: str, prompt_tokens: int = 100,
+                 completion_tokens: int = 20) -> None:
+        self.choices = [
+            SimpleNamespace(
+                message=SimpleNamespace(content=content), finish_reason="stop"
+            )
+        ]
+        self.usage = FakeUsage(prompt_tokens, completion_tokens)
+
+
+class FakeCompletions:
+    """chat.completions: записывает вызовы и отвечает по роли запроса."""
+
+    def __init__(self, owner: "FakeClient") -> None:
+        self._owner = owner
+
+    def create(self, model, messages, temperature=None, max_tokens=None):
+        self._owner.calls.append(
+            {"model": model, "messages": messages, "temperature": temperature}
+        )
+        is_summary = bool(
+            messages and messages[0].get("content") == SUMMARY_SYSTEM_PROMPT
+        )
+        if is_summary and self._owner.summary_error is not None:
+            raise self._owner.summary_error
+        if not is_summary and self._owner.error is not None:
+            raise self._owner.error
+        if self._owner.responses:
+            return self._owner.responses.pop(0)
+        # Запрос суммаризации отличается системным промптом конспектёра.
+        if is_summary:
+            return FakeResponse(
+                self._owner.summary_reply,
+                prompt_tokens=self._owner.summary_prompt_tokens,
+                completion_tokens=self._owner.summary_completion_tokens,
+            )
+        return FakeResponse(
+            self._owner.reply,
+            prompt_tokens=self._owner.prompt_tokens,
+            completion_tokens=self._owner.completion_tokens,
+        )
+
+
+class FakeClient:
+    """Фейковый клиент DeepSeek с записью всех вызовов."""
+
+    def __init__(
+        self,
+        reply: str = "Ответ ассистента",
+        summary_reply: str = "- Пользователь спросил о погоде\n- Обсудили планы",
+        error: Exception | None = None,
+        summary_error: Exception | None = None,
+        responses: list | None = None,
+        prompt_tokens: int = 100,
+        completion_tokens: int = 20,
+        summary_prompt_tokens: int = 50,
+        summary_completion_tokens: int = 10,
+    ) -> None:
+        self.reply = reply
+        self.summary_reply = summary_reply
+        self.error = error
+        self.summary_error = summary_error
+        self.responses = list(responses or [])
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+        self.summary_prompt_tokens = summary_prompt_tokens
+        self.summary_completion_tokens = summary_completion_tokens
+        self.calls: list = []
+        self.chat = SimpleNamespace(completions=FakeCompletions(self))
+
+    @property
+    def generate_calls(self) -> list:
+        """Только вызовы генерации (без суммаризации)."""
+        return [
+            call for call in self.calls
+            if not (call["messages"]
+                    and call["messages"][0].get("content") == SUMMARY_SYSTEM_PROMPT)
+        ]
+
+    @property
+    def summary_calls(self) -> list:
+        """Только вызовы суммаризации."""
+        return [
+            call for call in self.calls
+            if call["messages"]
+            and call["messages"][0].get("content") == SUMMARY_SYSTEM_PROMPT
+        ]
+
+
+def seed_dialog(agent: Agent, turns: int) -> None:
+    """Наполняет диалог парами user/assistant без вызова API."""
+    for index in range(turns):
+        agent.save_message("user", f"Вопрос номер {index} про токены и контекст")
+        agent.save_message("assistant", f"Ответ номер {index} с подробностями")
+
+
+DEFAULT_AGENT_PARAMS = {
+    "name": "Тестовый агент",
+    "summary_enabled": True,
+    "keep_last_messages": 2,
+    "summarize_every": 2,
+}
+
+
+def create_agent(session_factory, agent_id: str, cfg=None, ensure_record: bool = True,
+                 **overrides) -> Agent:
+    """Создаёт агента ВМЕСТЕ со строкой в таблице agents (иначе FK не пустит реплики).
+
+    В приложении запись делает ``AgentManager.create_agent``; тестам нужен тот же
+    инвариант («агент есть в БД»), но без менеджера — он проверяется отдельно.
+    ``ensure_record=False`` строит второй объект Agent поверх уже существующей
+    записи — так эмулируется рестарт бэкенда.
+    """
+    if cfg is None:
+        params = dict(DEFAULT_AGENT_PARAMS)
+        params.update(overrides)
+        cfg = AgentConfig(**params)
+    if ensure_record:
+        with session_factory() as session:
+            session.add(AgentRecord(
+                agent_id=agent_id, name=cfg.name, model=cfg.model,
+                temperature=cfg.temperature, system_prompt=cfg.system_prompt,
+                max_tokens=cfg.max_tokens, summary_enabled=cfg.summary_enabled,
+                keep_last_messages=cfg.keep_last_messages,
+                summarize_every=cfg.summarize_every,
+                strategy=cfg.strategy, window_size=cfg.window_size,
+                created_at=datetime.now(timezone.utc),
+            ))
+            session.commit()
+    return Agent(cfg, agent_id=agent_id, session_factory=session_factory)

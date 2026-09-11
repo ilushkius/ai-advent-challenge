@@ -22,6 +22,7 @@
 | `day7/` | **День 7 · «Агент с контекстной памятью»** | FastAPI + Streamlit + SQLite: каждый агент хранит полный диалог в SQLite и отправляет его в DeepSeek целиком; память переживает рестарт (`backend/`, `app.py`) |
 | `day8/` | **День 8 · «Агент с контролем токенов»** | FastAPI + Streamlit + SQLite + tiktoken: подсчёт токенов каждого запроса (история/ответ), таблица `token_usage`, панель лимита в UI и автообрезка истории при переполнении контекста (`backend/`, `app.py`) |
 | `day9/` | **День 9 · «Управление контекстом: сжатие истории»** | FastAPI + Streamlit + SQLite + tiktoken: последние N реплик уходят «как есть», остальные заменяются конспектом (таблица `summaries`), метрики экономии токенов, сравнение режимов «без сжатия / со сжатием»; первая стейт-машина (`Enum` + State) и первые `pytest`-тесты (`backend/`, `app.py`, `tests/`) |
+| `day10/` | **День 10 · «Управление контекстом: стратегии»** | FastAPI + Streamlit + SQLite + tiktoken: четыре стратегии сборки контекста (sliding_window / sticky_facts / branching / summary) с переключателем, таблицы `facts` и `checkpoints`, сравнение в `comparison.md` (`backend/`, `app.py`, `tests/`) |
 | `shared/` | Общие утилиты | Чтение API-ключа, разбор stop-строк, `usage_to_dict`, endpoint DeepSeek (`deepseek_utils.py`) |
 | `.clauderules` | Правила проекта для агента | Свод правил ai-challenge: стек, конвенции, процесс, проверки, секреты |
 | `AGENTS.md` | Архитектурные цели | Стейт-машина на Python, `Enum` + паттерн State, тесты через `pytest` |
