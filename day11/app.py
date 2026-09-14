@@ -1351,15 +1351,21 @@ else:
         render_compare(active)
 
         # --- поле ввода и кнопки внизу ---
-        prompt = st.text_area(
-            "Сообщение агенту", key=f"prompt_{active['agent_id']}",
-            height=90, placeholder="Введите сообщение и нажмите «Отправить»…",
-        )
-        col_send, col_clear = st.columns(2)
-        can_send = bool(prompt and prompt.strip())
-        if col_send.button("🚀 Отправить", type="primary", disabled=not can_send,
-                           help="Контекст собирается текущей стратегией "
-                                "(окно / факты / ветка / конспект)."):
+        # Форма: значения виджетов уходят на сервер по нажатию «Отправить», а не
+        # по потере фокуса, поэтому отправка работает сразу после набора текста.
+        with st.form(key=f"chat_form_{active['agent_id']}", clear_on_submit=True):
+            prompt = st.text_area(
+                "Сообщение агенту", key=f"prompt_{active['agent_id']}",
+                height=90, placeholder="Введите сообщение и нажмите «Отправить»…",
+            )
+            sent = st.form_submit_button(
+                "🚀 Отправить", type="primary",
+                help="Контекст собирается текущей стратегией "
+                     "(окно / факты / ветка / конспект).",
+            )
+        if sent and not prompt.strip():
+            st.info("Пустое сообщение не отправлено: введите текст.")
+        elif sent:
             with st.spinner("🤖 Агент думает… это занимает несколько секунд"):
                 try:
                     record = api_generate(active["agent_id"], prompt)
@@ -1411,9 +1417,9 @@ else:
                         _flash("error", f"Генерация завершилась ошибкой: "
                                         f"{record.get('error')}")
                     st.rerun()
-        if col_clear.button("🧹 Очистить историю",
-                            help="Удаляет диалог, конспекты и метрики. "
-                                 "Конфигурация агента не меняется."):
+        if st.button("🧹 Очистить историю",
+                     help="Удаляет диалог, конспекты и метрики. "
+                          "Конфигурация агента не меняется."):
             try:
                 api_clear_history(active["agent_id"])
             except BackendError as exc:
