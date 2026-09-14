@@ -21,6 +21,7 @@
 | `day7/` | «Агент с контекстной памятью» | FastAPI + Streamlit + SQLite: диалог хранится в БД и переживает рестарт (`backend/`, `app.py`) |
 | `day8/` | «Агент с контролем токенов» | FastAPI + Streamlit + SQLite + tiktoken: подсчёт токенов, таблица `token_usage`, автообрезка истории (`backend/`, `app.py`) |
 | `day9/` | «Управление контекстом: сжатие истории» | FastAPI + Streamlit + SQLite + tiktoken: конспект старых реплик вместо полной истории (таблица `summaries`), сравнение режимов, стейт-машина на `Enum` + State, автотесты `pytest` (`backend/`, `app.py`, `tests/`) |
+| `day11/` | «Трёхслойная модель памяти агента» | FastAPI + Streamlit + SQLite + tiktoken: краткосрочная (`short_term_messages`, сессия), рабочая (`working_memory`, задача) и долговременная (`long_term_memory`, категории profile/preference/decision/knowledge) память, `MemoryManager`, десять эндпоинтов `/memory/...`, панели слоёв и индикатор расхода по слоям в UI, отчёт `memory_layers_comparison.md` (`backend/`, `app.py`, `tests/`) |
 | `shared/` | — | общие утилиты DeepSeek (`deepseek_utils.py`) |
 
 ## 2. Стек
@@ -42,6 +43,12 @@
 - Модели DeepSeek: `deepseek-chat` (основная), `deepseek-reasoner` (может
   игнорировать `temperature`/`response_format` — поведение провайдера, не баг).
   В day9 суммаризация всегда идёт на `deepseek-chat`.
+- Модели терминального агента omp.sh: DeepSeek V4.1 Flash провайдер отдаёт под
+  идом `deepseek-flash` (старое имя `deepseek-v4-flash` обслуживает тот же SKU;
+  `deepseek-v4-pro` — V4 Pro, без зрения). Настройки агента лежат только в
+  `.omp/config.yml` (проект) и `~/.omp/agent/config.yml` (глобально), метаданные
+  моделей — в `~/.omp/agent/models.yml` (там для V4.1 Flash включён приём
+  изображений). Файл `.omp.json` omp не читает — не создавать его снова.
 - Тесты: **pytest** — стандарт проекта; day9 — первый день с автотестами
   (`day9/tests/`, 167 тестов, запуск из папки дня). В остальных прикладных днях
   автотестов нет: проверка — `py_compile` + smoke-запуск.

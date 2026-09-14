@@ -1,0 +1,20 @@
+# Проектные настройки агента omp.sh для репозитория ai-challenge.
+#
+# omp читает ровно два файла настроек: этот (<проект>/.omp/config.yml) и
+# глобальный (~/.omp/agent/config.yml). Файл .omp.json в корне репозитория
+# агентом не читается — он был ошибочной попыткой настройки.
+#
+# DeepSeek V4.1 Flash отдаётся провайдером под идом `deepseek-flash`
+# (`deepseek-v4-flash` — тот же SKU под старым именем, `deepseek-v4-pro` — V4 Pro).
+# Приём изображений для V4.1 Flash включён в ~/.omp/agent/models.yml.
+# Уровни рассуждений у модели: low, high, max.
+modelRoles:
+  default: deepseek/deepseek-flash
+  # Основная модель умеет зрение — отдельная vision-модель не нужна.
+  vision: deepseek/deepseek-flash
+  task: deepseek/deepseek-flash
+  plan: deepseek/deepseek-flash
+  # Долгие разборы — самый высокий уровень рассуждений, дешёвые задачи — низкий.
+  slow: deepseek/deepseek-flash:max
+  smol: deepseek/deepseek-flash:low
+  tiny: deepseek/deepseek-flash:low

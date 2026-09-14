@@ -23,10 +23,11 @@
 | `day8/` | **День 8 · «Агент с контролем токенов»** | FastAPI + Streamlit + SQLite + tiktoken: подсчёт токенов каждого запроса (история/ответ), таблица `token_usage`, панель лимита в UI и автообрезка истории при переполнении контекста (`backend/`, `app.py`) |
 | `day9/` | **День 9 · «Управление контекстом: сжатие истории»** | FastAPI + Streamlit + SQLite + tiktoken: последние N реплик уходят «как есть», остальные заменяются конспектом (таблица `summaries`), метрики экономии токенов, сравнение режимов «без сжатия / со сжатием»; первая стейт-машина (`Enum` + State) и первые `pytest`-тесты (`backend/`, `app.py`, `tests/`) |
 | `day10/` | **День 10 · «Управление контекстом: стратегии»** | FastAPI + Streamlit + SQLite + tiktoken: четыре стратегии сборки контекста (sliding_window / sticky_facts / branching / summary) с переключателем, таблицы `facts` и `checkpoints`, сравнение в `comparison.md` (`backend/`, `app.py`, `tests/`) |
+| `day11/` | **День 11 · «Трёхслойная модель памяти агента»** | FastAPI + Streamlit + SQLite + tiktoken: память агента разложена на три слоя со своими таблицами — краткосрочная (`short_term_messages`, сессия), рабочая (`working_memory`, задача) и долговременная (`long_term_memory`, профиль/предпочтения/решения/знания); `MemoryManager`, десять эндпоинтов `/memory/...`, панели слоёв в UI, разбивка токенов по слоям в ответе генерации, отчёт `memory_layers_comparison.md` (`backend/`, `app.py`, `tests/`) |
 | `shared/` | Общие утилиты | Чтение API-ключа, разбор stop-строк, `usage_to_dict`, endpoint DeepSeek (`deepseek_utils.py`) |
 | `.clauderules` | Правила проекта для агента | Свод правил ai-challenge: стек, конвенции, процесс, проверки, секреты |
 | `AGENTS.md` | Архитектурные цели | Стейт-машина на Python, `Enum` + паттерн State, тесты через `pytest` |
-| `.omp.json` | Конфигурация omp.sh | Модель, `hashline_edits`, `hindsight_memory`, Python LSP (`pyright`) + `debugpy` |
+| `.omp/config.yml` | Конфигурация omp.sh | Модель по умолчанию — `deepseek/deepseek-flash` (DeepSeek V4.1 Flash) и роли моделей |
 
 ## Стек технологий
 
@@ -42,7 +43,7 @@
 | Стейт-машина | `enum.Enum` + паттерн State (чистый Python, `backend/context_fsm.py`) — первая реализация архитектурной цели `AGENTS.md` | day9 |
 | Тесты | `pytest` (день 9: 167 тестов — FSM, политика сжатия, хранилище, компрессор, агент, API) | day9 |
 | Виртуальные окружения | `day2/.venv` (streamlit 1.62.0, openai 3.6.0); `day5/.venv` (streamlit 1.63.0, huggingface_hub 1.30.0); `day6/.venv` (fastapi, streamlit, openai, requests); `day9/.venv` (fastapi, sqlalchemy, tiktoken, pytest и др.) | day2–day3, day5, day6, day9 |
-| Инструменты разработки | терминальный агент **omp.sh** (модель `deepseek/deepseek-flash`), Python LSP `pyright`, `debugpy` | AI-воркфлоу |
+| Инструменты разработки | терминальный агент **omp.sh** (модель `deepseek/deepseek-flash` — DeepSeek V4.1 Flash), Python LSP `pyright`, `debugpy` | AI-воркфлоу |
 
 Код дней 1–4 и 6–9 написан в синтаксисе, совместимом с OpenAI SDK 1.x/2.x/3.x
 (`OpenAI(api_key=..., base_url=...)`); день 5 использует
@@ -92,12 +93,31 @@ cd day9 && pip install -r requirements.txt
 
 ```bash
 # терминальный агент omp.sh — правила берёт из .clauderules и AGENTS.md,
-# конфигурацию — из .omp.json
+# настройки проекта — из .omp/config.yml
 pip install pyright debugpy                  # Python LSP и дебаггер для агента
 ```
 
-> Конфигурация и правила уже лежат в репозитории (`.omp.json`, `.clauderules`,
-> `AGENTS.md`); повторная настройка нужна только на новой машине.
+> Правила и настройки уже лежат в репозитории (`.clauderules`, `AGENTS.md`,
+> `.omp/config.yml`); повторная настройка нужна только на новой машине.
+
+Отдельно один раз на машине создайте файл `~/.omp/agent/models.yml` — он
+включает приём изображений для DeepSeek V4.1 Flash (во вшитом в omp 18.1.21
+каталоге модель помечена как текстовая, хотя зрение у неё есть):
+
+```yaml
+# ~/.omp/agent/models.yml
+providers:
+  deepseek:
+    modelOverrides:
+      deepseek-flash:
+        input: [text, image]
+        compat:
+          stripImageInput: false
+      deepseek-v4-flash:
+        input: [text, image]
+        compat:
+          stripImageInput: false
+```
 
 ## Как запустить
 
@@ -163,10 +183,16 @@ python -m pytest -q                              # автотесты дня 9 (
 - [`AGENTS.md`](AGENTS.md) — архитектурные цели: стейт-машина на Python, правила
   работы с `Enum` и паттерном State, запуск тестов через `pytest`.
 
-Конфигурация агента — [`.omp.json`](.omp.json): модель по умолчанию
-`deepseek/deepseek-flash`, правки по хэшу строк (`hashline_edits`), локальная
-память (`hindsight_memory`), встроенный Python LSP (`pyright --stdio`) и
-дебаггер `debugpy`.
+Конфигурация агента — [`.omp/config.yml`](.omp/config.yml): модель по умолчанию
+`deepseek/deepseek-flash` (DeepSeek V4.1 Flash) и её роли (`smol`, `slow`, `plan`,
+`task`, `vision`). Файл `.omp.json` в корне omp не читает: настройки проекта
+живут только в `.omp/config.yml`, глобальные — в `~/.omp/agent/config.yml`.
+
+Метаданные моделей уточняются в `~/.omp/agent/models.yml` — файл
+пользовательский, в репозиторий не попадает. Там для `deepseek-flash` включён
+приём изображений: V4.1 Flash умеет зрение, а каталог omp 18.1.21 считает этот SKU
+текстовым. Python LSP (`pyright`) и дебаггер `debugpy` берутся из встроенных
+настроек omp — отдельная конфигурация для них не нужна.
 
 ### Как проходит работа
 
