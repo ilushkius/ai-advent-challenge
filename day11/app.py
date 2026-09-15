@@ -16,10 +16,12 @@
   знания; переживает и сессии, и задачи.
 
 Интерфейс: в основной области — три вкладки панелей памяти (краткосрочная,
-рабочая, долговременная) и индикатор слоёв перед диалогом, который показывает,
-что именно ушло в последний запрос; в боковой панели — блок «🗂 Задача и сессия»
-с переключателем задачи и кнопкой «🆕 Новая сессия». Переключатель стратегии
-сборки контекста (день 10) остаётся рядом.
+рабочая, долговременная), индикатор слоёв перед диалогом, который показывает,
+что именно ушло в последний запрос, кнопка «🎬 Прогнать сценарий дня 11» с
+панелью «📋 Итог сценария дня 11» (прогон 12 реплик «собираем ТЗ» по трём слоям);
+в боковой панели — блок «🗂 Задача и сессия» с переключателем задачи и кнопкой
+«🆕 Новая сессия». Переключатель стратегии сборки контекста (день 10) остаётся
+рядом.
 
 Запуск из папки day11/:  streamlit run app.py  (бэкенд запускается отдельно:
 uvicorn backend.main:app --port 8000)
@@ -61,34 +63,87 @@ LAYER_LABELS = {
     "long_term": "🧠 Долговременная",
 }
 
-# Тестовый сценарий «собираем ТЗ» (12 реплик). Формат «ключ: значение» намеренно
-# подходит и для sticky_facts (эвристика извлекает факты), и для остальных
-# стратегий как обычный диалог о собираемом техническом задании.
-TEST_SCENARIO = [
-    "Название проекта: Корпоративный портал",
-    "Стек: Python 3.14 + FastAPI",
-    "База данных: PostgreSQL",
-    "Срок: 3 месяца",
-    "Бюджет: 5000 долларов",
-    "Авторизация: JWT",
-    "Роли пользователей: админ, менеджер, сотрудник",
-    "Интеграции: отправка почты через SMTP",
-    "Язык интерфейса: русский",
-    "Ограничение: только on-premise, без облака",
-    "Отчётность: еженедельные PDF-отчёты",
-    "Тестирование: pytest с покрытием не ниже 80%",
-]
+# Задача сценария демонстрации: числа отчёта memory_layers_comparison.md
+# посчитаны именно на ней.
+SCENARIO_TASK_ID = "tz-portal"
 
-# Альтернативные хвосты для демонстрации ветвления (после 6-й реплики).
-BRANCH_ALT_A = [
-    "Вариант A: добавим мобильное приложение",
-    "Вариант A: стек для мобильного — React Native",
-    "Вариант A: срок вырастет до 4 месяцев",
-]
-BRANCH_ALT_B = [
-    "Вариант B: только веб-версия",
-    "Вариант B: стек остаётся FastAPI + шаблоны",
-    "Вариант B: срок остаётся 3 месяца",
+# Сценарий дня 11 (12 реплик): текст реплики + маршрутизация в рабочую
+# (working) и долговременную (long_term) память. Данные — те же, что в
+# офлайн-прогоне memory_layers_demo.py (SCENARIO, строки 39-113): UI ходит в
+# бэкенд только по HTTP, поэтому список продублирован, а не импортируется.
+MEMORY_SCENARIO = [
+    {
+        "text": "Название проекта: Корпоративный портал",
+        "note": "рабочая — цель задачи; долговременная — роль пользователя",
+        "working": ("цель", "Корпоративный портал"),
+        "long_term": ("profile", "роль_пользователя", "аналитик", 0.9),
+    },
+    {
+        "text": "Стек: Python 3.14 + FastAPI",
+        "note": "рабочая — технологический стек; долговременная — знание о команде",
+        "working": ("стек", "Python 3.14 + FastAPI"),
+        "long_term": ("knowledge", "стек_команды", "Python 3.14 + FastAPI", 0.7),
+    },
+    {
+        "text": "База данных: PostgreSQL",
+        "note": "долговременная — принятое решение о СУБД",
+        "working": None,
+        "long_term": ("decision", "бд", "PostgreSQL", 0.8),
+    },
+    {
+        "text": "Срок: 3 месяца",
+        "note": "рабочая — срок относится к текущей задаче",
+        "working": ("срок", "3 месяца"),
+        "long_term": None,
+    },
+    {
+        "text": "Бюджет: 5000 долларов",
+        "note": "рабочая — бюджет задачи",
+        "working": ("бюджет", "5000 долларов"),
+        "long_term": None,
+    },
+    {
+        "text": "Авторизация: JWT",
+        "note": "только краткосрочная: обсуждение в текущей сессии",
+        "working": None,
+        "long_term": None,
+    },
+    {
+        "text": "Роли пользователей: админ, менеджер, сотрудник",
+        "note": "только краткосрочная: деталь реплики, не долговечная настройка",
+        "working": None,
+        "long_term": None,
+    },
+    {
+        "text": "Интеграции: отправка почты через SMTP",
+        "note": "только краткосрочная: обсуждается в диалоге",
+        "working": None,
+        "long_term": None,
+    },
+    {
+        "text": "Язык интерфейса: русский",
+        "note": "долговременная — устойчивое предпочтение пользователя",
+        "working": None,
+        "long_term": ("preference", "язык_интерфейса", "русский", 0.95),
+    },
+    {
+        "text": "Ограничение: только on-premise, без облака",
+        "note": "рабочая — ограничение задачи",
+        "working": ("ограничение", "только on-premise"),
+        "long_term": None,
+    },
+    {
+        "text": "Отчётность: еженедельные PDF-отчёты",
+        "note": "только краткосрочная: деталь обсуждения",
+        "working": None,
+        "long_term": None,
+    },
+    {
+        "text": "Тестирование: pytest с покрытием не ниже 80%",
+        "note": "рабочая — критерий приёмки задачи",
+        "working": ("критерий_приёмки", "pytest, покрытие не ниже 80%"),
+        "long_term": None,
+    },
 ]
 
 # Состояния стейт-машины сжатия (бэкенд отдаёт их строкой) — для человека.
@@ -930,63 +985,139 @@ def render_memory_indicator(active) -> None:
                    + ", ".join(keywords))
 
 
-def run_test_scenario(active) -> None:
-    """Прогоняет сценарий «собираем ТЗ» на активном агенте (его стратегией).
+def _layer_line(memory: dict) -> str:
+    """«короткая 6/75 · рабочая 4/98 · долговременная 3/116» из record["memory"]."""
+    layers = {layer.get("layer"): layer for layer in (memory or {}).get("layers") or []}
+    if not layers:
+        return "слои: —"
+    parts = []
+    for key, label in (("short_term", "короткая"), ("working", "рабочая"),
+                       ("long_term", "долговременная")):
+        layer = layers.get(key) or {}
+        parts.append(f"{label} {int(layer.get('entries') or 0)}/"
+                     f"{int(layer.get('tokens') or 0)}")
+    return " · ".join(parts)
 
-    Выполняется прямо в обработчике нажатия (Streamlit блокирует UI на время
-    прогона), затем страница перезагружается. Для branching дополнительно
-    демонстрирует ветвление: после 6-й реплики создаётся развилка, по ветке A
-    идут ещё 3 реплики, затем — переключение на точку развилки и хвост B.
+
+def _layer_counts(agent_id: str) -> dict:
+    """Число записей в каждом слое (три GET-запроса к /memory/...)."""
+    return {
+        "short_term": len(api_short_term(agent_id).get("messages") or []),
+        "working": len(api_working(agent_id).get("entries") or []),
+        "long_term": len(api_long_term(agent_id).get("entries") or []),
+    }
+
+
+def run_memory_scenario(active) -> None:
+    """Прогоняет сценарий дня 11 (12 реплик) на активном агенте.
+
+    Ставит активную задачу ``tz-portal``, перед каждой репликой пишет данные в
+    рабочую и долговременную память, отправляет реплики и в конце начинает
+    новую сессию — так видно, что краткосрочный слой обнуляется, а рабочая и
+    долговременная память остаются. Выполняется прямо в обработчике нажатия
+    (Streamlit блокирует UI на время прогона), затем страница перезагружается.
     """
     agent_id = active.get("agent_id")
-    strategy = active.get("strategy", "summary")
 
     col_btn, _ = st.columns([2, 2])
     with col_btn:
         clicked = st.button(
-            "🎬 Запустить тестовый сценарий",
-            help="Отправит 12 реплик «собираем ТЗ» (для branching — "
-                 "с демонстрацией развилки) через текущую стратегию.",
+            "🎬 Прогнать сценарий дня 11",
+            help="Ставит активную задачу tz-portal, записывает 6 записей рабочей "
+                 "и 4 — долговременной памяти, отправляет 12 реплик и завершает "
+                 "«Новой сессией»: краткосрочный слой 24 → 0, рабочая и "
+                 "долговременная память остаются.",
         )
     if not clicked:
         return
 
     progress = st.progress(0.0)
     status = st.empty()
-
-    def _step(i, total):
-        progress.progress(i / total)
-        status.caption(f"Реплика {i}/{total}…")
-
-    prompts = list(TEST_SCENARIO)
-    total = len(prompts) + (6 if strategy == "branching" else 0)
+    steps = []
     try:
-        if strategy == "branching":
-            # Первые 6 реплик — на стволе; затем развилка.
-            for i, prompt in enumerate(prompts[:6]):
-                api_generate(agent_id, prompt)
-                _step(i + 1, total)
-            fork = api_create_branch(agent_id, None)
-            fork_id = fork.get("active_branch_id")
-            for i, prompt in enumerate(BRANCH_ALT_A):
-                api_generate(agent_id, prompt)
-                _step(7 + i, total)
-            api_switch_branch(agent_id, fork_id)
-            for i, prompt in enumerate(BRANCH_ALT_B):
-                api_generate(agent_id, prompt)
-                _step(10 + i, total)
-        else:
-            for i, prompt in enumerate(prompts):
-                api_generate(agent_id, prompt)
-                _step(i + 1, total)
+        api_set_task(agent_id, SCENARIO_TASK_ID)
+        for i, step in enumerate(MEMORY_SCENARIO, start=1):
+            if step["working"]:
+                key, value = step["working"]
+                api_add_working(agent_id, key, value)
+            if step["long_term"]:
+                category, key, value, confidence = step["long_term"]
+                api_add_long_term(agent_id, category, key, value, confidence)
+            record = api_generate(agent_id, step["text"])
+            if record.get("status") != "ok":
+                raise BackendError(record.get("error") or "генерация вернула ошибку")
+            memory = record.get("memory") or {}
+            layers = {layer.get("layer"): layer
+                      for layer in memory.get("layers") or []}
+            steps.append({"number": i, "text": step["text"], "note": step["note"],
+                          "layers": layers})
+            progress.progress(i / (len(MEMORY_SCENARIO) + 1))
+            status.caption(f"Реплика {i}/{len(MEMORY_SCENARIO)} · "
+                           f"{_layer_line(memory)}")
+        before = _layer_counts(agent_id)
+        session = api_new_session(agent_id)
+        after = _layer_counts(agent_id)
     except BackendError as exc:
-        _flash("error", f"Сценарий прерван: {exc.message}")
+        _flash("error", f"Сценарий прерван на шаге {len(steps) + 1}: {exc.message}")
     else:
-        _flash("success", "Сценарий «собираем ТЗ» пройден на всех репликах.")
+        st.session_state["scenario_summary"] = {
+            "agent_id": agent_id, "task_id": SCENARIO_TASK_ID, "session": session,
+            "before": before, "after": after, "steps": steps,
+        }
+        st.session_state["last_memory"].pop(agent_id, None)
+        _flash("success",
+               f"Сценарий дня 11 пройден: краткосрочная {before['short_term']} → "
+               f"{after['short_term']} (удалено {session.get('deleted_messages', 0)}), "
+               f"рабочая {before['working']} → {after['working']}, долговременная "
+               f"{before['long_term']} → {after['long_term']}.")
     finally:
+        st.session_state["chat_agent_id"] = None
         _load_agents()
-        st.session_state["chat_agent_id"] = None  # перечитаем диалог
-    st.rerun()
+        st.rerun()
+
+
+def render_scenario_summary(active) -> None:
+    """Панель «📋 Итог сценария дня 11»: числа прогона и таблица шагов.
+
+    Данные — из ``st.session_state["scenario_summary"]``, который заполняет
+    ``run_memory_scenario``; пока сценарий не прогоняли на этом агенте, панель
+    не рисуется.
+    """
+    summary = st.session_state.get("scenario_summary")
+    if not summary or summary.get("agent_id") != active.get("agent_id"):
+        return
+
+    before, after = summary["before"], summary["after"]
+    session = summary["session"]
+    st.subheader("📋 Итог сценария дня 11")
+    st.caption(
+        f"Задача **{summary['task_id']}** · сессия "
+        f"**{session.get('previous_session_id')} → {session.get('session_id')}** · "
+        f"краткосрочная {before['short_term']} → {after['short_term']} "
+        f"(удалено {session.get('deleted_messages', 0)}) · рабочая "
+        f"{before['working']} → {after['working']} · долговременная "
+        f"{before['long_term']} → {after['long_term']}"
+    )
+
+    def _layer_cells(layers):
+        """Значения слоёв шага «записей/токенов» в порядке колонок таблицы."""
+        cells = {}
+        for key, column in (("short_term", "короткая"), ("working", "рабочая"),
+                            ("long_term", "долговременная")):
+            layer = layers.get(key) or {}
+            cells[column] = (f"{int(layer.get('entries') or 0)}/"
+                             f"{int(layer.get('tokens') or 0)}")
+        return cells
+
+    rows = [{"шаг": step["number"], "реплика": step["text"],
+             "маршрутизация": step["note"], **_layer_cells(step["layers"])}
+            for step in summary["steps"]]
+    st.dataframe(rows, hide_index=True, use_container_width=True)
+    st.caption("На агенте, в сессии которого ещё нет реплик, число записей по "
+               "шагам — как в таблице отчёта `memory_layers_comparison.md` "
+               "(шаги 1–12); токены короткого слоя в живом прогоне больше: в слой "
+               "входят фактические ответы модели, а отчёт снят на фейковом "
+               "клиенте.")
 
 
 # ================= UI: состояние и helpers =================
@@ -1316,8 +1447,9 @@ else:
 
         st.divider()
 
-        # --- тестовый сценарий «собираем ТЗ» (день 10) ---
-        run_test_scenario(active)
+        # --- сценарий дня 11: прогон 12 реплик по трём слоям + итог ---
+        run_memory_scenario(active)
+        render_scenario_summary(active)
 
         # --- диалог: роль + текст каждого сообщения + маркер сжатия ---
         _ensure_chat(active)
