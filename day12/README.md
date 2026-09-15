@@ -8,21 +8,28 @@ SQLite + tiktoken), три слоя памяти, четыре стратеги�
 системному промпту **каждого** запроса агента. Настройки профиля (обращение,
 стиль, длина, язык, формат ответа, ограничения и произвольные инструкции)
 применяются ко всем агентам пользователя на лету, без перезапуска бэкенда, и не
-смешиваются с тремя слоями памяти. Код дней 1–11 не изменялся — все изменения
-внутри `day12/`. Инструкция — [docs/usage.md](docs/usage.md).
+смешиваются с тремя слоями памяти. Код дней 1–11 не изменялся — их файлы не
+тронуты; изменения только внутри `day12/` (рефакторинг в модульную структуру)
+плюс общий пакет `shared/` в корне репозитория, куда вынесен код, не меняющийся
+между днями. Карта модулей — [STRUCTURE.md](STRUCTURE.md), междневные
+изменения — [../CHANGELOG.md](../CHANGELOG.md). Инструкция —
+[docs/usage.md](docs/usage.md).
 
 ## Что нового относительно дня 11
 
 | Новое | Где |
 |---|---|
-| Таблица `user_profiles` (ORM-класс `database.UserProfile`) и колонка `agents.user_id` | `backend/database.py` |
-| Чистые правила профиля: перечисления полей, нормализация, сборка блока промпта | `backend/profiles.py` |
+| Таблица `user_profiles` (ORM-класс `UserProfile`) и колонка `agents.user_id` | `backend/tables.py` (реэкспорт — `backend/database.py`) |
+| Чистые правила профиля: перечисления полей, нормализация, сборка блока промпта | `backend/profiles.py`, `backend/profile_values.py` |
 | Хранилище профиля (`load`/`get`/`list_all`/`create`/`update`/`delete`) через фабрику сессий | `backend/profile_store.py` |
 | Готовые профили демонстрации для интерфейса и отчёта | `backend/demo_profiles.py` |
-| Пять эндпоинтов профиля и `GET /agents/{agent_id}/profile` | `backend/main.py` |
+| Пять эндпоинтов профиля и `GET /agents/{agent_id}/profile` | `backend/routers/profiles.py` |
 | Блок персонализации — первый блок системного сообщения каждого запроса | `Agent._system_message()` |
-| Поля `profile` и `system_prompt` в ответе `POST /agents/{agent_id}/generate` | `backend/models.py` |
-| Раздел «👤 Профиль пользователя» в Streamlit | `app.py` |
+| Поля `profile` и `system_prompt` в ответе `POST /agents/{agent_id}/generate` | `backend/models/agent.py` |
+| Раздел «👤 Профиль пользователя» в Streamlit | `ui/profile_section.py` |
+| Модульная раскладка дня (после рефакторинга): роутеры по доменам, схемы по доменам, ORM отдельно | `backend/routers/`, `backend/models/`, `backend/tables.py`, `ui/` |
+| Общий код дня вынесен в пакет `shared/` (клиент DeepSeek, база, токены, логи) | `shared/deepseek_client.py`, `shared/db_base.py`, `shared/token_counter.py`, `shared/logging_utils.py` |
+| Карта модулей дня | [`STRUCTURE.md`](STRUCTURE.md) |
 | Скрипт и отчёт сравнения профилей | `personalization_comparison.py`, `personalization_comparison.md` |
 
 Что при этом **убрано** из `day12/`: сценария дня 11 больше нет — вместе с ним
@@ -405,11 +412,17 @@ API → метрики (включая токены по слоям) в БД →
 
 ```
 day12/
-├── app.py               # Streamlit: разделы «💬 Чат и память» и «👤 Профиль пользователя»
-│                        # (форма профиля, три готовых профиля, предпросмотр блока промпта,
-│                        # сравнение двух профилей на одном вопросе); панели трёх слоёв памяти,
-│                        # блок «Задача и сессия», индикатор слоёв, переключатель стратегии,
-│                        # факты/ветки/токены, сравнение режимов сжатия
+├── app.py               # Streamlit, точка входа (40 строк): set_page_config →
+│                        # common.init_state() → sidebar.render_sidebar() → chat_section.render_main_area()
+├── ui/                  # интерфейс по секциям (8 модулей, карта — в STRUCTURE.md)
+│   ├── api_client.py    # HTTP-клиент бэкенда (requests): BACKEND_URL, BackendError
+│   ├── common.py        # подписи, форматтеры, st.session_state, выбор активного агента
+│   ├── sidebar.py       # боковая панель: список агентов, создание агента, стратегия, задача и сессия
+│   ├── chat_section.py  # раздел «💬 Чат и память»: карточка агента, панели, диалог, форма ввода
+│   ├── context_panels.py# панели контекста: токены, сжатие, сравнение режимов, ветки, факты
+│   ├── memory_panels.py # панели трёх слоёв памяти и индикатор «что ушло в последний запрос»
+│   ├── profile_section.py     # раздел «👤 Профиль пользователя»: форма, переключение, предпросмотр
+│   └── profile_comparison.py  # сравнение двух профилей на одном вопросе (временные агенты)
 ├── personalization_comparison.py # прогон трёх профилей: реальные ответы DeepSeek или
 │                        # офлайн-заглушка (--no-api), запись отчёта
 ├── personalization_comparison.md # отчёт: «профиль — настройки — ответ — что повлияло»
@@ -426,21 +439,25 @@ day12/
 │   ├── fact_extractor.py# эвристика извлечения фактов «ключ: значение»
 │   ├── context_fsm.py   # стейт-машина сжатия: ContextState/ContextEvent (Enum) + State
 │   ├── context_policy.py# чистая арифметика: когда сжимать, что оставить
-│   ├── database.py      # SQLAlchemy: agents (в том числе user_id) / user_profiles /
+│   ├── tables.py        # ORM-таблицы (SQLAlchemy): agents (в том числе user_id) / user_profiles /
 │   │                    # short_term_messages / working_memory / long_term_memory /
 │   │                    # summaries / token_usage / facts / checkpoints
-│   ├── models.py        # Pydantic-схемы API (профиль, слои памяти, стратегии, ветки, факты)
+│   ├── database.py      # движок и фабрика сессий через shared/db_base.py + реэкспорт таблиц
+│   ├── models/          # Pydantic-схемы API по доменам: agent, context, memory, profile
+│   ├── routers/         # эндпоинты по доменам: agents (11), context (9), memory (10), profiles (6)
+│   ├── dependencies.py  # get_manager / agent_or_404 — доступ роутеров к менеджеру
+│   ├── manager_*.py     # миксины AgentManager: агенты, контекст, память, профили, статистика
 │   ├── compressor.py    # ContextCompressor: план, суммаризация, запись конспекта (summary)
 │   ├── agent.py         # Agent: session_id/task_id, профиль, слои памяти, токены, prepare_context
-│   ├── agent_manager.py # AgentManager: пул, restore, профили пользователей, стратегии, ветки, факты
-│   └── main.py          # FastAPI: эндпоинты персонализации (/users, /agents/{id}/profile)
-│                        # и унаследованные из дня 11 (/memory/..., стратегии, ветки, факты)
+│   ├── agent_manager.py # AgentManager (синглтон из миксинов): пул, restore, профили, стратегии, ветки
+│   └── main.py          # FastAPI: сборка app — lifespan, CORS, include_router (84 строки)
 ├── tests/               # pytest: новые наборы персонализации (test_profiles, test_profile_store,
 │                        # test_profile_agent, test_profile_api) плюс унаследованные из дня 11
 │                        # (слои памяти, API слоёв, стратегии, факты, ветки, FSM, хранилище,
 │                        # компрессор, API) — 314 тестов
+├── STRUCTURE.md         # карта модулей дня: раскладка, что импортируется из shared/, лимит 400 строк
 ├── docs/
-│   ├── architecture.md  # компоненты, схема БД, слои памяти, персонализация, стратегии, поток данных
+│   ├── architecture.md  # компоненты и модульная структура, схема БД, слои памяти, персонализация
 │   ├── api.md           # эндпоинты с примерами и кодами ошибок
 │   └── usage.md         # установка, запуск, слои памяти, профиль пользователя, проверки, FAQ
 ├── pytest.ini           # конфигурация pytest: testpaths = tests, pythonpath = . tests

@@ -85,13 +85,49 @@ Enum. Каждая стратегия формирует список сообщ
 | `backend/config.py` | URL и модели DeepSeek, дефолты агента, лимиты/тарифы, настройки сжатия, `DEFAULT_STRATEGY`/`DEFAULT_WINDOW_SIZE`, константы слоёв (`DEFAULT_TASK_ID`, `LONG_TERM_LIMIT`, лимиты записей), путь БД и `.env` |
 | `backend/context_fsm.py` | Стейт-машина процесса сжатия (Enum + паттерн State) — используется только стратегией `summary` |
 | `backend/context_policy.py` | Чистая арифметика сжатия: `CompressionPolicy`, `CompressionPlan`, `plan_compression`, `split_uncovered` |
-| `backend/database.py` | SQLAlchemy: движок, сессии, ORM-таблицы `agents`, `short_term_messages`, `working_memory`, `long_term_memory`, `summaries`, `token_usage`, `facts`, `checkpoints` и `user_profiles` (`UserProfile`) |
-| `backend/models.py` | Pydantic-схемы API: конфигурация/патч агента, стратегии, ветки, факты, тела и ответы эндпоинтов памяти, `MemoryInfo` в ответе генерации, схемы персонализации `UserProfileIn`/`UserPreferences`/`UserConstraints` (с `extra="forbid"`), `UserProfileOut`, `UserProfileDeleteOut`, `ProfileElementOut`, `AppliedProfileOut` |
+| `backend/tables.py` | ORM-таблицы (SQLAlchemy): `AgentRecord` (`agents`, в том числе `user_id`), `ShortTermMessage`, `WorkingMemory`, `LongTermMemory`, `Summary`, `TokenUsage`, `Fact`, `Checkpoint`, `UserProfile` |
+| `backend/database.py` | Движок и фабрика сессий из `config.DATABASE_URL` через `shared/db_base.py` (`make_engine` / `init_db` / `make_session_factory`) плюс реэкспорт ORM-таблиц из `backend/tables.py` — остальной код импортирует их из `backend.database` |
+| `backend/models/` | Пакет Pydantic-схем API по доменам: `agent.py` (конфигурация/патч агента, генерация, `TokenMetrics`), `context.py` (сжатие, стратегии, ветки, факты), `memory.py` (три слоя памяти), `profile.py` (схемы персонализации `UserProfileIn`/`UserPreferences`/`UserConstraints` с `extra="forbid"`, `UserProfileOut`, `AppliedProfileOut`); `models/__init__.py` реэкспортирует все имена, поэтому импорт остался `from backend.models import ...` |
+| `backend/routers/` | Эндпоинты по доменам: `agents.py` (11), `context.py` (9), `memory.py` (10), `profiles.py` (6) — всего 36; пути абсолютные (`/agents/...`), префиксов нет |
+| `backend/dependencies.py` | `get_manager()` (менеджер резолвится в момент вызова — тесты подменяют `main.get_manager`) и `agent_or_404()` |
+| `ui/` | Streamlit-интерфейс по секциям: `sidebar`, `chat_section`, `context_panels`, `memory_panels`, `profile_section`, `profile_comparison`, `common`, `api_client`; `app.py` — только точка входа (40 строк) |
 | `backend/compressor.py` | `ContextCompressor`: план сжатия, суммаризация, запись в `summaries` (только `summary`) |
 | `backend/agent.py` | `Agent`: `session_id`/`task_id`, слои памяти (`new_session`, `set_task`, `build_memory_context`, `memory_state`), токены, `prepare_context` + `_prepare_*`, факты, ветки, `generate`, `compare_modes`, `summary_state`; персонализация — `user_id`, `profile`, `profile_store`, `reload_profile`, `apply_profile`, `profile_report`, `profile_state`, `_system_text`, блок профиля в `_system_message` |
-| `backend/agent_manager.py` | `AgentManager` (синглтон): пул, `restore_from_db`, стратегии, ветки, факты, обёртки слоёв памяти, агрегаты `token_usage`; персонализация — `get_user_profile`, `create_user_profile`, `update_user_profile`, `delete_user_profile`, `list_user_profiles`, `get_agent_profile`, `profile_store`, применение профиля к живым агентам |
-| `backend/main.py` | FastAPI: 36 эндпоинтов (наследованные из дня 11 память/стратегии/ветки/факты/метрики, корневой `GET /` с полем `personalization` и шесть эндпоинтов персонализации), обработка 404/409/422/502 |
+| `backend/agent_manager.py` | `AgentManager` (синглтон), собранный из миксинов `backend/manager_agents.py`, `manager_context.py`, `manager_memory.py`, `manager_profiles.py`, `manager_usage.py`: пул, `restore_from_db`, стратегии, ветки, факты, обёртки слоёв памяти, агрегаты `token_usage`; персонализация — `get_user_profile`, `create_user_profile`, `update_user_profile`, `delete_user_profile`, `list_user_profiles`, `get_agent_profile`, `profile_store`, применение профиля к живым агентам |
+| `backend/main.py` | Сборка FastAPI-приложения (84 строки): заголовок и версия, CORS, `lifespan` (создание таблиц + восстановление агентов), `include_router` четырёх роутеров; сами 36 эндпоинтов (наследованные из дня 11 память/стратегии/ветки/факты/метрики, корневой `GET /` с полем `personalization` и шесть эндпоинтов персонализации) и обработка 404/409/422/502 — в `backend/routers/` |
 | `tests/` | Офлайн-тесты (фейковый клиент DeepSeek + временная SQLite) по всем слоям и по персонализации (`test_profiles`, `test_profile_store`, `test_profile_agent`, `test_profile_api`) |
+
+### Модульная структура (после рефакторинга)
+
+До рефакторинга (коммит `9c7021c`) день был набором крупных файлов: `app.py` —
+1852 строки, `backend/main.py` — 660, `backend/agent_manager.py` — 637,
+`backend/models.py` — 845, `backend/database.py` — 425, `backend/profiles.py` —
+343. Теперь **архитектура модульная**: у каждого слоя своя папка и свой домен,
+а общий код вынесен в пакет `shared/` в корне репозитория.
+
+| Слой | Модули | Что даёт |
+|---|---|---|
+| Интерфейс | `app.py` (точка входа, 40 строк), `ui/` (8 секций) | Страница собирается вызовами секций: `common.init_state()` → `sidebar.render_sidebar()` → `chat_section.render_main_area()`; модули `ui/` не вызывают `st.*` на импорте |
+| API | `backend/main.py` (сборка `app`), `backend/routers/` (4 роутера), `backend/dependencies.py` | Эндпоинт лежит в файле своего домена; доступ к менеджеру — одна точка (`dependencies.get_manager`), её и подменяют тесты |
+| Схемы API | `backend/models/` (`agent`, `context`, `memory`, `profile` + `__init__.py`) | Схемы разложены по доменам, а импорт остался `from backend.models import ...` |
+| Данные | `backend/tables.py` (ORM-таблицы), `backend/database.py` (движок и сессии) | Таблицы дня наследуются от `shared.db_base.Base`; движок и фабрика сессий — общие помощники `shared/db_base.py` |
+| Домен | `backend/agent.py`, `backend/agent_manager.py` + `manager_*.py`, `memory.py`, `memory_layers.py`, `profiles.py`, `profile_store.py`, `profile_values.py`, `compressor.py`, `context_fsm.py`, `context_policy.py`, `strategies.py`, `fact_extractor.py`, `demo_profiles.py` | Логика дня; крупный класс `AgentManager` собран из миксинов по доменам |
+| Общий код | `shared/` | Код, не меняющийся между днями: клиент DeepSeek, база SQLAlchemy, токены, логи |
+
+Что день 12 берёт из `shared/`:
+
+| Модуль дня | Импорт | Зачем |
+|---|---|---|
+| `backend/__init__.py` | добавляет корень репозитория в `sys.path` (`parents[2]`) | Чтобы `from shared...` работал в любом модуле дня — без правок тестов и копий кода |
+| `backend/agent.py` | `deepseek_client.make_client`, `token_counter.count_tokens` | Клиент DeepSeek на агента и локальная оценка токенов контекста |
+| `backend/config.py` | `deepseek_utils.DEEPSEEK_BASE_URL`, `read_key_from_env_file` | Адрес API и чтение `DEEPSEEK_API_KEY` из `.env` дня |
+| `backend/database.py` | `db_base.Base`, `init_db`, `make_engine`, `make_session_factory` | Движок и сессии SQLite (`check_same_thread=False`, `PRAGMA foreign_keys=ON`) |
+| `backend/tables.py` | `db_base.Base` | Декларативная база для ORM-классов дня |
+| `backend/main.py` | `logging_utils.get_logger` | Логгер бэкенда; вывод включается только явным `configure_logging()` |
+
+Ограничение размера: любой `.py` ≤ 400 строк (`app.py` ≤ 100,
+`backend/main.py` ≤ 80). Полная карта модулей с числом строк — в
+[`../STRUCTURE.md`](../STRUCTURE.md).
 
 Схема потоков одного хода:
 

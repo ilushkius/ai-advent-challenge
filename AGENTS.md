@@ -83,6 +83,20 @@
   днями не дублироваться (`shared/deepseek_utils.py`,
   `shared/deepseek_client.py`, `shared/db_base.py`, `shared/token_counter.py`,
   `shared/logging_utils.py`).
+- **Раскладка FastAPI-дня (эталон — `day12/`):** `backend/config.py` — настройки
+  и дефолты; `backend/tables.py` — ORM-таблицы (вариант, когда имя
+  `backend/models/` занято схемами API, — см. «Известные расхождения со
+  снимками»); `backend/routers/<domain>.py` — эндпоинты по доменам;
+  `backend/dependencies.py` — зависимости роутов (`get_manager`,
+  `agent_or_404`); `backend/main.py` — только сборка `app`; крупный класс
+  менеджера собирается из миксинов `backend/manager_<domain>.py`.
+- **Подключение `shared/` из дня:** корень репозитория добавляется в `sys.path`
+  один раз — в `backend/__init__.py` (`Path(__file__).resolve().parents[2]`), —
+  после чего модули дня импортируют `from shared.<module> import ...` без
+  правок тестов и без копий кода.
+- **`STRUCTURE.md` дня фиксирует не только список модулей,** но и то, какие файлы
+  импортируют `shared/`, и известные превышения лимита строк (эталон —
+  `day12/STRUCTURE.md`).
 
 Уточнение к `.clauderules` §3 («Один файл = одно приложение дня»): правило
 описывает одностраничные демо (day2/day3/day5). В новых днях с бэкендом и UI

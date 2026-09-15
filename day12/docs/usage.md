@@ -64,6 +64,40 @@ python -m venv .venv
 
 Тесты (по желанию, из папки `day12`): `.venv/Scripts/python -m pytest -q`.
 
+### Работа с `shared/`
+
+День 12 не содержит собственной копии «междневного» кода: клиент DeepSeek, база
+SQLAlchemy, подсчёт токенов и логирование берутся из пакета `shared/` в корне
+репозитория (появился вместе с рефакторингом дня).
+
+Подключение — одно место на день, `backend/__init__.py`:
+
+```python
+_REPO_ROOT = Path(__file__).resolve().parents[2]   # day12/backend/__init__.py → корень репозитория
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+```
+
+После этого импорт общих модулей выглядит обычно:
+
+```python
+from shared.deepseek_client import make_client       # клиент OpenAI SDK → DeepSeek
+from shared.token_counter import count_tokens        # tiktoken, кодировка cl100k_base
+from shared.db_base import Base, make_engine, init_db, make_session_factory
+from shared.logging_utils import get_logger
+from shared.deepseek_utils import read_key_from_env_file
+```
+
+Кто что берёт в дне 12: `backend/agent.py` — `make_client` и `count_tokens`;
+`backend/config.py` — `DEEPSEEK_BASE_URL` и `read_key_from_env_file`;
+`backend/database.py` и `backend/tables.py` — `shared.db_base`;
+`backend/main.py` — `get_logger`. Модули `ui/` обращаются к бэкенду по HTTP и
+`shared/` не импортируют.
+
+Дублировать этот код внутри `dayN/` нельзя (`AGENTS.md`, раздел «Запрещено»):
+правка `shared/` меняет поведение всех дней сразу, поэтому её проверяют тестами
+дня.
+
 ---
 
 ## 2. Переменные окружения: ключ DeepSeek
@@ -150,6 +184,31 @@ curl.exe http://127.0.0.1:8000/
 
 `GET /` вернёт список эндпоинтов — это подтверждает, что API живой; среди полей
 ответа есть `personalization` со списком эндпоинтов профиля (§6.8).
+
+### Запуск day12 после рефакторинга: что изменилось, а что нет
+
+**Команды запуска не изменились** — рефакторинг затронул раскладку кода, а не
+точки входа:
+
+* `backend.main:app` по-прежнему точка входа бэкенда; теперь этот модуль только
+  собирает приложение (`lifespan`, CORS, `include_router`), а эндпоинты лежат в
+  `backend/routers/` по доменам — `agents.py` (11), `context.py` (9),
+  `memory.py` (10), `profiles.py` (6), всего 36;
+* `streamlit run app.py` по-прежнему запускает фронтенд; `app.py` стал точкой
+  входа на 40 строк и вызывает секции пакета `ui/` (`common`, `sidebar`,
+  `chat_section`). Логика панелей — в `ui/context_panels.py`,
+  `ui/memory_panels.py`, `ui/profile_section.py`, `ui/profile_comparison.py`,
+  HTTP-транспорт к бэкенду — в `ui/api_client.py`;
+* Pydantic-схемы переехали из `backend/models.py` в пакет `backend/models/`
+  (`agent`, `context`, `memory`, `profile`), ORM-таблицы — в `backend/tables.py`
+  (реэкспорт через `backend/database.py`). Импорты в коде и тестах не менялись:
+  `from backend.models import ...`, `from backend.database import ...`;
+* общий код (клиент DeepSeek, база SQLAlchemy, токены, логи) вынесен в пакет
+  `shared/`; корень репозитория добавляет в `sys.path` `backend/__init__.py` —
+  см. §1, «Работа с `shared/`»;
+* тесты запускаются как раньше: `.venv/Scripts/python -m pytest -q`.
+
+Карта модулей дня и лимит размера файлов — в [`../STRUCTURE.md`](../STRUCTURE.md).
 
 ### Порядок блоков в основной области
 
@@ -892,8 +951,9 @@ cd day12
 | `tests/test_profile_agent.py` | профиль в системном сообщении, отчёт генерации (`profile`, `system_prompt`), смена профиля на лету, удаление профиля, `AgentManager` |
 | `tests/test_profile_api.py` | эндпоинты `/users`, `/users/{user_id}/profile`, `/agents/{agent_id}/profile`, коды `404`/`409`/`422`, поля `profile` + `system_prompt` в генерации, переключение профиля через `PATCH` |
 
-Быстрая синтаксическая проверка изменённых файлов:
-`python -m py_compile backend/profiles.py backend/profile_store.py backend/demo_profiles.py backend/main.py app.py`.
+Быстрая синтаксическая проверка изменённых файлов (после рефакторинга — вместе с
+роутерами и пакетом `ui/`):
+`python -m py_compile backend/main.py backend/dependencies.py backend/routers/agents.py backend/routers/context.py backend/routers/memory.py backend/routers/profiles.py ui/api_client.py ui/chat_section.py ui/sidebar.py app.py`.
 
 ---
 

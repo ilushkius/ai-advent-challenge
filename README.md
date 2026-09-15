@@ -24,11 +24,75 @@
 | `day9/` | **День 9 · «Управление контекстом: сжатие истории»** | FastAPI + Streamlit + SQLite + tiktoken: последние N реплик уходят «как есть», остальные заменяются конспектом (таблица `summaries`), метрики экономии токенов, сравнение режимов «без сжатия / со сжатием»; первая стейт-машина (`Enum` + State) и первые `pytest`-тесты (`backend/`, `app.py`, `tests/`) |
 | `day10/` | **День 10 · «Управление контекстом: стратегии»** | FastAPI + Streamlit + SQLite + tiktoken: четыре стратегии сборки контекста (sliding_window / sticky_facts / branching / summary) с переключателем, таблицы `facts` и `checkpoints`, сравнение в `comparison.md` (`backend/`, `app.py`, `tests/`) |
 | `day11/` | **День 11 · «Трёхслойная модель памяти агента»** | FastAPI + Streamlit + SQLite + tiktoken: память агента разложена на три слоя со своими таблицами — краткосрочная (`short_term_messages`, сессия), рабочая (`working_memory`, задача) и долговременная (`long_term_memory`, профиль/предпочтения/решения/знания); `MemoryManager`, десять эндпоинтов `/memory/...`, панели слоёв в UI, разбивка токенов по слоям в ответе генерации, отчёт `memory_layers_comparison.md`; установка, маршрутизация «что куда» и проверки «какие данные попадают в каждый слой» / «как слои влияют на ответы» — в `docs/usage.md` (`backend/`, `app.py`, `tests/`) |
-| `day12/` | **День 12 · «Персонализация: профиль пользователя»** | FastAPI + Streamlit + SQLite + tiktoken: структура дня 11 (три слоя памяти, четыре стратегии контекста) плюс персонализация — таблица `user_profiles` (`preferences`: tone/verbosity/language/format, `constraints`: max_response_length/forbidden_topics/required_disclaimers, `custom_instructions`), блок профиля в системном промпте КАЖДОГО запроса, пять эндпоинтов `/users...` + `GET /agents/{id}/profile`, поля `profile` и `system_prompt` в ответе генерации, раздел «👤 Профиль пользователя» в UI с готовыми профилями и сравнением двух профилей на одном вопросе, отчёт `personalization_comparison.md`; тестовый сценарий дня 11 удалён |
-| `shared/` | Общие утилиты | Чтение API-ключа, разбор stop-строк, `usage_to_dict`, endpoint DeepSeek (`deepseek_utils.py`) |
+| `day12/` | **День 12 · «Персонализация: профиль пользователя»** | FastAPI + Streamlit + SQLite + tiktoken: структура дня 11 (три слоя памяти, четыре стратегии контекста) плюс персонализация — таблица `user_profiles` (`preferences`: tone/verbosity/language/format, `constraints`: max_response_length/forbidden_topics/required_disclaimers, `custom_instructions`), блок профиля в системном промпте КАЖДОГО запроса, пять эндпоинтов `/users...` + `GET /agents/{id}/profile`, поля `profile` и `system_prompt` в ответе генерации, раздел «👤 Профиль пользователя» в UI с готовыми профилями и сравнением двух профилей на одном вопросе, отчёт `personalization_comparison.md`; тестовый сценарий дня 11 удалён. Код дня разложен по модулям: `ui/` (8 модулей интерфейса), `backend/routers/` (4 роутера по доменам), `backend/models/` (Pydantic-схемы по доменам), ORM-таблицы — `backend/tables.py`, общие помощники — `shared/` (см. [`day12/STRUCTURE.md`](day12/STRUCTURE.md)) |
+| `shared/` | **Общие модули** (код, не меняющийся между днями) | `deepseek_utils.py` (endpoint DeepSeek, ключ из `.env`, stop-строки, `usage_to_dict`), `deepseek_client.py` (`make_client` — клиент OpenAI SDK), `db_base.py` (`Base`, `make_engine`, `init_db`, `make_session_factory`), `token_counter.py` (`count_tokens` через tiktoken), `logging_utils.py` (`get_logger`, `configure_logging`) |
 | `.clauderules` | Правила проекта для агента | Свод правил ai-challenge: стек, конвенции, процесс, проверки, секреты |
-| `AGENTS.md` | Архитектурные цели | Стейт-машина на Python, `Enum` + паттерн State, тесты через `pytest` |
+| `AGENTS.md` | Архитектурные цели и правила структуры | Стейт-машина на Python, `Enum` + паттерн State, тесты через `pytest`, лимиты размера файлов (400 строк), раскладка `ui/` · `backend/routers/` · `backend/models/` · `shared/` |
+| `CHANGELOG.md` | История изменений | Записи о значимых изменениях структуры и документации (дата, тип, что затронуто) |
 | `.omp/config.yml` | Конфигурация omp.sh | Модель по умолчанию — `deepseek/deepseek-flash` (DeepSeek V4.1 Flash) и роли моделей |
+
+Статус папок: `day1/`–`day11/` — **снимки** (сданы, код не изменяется; правка —
+только по прямому запросу), `day12/` — **активная разработка** (здесь
+применяются правила структуры из [`AGENTS.md`](AGENTS.md)), `shared/` — общие
+модули для дней.
+
+### День 12 после рефакторинга
+
+Код дня 12 разложен по модулям (полная карта — [`day12/STRUCTURE.md`](day12/STRUCTURE.md)):
+
+| Путь | Что внутри | Строк кода |
+|---|---|---|
+| `day12/app.py` | точка входа Streamlit: `set_page_config` + вызовы секций | 40 |
+| `day12/ui/` | 8 модулей интерфейса: `sidebar.py`, `chat_section.py`, `context_panels.py`, `memory_panels.py`, `profile_section.py`, `profile_comparison.py`, `common.py`, `api_client.py` | 129–324 |
+| `day12/backend/routers/` | эндпоинты по доменам: `agents.py` (11), `context.py` (9), `memory.py` (10), `profiles.py` (6) | 126–243 |
+| `day12/backend/models/` | Pydantic-схемы API по доменам (`agent`, `context`, `memory`, `profile`), реэкспорт через `models/__init__.py` | 122–315 |
+| `day12/backend/tables.py` | ORM-таблицы SQLAlchemy; реэкспортируются через `backend/database.py` | 383 |
+| `day12/backend/manager_*.py` | миксины `AgentManager` по доменам (агенты, контекст, память, профили, статистика) | 88–233 |
+| `day12/backend/main.py` | сборка FastAPI-приложения: `lifespan`, CORS, `include_router` | 84 |
+| `day12/backend/agent.py` | `Agent`: слои памяти, стратегии, токены, `prepare_context`, профиль | 1515 ⚠️ |
+| `shared/` | общие модули, которые день импортирует как `from shared.<module> import ...` | 26–62 |
+
+⚠️ `day12/backend/agent.py` (1515 строк) превышает лимит 400 строк из
+`AGENTS.md` — известное расхождение, зафиксированное в `AGENTS.md` и
+`day12/STRUCTURE.md`.
+
+## Правила разработки
+
+- **Архитектурные цели и структура файлов** — [`AGENTS.md`](AGENTS.md): явная
+  стейт-машина на `Enum` + паттерн State, лимит **400 строк** на любой `.py`
+  (`app.py` ≤ 100, `backend/main.py` ≤ 80), раскладка по доменам
+  (`ui/`, `backend/routers/`, `backend/models/`, `backend/schemas/`, `shared/`),
+  запрет дублирования кода между днями и правки снимков прошлых дней.
+- **Общие конвенции** (стек, git, команды проверки, стиль) —
+  [`.clauderules`](.clauderules).
+- **Структура модулей дня** — файл `STRUCTURE.md` в папке дня: список модулей и
+  назначение каждого в одну строку (пример — [`day12/STRUCTURE.md`](day12/STRUCTURE.md)).
+- **Plan Mode**: задача по новому приложению начинается с утверждения структуры
+  файлов (модули и их обязанности), и только затем идёт реализация.
+- **Проверки перед «готово»**: `pytest` из папки дня
+  (`.venv/Scripts/python -m pytest -q`), `python -m py_compile` по изменённым
+  файлам, smoke-запуск приложения без реальных запросов к API; подробнее —
+  `.clauderules`, раздел «Проверки перед завершением».
+- **Междневные изменения** фиксируются в [`CHANGELOG.md`](CHANGELOG.md).
+
+## Общие модули (`shared/`)
+
+`shared/` — код, который не меняется между днями и лежит в корне репозитория.
+День добавляет корень репозитория в `sys.path` и импортирует модули как
+`from shared.<module> import ...` (в дне 12 это делает `day12/backend/__init__.py`).
+
+| Модуль | Что делает | Кто использует |
+|---|---|---|
+| `shared/deepseek_utils.py` | `DEEPSEEK_BASE_URL` (endpoint `https://api.deepseek.com`), `read_key_from_env_file` (ключ из `.env`), `parse_stop_sequences` (stop-строки из UI), `usage_to_dict` (объект `Usage` → dict) | day2, day3, `day12/backend/config.py` |
+| `shared/deepseek_client.py` | `make_client(api_key, base_url, timeout)` — клиент OpenAI SDK для DeepSeek; `openai` импортируется лениво, `DEFAULT_TIMEOUT = 60.0` | `day12/backend/agent.py` |
+| `shared/db_base.py` | SQLAlchemy/SQLite: `Base` (декларативная база), `make_engine` (`check_same_thread=False` + `PRAGMA foreign_keys=ON`), `init_db` (создание таблиц), `make_session_factory` | `day12/backend/database.py`, `day12/backend/tables.py` |
+| `shared/token_counter.py` | `count_tokens(text)` и `get_tokenizer()` — локальная оценка токенов через tiktoken (`cl100k_base`, кодировка кэшируется на процесс) | `day12/backend/agent.py` |
+| `shared/logging_utils.py` | `get_logger(name)` (логгер без хендлеров, вывод по умолчанию выключен), `configure_logging()` (включает вывод в консоль), `DEFAULT_FORMAT` | `day12/backend/main.py` и модули `shared/` изнутри |
+
+Сегодня `shared/` подключают `day2/`, `day3/` (только `deepseek_utils.py`)
+и `day12/` (все модули); дни 5–11 автономны. Для новых дней `shared/` —
+обязательное место для междневного кода (см. `AGENTS.md`). Подробнее —
+[docs/architecture.md](docs/architecture.md) и [docs/usage.md](docs/usage.md).
 
 ## Стек технологий
 
@@ -182,6 +246,11 @@ python personalization_comparison.py --no-api    # то же офлайн, бе�
 Дни 6–12 запускаются так же, как день 9, но одним приложением: бэкенд
 `uvicorn backend.main:app --port 8000` из папки дня и `streamlit run app.py`
 во втором терминале.
+
+После рефакторинга дня 12 **команды запуска не изменились**: `backend.main:app`
+собирает приложение из роутеров `backend/routers/`, а `app.py` вызывает секции
+пакета `ui/`. Команды и проверки — в [docs/usage.md](docs/usage.md),
+раскладка модулей — в [day12/STRUCTURE.md](day12/STRUCTURE.md).
 
 ## Секреты
 
