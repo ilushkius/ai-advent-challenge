@@ -1,4 +1,4 @@
-"""Три слоя памяти агента (день 11): менеджер, категории и чистые помощники.
+"""Хранилище трёх слоёв памяти агента (день 11): ``MemoryManager``.
 
 Что это.
     День 11 заменяет единую историю диалога тремя явными слоями со своими
@@ -13,148 +13,28 @@
       и знания; переживает и сессии, и задачи.
 
 Что здесь.
-    * ``MemoryCategory`` — ``Enum`` категорий долговременного слоя (значение —
-      строка, попадающая в БД/API/UI без маппинга);
-    * чистые функции ``query_keywords`` / ``render_working_block`` /
-      ``render_long_term_block`` — отбор и текстовая форма блоков памяти,
-      тестируются без БД;
-    * ``MemoryManager`` — единственная точка доступа к трём таблицам: upsert,
-      чтение, очистка, отбор релевантных записей.
+    ``MemoryManager`` — единственная точка доступа к трём таблицам: upsert,
+    чтение, очистка, отбор релевантных записей.
 
 Границы.
     Модуль не знает ни про LLM, ни про FastAPI/Streamlit: он читает и пишет
     SQLite через переданную фабрику сессий. Класс ``Agent`` решает, ЧТО из
     каждого слоя попадёт в контекст; ``MemoryManager`` — только хранилище.
+    Категории, заголовки блоков и чистые помощники вынесены в
+    ``backend/memory_layers.py`` и реэкспортируются отсюда (``agent.py`` и
+    тесты импортируют их из ``backend.memory``).
 """
-import re
 import uuid
 from datetime import datetime, timezone
-from enum import Enum
 from typing import List, Optional
 
 from . import config, database
 from .database import LongTermMemory, ShortTermMessage, WorkingMemory
-
-
-class MemoryCategory(str, Enum):
-    """Категории долговременной памяти (значение — строка для БД/API/UI)."""
-
-    PROFILE = "profile"        # профиль пользователя
-    PREFERENCE = "preference"  # устойчивые предпочтения
-    DECISION = "decision"      # важные решения
-    KNOWLEDGE = "knowledge"    # знания
-
-
-AVAILABLE_CATEGORIES = tuple(item.value for item in MemoryCategory)
-
-# Подстроки, по которым запрос «узнаёт» категорию долговременной памяти
-# («расскажи про мой профиль» → записи категории profile).
-CATEGORY_HINTS = {
-    MemoryCategory.PROFILE.value: ("профил",),
-    MemoryCategory.PREFERENCE.value: ("предпочт",),
-    MemoryCategory.DECISION.value: ("решен", "решили"),
-    MemoryCategory.KNOWLEDGE.value: ("знан",),
-}
-
-# Стоп-слова для отбора релевантных записей долговременной памяти.
-STOPWORDS = frozenset({
-    "что", "как", "для", "это", "все", "при", "или", "его", "ещё", "еще",
-    "the", "and", "for", "with", "that", "this",
-})
-
-WORKING_HEADER = (
-    "Рабочая память (данные текущей задачи, используй как опорные; при "
-    "противоречии важнее свежая реплика):"
+from .memory_layers import (
+    AVAILABLE_CATEGORIES, CATEGORY_HINTS, LONG_TERM_HEADER, STOPWORDS,
+    WORKING_HEADER, MemoryCategory, _long_term_dict, _short_term_dict,
+    _working_dict, query_keywords, render_long_term_block, render_working_block,
 )
-LONG_TERM_HEADER = (
-    "Долговременная память (профиль, предпочтения, решения, знания — "
-    "устойчивые данные о пользователе):"
-)
-
-
-def query_keywords(text: str) -> List[str]:
-    """Ключевые слова запроса: нижний регистр, слова длиной >= 3 без стоп-слов.
-
-    Чистая функция: одинаковый вход всегда даёт одинаковый результат, порядок
-    слов сохраняется, дубликаты убираются.
-    """
-    words = re.findall(r"[a-zа-яё0-9]+", (text or "").lower())
-    result: List[str] = []
-    for word in words:
-        if len(word) < 3 or word in STOPWORDS or word in result:
-            continue
-        result.append(word)
-    return result
-
-
-def render_working_block(entries: List[dict]) -> str:
-    """Текст блока рабочей памяти для системного сообщения.
-
-    Пустой список → пустая строка (блок в системное сообщение не добавляется).
-    Записи печатаются по алфавиту ключей: текст детерминирован.
-    """
-    if not entries:
-        return ""
-    lines = [WORKING_HEADER]
-    for entry in sorted(entries, key=lambda item: item["key"]):
-        lines.append(f"- {entry['key']}: {entry['value']}")
-    return "\n".join(lines)
-
-
-def render_long_term_block(entries: List[dict]) -> str:
-    """Текст блока долговременной памяти (с категорией и уверенностью).
-
-    Пустой список → пустая строка. Сортировка по (category, key) — текст
-    детерминирован. ``confidence`` печатается без хвостовых нулей (``:g``).
-    """
-    if not entries:
-        return ""
-    lines = [LONG_TERM_HEADER]
-    ordered = sorted(entries, key=lambda item: (item["category"], item["key"]))
-    for entry in ordered:
-        confidence = float(entry.get("confidence", 1.0))
-        lines.append(
-            f"- [{entry['category']}] {entry['key']}: {entry['value']} "
-            f"(уверенность {confidence:g})"
-        )
-    return "\n".join(lines)
-
-
-def _short_term_dict(row: ShortTermMessage) -> dict:
-    """ORM-строка краткосрочного слоя → словарь для API/UI."""
-    return {
-        "id": row.id,
-        "agent_id": row.agent_id,
-        "session_id": row.session_id,
-        "role": row.role,
-        "content": row.content,
-        "created_at": row.created_at,
-    }
-
-
-def _working_dict(row: WorkingMemory) -> dict:
-    """ORM-строка рабочей памяти → словарь для API/UI."""
-    return {
-        "id": row.id,
-        "agent_id": row.agent_id,
-        "task_id": row.task_id,
-        "key": row.key,
-        "value": row.value,
-        "updated_at": row.updated_at,
-    }
-
-
-def _long_term_dict(row: LongTermMemory) -> dict:
-    """ORM-строка долговременной памяти → словарь для API/UI."""
-    return {
-        "id": row.id,
-        "agent_id": row.agent_id,
-        "category": row.category,
-        "key": row.key,
-        "value": row.value,
-        "confidence": row.confidence,
-        "updated_at": row.updated_at,
-    }
 
 
 class MemoryManager:

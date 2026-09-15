@@ -46,6 +46,9 @@ from uuid import uuid4
 
 from sqlalchemy import func
 
+from shared.deepseek_client import make_client
+from shared.token_counter import count_tokens
+
 from . import config, database
 from .compressor import CompressionError, ContextCompressor
 from .context_fsm import ContextEvent, ContextMachine, ContextState, ContextStateBase
@@ -57,19 +60,6 @@ from .memory import (
 from .models import AgentConfig
 from .profile_store import ProfileData, ProfileStore, empty_profile
 from .strategies import Strategy
-
-# Кэш кодировки tiktoken на процесс (лениво, см. _get_tokenizer ниже).
-_TOKENIZER = None
-
-
-def _get_tokenizer():
-    """Возвращает кодировку tiktoken `cl100k_base` (загружается один раз)."""
-    global _TOKENIZER
-    if _TOKENIZER is None:
-        import tiktoken  # локальный импорт: нужен только при подсчёте токенов
-
-        _TOKENIZER = tiktoken.get_encoding("cl100k_base")
-    return _TOKENIZER
 
 
 class AgentError(Exception):
@@ -253,7 +243,7 @@ class Agent:
         """
         if not text:
             return 0
-        return len(_get_tokenizer().encode(str(text)))
+        return count_tokens(text)
 
     @property
     def context_limit_tokens(self) -> int:
@@ -595,12 +585,7 @@ class Agent:
                 "Ключ API не задан: укажите DEEPSEEK_API_KEY в файле day12/.env "
                 "или в переменной окружения и перезапустите запрос."
             )
-        import openai  # локальный импорт: модуль нужен только при реальном вызове
-        return openai.OpenAI(
-            base_url=config.DEEPSEEK_BASE_URL,
-            api_key=api_key,
-            timeout=config.REQUEST_TIMEOUT,
-        )
+        return make_client(api_key, config.DEEPSEEK_BASE_URL, config.REQUEST_TIMEOUT)
 
     @staticmethod
     def _system_text(payload) -> str:

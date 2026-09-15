@@ -13,10 +13,10 @@
 import os
 from pathlib import Path
 
-# Официальный endpoint DeepSeek (OpenAI-совместимый Chat Completions).
-# ВАЖНО: корректный адрес — https://api.deepseek.com (с поддоменом "api."),
-# адрес https://deepseek.com без "api." не принимает API-запросы.
-DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+from shared.deepseek_utils import (
+    DEEPSEEK_BASE_URL,
+    read_key_from_env_file as _read_key_from_env_file,
+)
 
 # Доступные модели DeepSeek (ограничения deepseek-reasoner — см. docs/api.md).
 MODEL_CHAT = "deepseek-chat"          # основная модель, по умолчанию
@@ -132,26 +132,12 @@ ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 
 
 def read_key_from_env_file(path=ENV_FILE):
-    """Достаёт DEEPSEEK_API_KEY из файла .env (локальный парсер, без python-dotenv).
+    """Достаёт DEEPSEEK_API_KEY из файла .env (общий парсер без python-dotenv).
 
     Понимает строки `KEY=VALUE` и `export KEY=VALUE`, пропускает пустые строки и
     комментарии, снимает кавычки со значения. При отсутствии файла — None.
     """
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if line.startswith("export "):
-                    line = line[len("export "):].strip()
-                if "=" in line:
-                    name, value = line.split("=", 1)
-                    if name.strip() == "DEEPSEEK_API_KEY":
-                        return value.strip().strip('"').strip("'")
-    except OSError:
-        return None
-    return None
+    return _read_key_from_env_file(path)
 
 
 def resolve_api_key():
