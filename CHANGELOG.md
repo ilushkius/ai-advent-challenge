@@ -1,8 +1,27 @@
 # История изменений
 
 Формат записи: **дата — тип — краткое описание**, затем список затронутых
-файлов и папок. Типы: `refactor` (изменение структуры кода), `docs`
-(документация), `rules` (правила для агента и процесса), `feature`.
+файлов и папок. Типы: `feat` (новая функциональность), `refactor` (изменение
+структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
+`chore` (прочее: инфраструктура, скиллы, служебные изменения).
+
+## 2026-09-16 — chore — процедурные правила вынесены в скиллы omp.sh
+
+Создана система проектных скиллов в `.omp/skills/`; `AGENTS.md` сокращён —
+дублирующиеся разделы заменены ссылками на скиллы. Скиллы:
+`python-fsm-agent` (правила FSM, вынесены из `AGENTS.md`; отдельного файла скилла
+до этого не существовало), `fastapi-streamlit-day-structure` (раскладка файлов
+дня и лимиты 400/100/80 строк), `shared-modules-usage` (работа с `shared/` и его
+подключение), `tdd-pytest-workflow` (TDD и `pytest`), `day-docs-structure`
+(README/STRUCTURE/CHANGELOG дня). Видимость скиллов проверена запуском omp.sh:
+свежая сессия видит все пять, `skill://<name>` отдаёт тело.
+
+**Затронуто:** `.omp/skills/python-fsm-agent/SKILL.md`,
+`.omp/skills/fastapi-streamlit-day-structure/SKILL.md`,
+`.omp/skills/shared-modules-usage/SKILL.md`,
+`.omp/skills/tdd-pytest-workflow/SKILL.md`,
+`.omp/skills/day-docs-structure/SKILL.md` (новые), `AGENTS.md`, `README.md`,
+`CHANGELOG.md`. Код в `dayN/` и `.clauderules` не менялись.
 
 ## 2026-09-15 — docs — документация приведена в соответствие с рефакторингом дня 12
 

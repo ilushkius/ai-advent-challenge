@@ -5,6 +5,28 @@
 .omp/logs/
 .omp/agent/
 
+# omp.sh — скиллы проекта ДОЛЖНЫ быть в Git (см. AGENTS.md, раздел «Скиллы проекта»).
+# Проектные скиллы лежат в .omp/skills/ — исключение задано явно, чтобы будущее
+# расширение runtime-правил выше (например, до `.omp/`) не выкинуло их из индекса.
+!.omp/skills/
+!.omp/skills/**
+
+# omp.sh — runtime-данные агента в .oh-my-pi/ (путь другой сборки omp).
+# Текущая сборка (omp 18.2.0) эту папку не использует: и discovery, и записанные
+# скиллы живут в .omp/skills/ — проверено запуском сессии omp.
+# ВАЖНО: сам `.oh-my-pi/` в игнор не добавляется — это заблокировало бы скиллы.
+.oh-my-pi/cache/
+.oh-my-pi/logs/
+.oh-my-pi/sessions/
+.oh-my-pi/agent/
+.oh-my-pi/*.log
+.oh-my-pi/*.db
+.oh-my-pi/*.sqlite
+
+# omp.sh — скиллы в .oh-my-pi/skills/ остаются в Git (исключение из правил выше).
+!.oh-my-pi/skills/
+!.oh-my-pi/skills/**
+
 # Локальная память / история агента — файловые БД
 *.db
 *.sqlite
