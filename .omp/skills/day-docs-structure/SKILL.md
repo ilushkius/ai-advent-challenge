@@ -34,3 +34,23 @@ description: "Documentation structure for each day in the ai-challenge project. 
   как пользоваться», `STRUCTURE.md` — «где что лежит».
 - При завершении дня обновить: `README.md` дня, `STRUCTURE.md` дня и запись в
   `CHANGELOG.md`.
+- **Перед коммитом проверить, что файлы кода не попали в игнор.** Широкие правила
+  в корневом `.gitignore` (`models/`, `lib/`, `logs/`, `*.txt`, `*.jsonl`)
+  матчатся на любой глубине и вырезают исходники **молча**: `git add` для
+  игнорируемого пути — no-op, а в `git status` такие файлы не видны, поэтому
+  пропажа не находится ни ревью, ни тестами в рабочем дереве.
+
+  ```bash
+  git ls-files --others --ignored --exclude-standard | grep -E '\.py$' \
+    | grep -vE '(\.venv/|__pycache__/|site-packages/)'
+  ```
+
+  Пустой вывод = потерь нет. **Нужен именно `git ls-files --others --ignored`**,
+  а не `git status --ignored`: последний сворачивает игнорируемую папку в одну
+  строку `!! dayN/backend/models/` и файлы внутри не показывает, поэтому таким
+  грепом баг не находится (проверено на состоянии до фикса `f6b7ed8`: 0 находок
+  против 5 у команды выше).
+
+  Так был найден `day12/backend/models/` — пакет Pydantic-схем, вырезанный
+  правилом `models/`; фикс — `!day*/backend/models/*.py` в `.gitignore`
+  (коммит `4cfee38`).
