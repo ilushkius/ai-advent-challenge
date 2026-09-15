@@ -24,6 +24,7 @@
 | `day9/` | **День 9 · «Управление контекстом: сжатие истории»** | FastAPI + Streamlit + SQLite + tiktoken: последние N реплик уходят «как есть», остальные заменяются конспектом (таблица `summaries`), метрики экономии токенов, сравнение режимов «без сжатия / со сжатием»; первая стейт-машина (`Enum` + State) и первые `pytest`-тесты (`backend/`, `app.py`, `tests/`) |
 | `day10/` | **День 10 · «Управление контекстом: стратегии»** | FastAPI + Streamlit + SQLite + tiktoken: четыре стратегии сборки контекста (sliding_window / sticky_facts / branching / summary) с переключателем, таблицы `facts` и `checkpoints`, сравнение в `comparison.md` (`backend/`, `app.py`, `tests/`) |
 | `day11/` | **День 11 · «Трёхслойная модель памяти агента»** | FastAPI + Streamlit + SQLite + tiktoken: память агента разложена на три слоя со своими таблицами — краткосрочная (`short_term_messages`, сессия), рабочая (`working_memory`, задача) и долговременная (`long_term_memory`, профиль/предпочтения/решения/знания); `MemoryManager`, десять эндпоинтов `/memory/...`, панели слоёв в UI, разбивка токенов по слоям в ответе генерации, отчёт `memory_layers_comparison.md`; установка, маршрутизация «что куда» и проверки «какие данные попадают в каждый слой» / «как слои влияют на ответы» — в `docs/usage.md` (`backend/`, `app.py`, `tests/`) |
+| `day12/` | **День 12 · «Персонализация: профиль пользователя»** | FastAPI + Streamlit + SQLite + tiktoken: структура дня 11 (три слоя памяти, четыре стратегии контекста) плюс персонализация — таблица `user_profiles` (`preferences`: tone/verbosity/language/format, `constraints`: max_response_length/forbidden_topics/required_disclaimers, `custom_instructions`), блок профиля в системном промпте КАЖДОГО запроса, пять эндпоинтов `/users...` + `GET /agents/{id}/profile`, поля `profile` и `system_prompt` в ответе генерации, раздел «👤 Профиль пользователя» в UI с готовыми профилями и сравнением двух профилей на одном вопросе, отчёт `personalization_comparison.md`; тестовый сценарий дня 11 удалён |
 | `shared/` | Общие утилиты | Чтение API-ключа, разбор stop-строк, `usage_to_dict`, endpoint DeepSeek (`deepseek_utils.py`) |
 | `.clauderules` | Правила проекта для агента | Свод правил ai-challenge: стек, конвенции, процесс, проверки, секреты |
 | `AGENTS.md` | Архитектурные цели | Стейт-машина на Python, `Enum` + паттерн State, тесты через `pytest` |
@@ -41,7 +42,7 @@
 | Хранилище | SQLite + SQLAlchemy 2.0 (дни 7–9): файлы `day7/agents.db`, `day8/agents.db`, `day9/agents.db`; таблицы `agents` (конфигурация), `messages` (диалог), `token_usage` (метрики токенов, день 8+) и `summaries` (конспекты истории, день 9) | day7–day9 |
 | Токенизация | `tiktoken` (`cl100k_base`) — локальный подсчёт токенов, оценки близки к токенизатору DeepSeek | day8–day9 |
 | Стейт-машина | `enum.Enum` + паттерн State (чистый Python, `backend/context_fsm.py`) — первая реализация архитектурной цели `AGENTS.md` | day9 |
-| Тесты | `pytest` (день 9: 167 тестов — FSM, политика сжатия, хранилище, компрессор, агент, API; день 10: 193 — стратегии, факты, ветки, FSM, хранилище, API; день 11: 235 — слои памяти, API `/memory/...`, стратегии, факты, ветки, FSM, хранилище, компрессор, API) | day9–day11 |
+| Тесты | `pytest` (день 9: 167 тестов — FSM, политика сжатия, хранилище, компрессор, агент, API; день 10: 193 — стратегии, факты, ветки, FSM, хранилище, API; день 11: 235 — слои памяти, API `/memory/...`, стратегии, факты, ветки, FSM, хранилище, компрессор, API; день 12: 314 — профили пользователей, промпт персонализации, API `/users...`, плюс всё из дня 11) | day9–day12 |
 | Виртуальные окружения | `day2/.venv` (streamlit 1.62.0, openai 3.6.0); `day5/.venv` (streamlit 1.63.0, huggingface_hub 1.30.0); `day6/.venv` (fastapi, streamlit, openai, requests); `day9/.venv` (fastapi, sqlalchemy, tiktoken, pytest и др.) | day2–day3, day5, day6, day9 |
 | Инструменты разработки | терминальный агент **omp.sh** (модель `deepseek/deepseek-flash` — DeepSeek V4.1 Flash), Python LSP `pyright`, `debugpy` | AI-воркфлоу |
 
@@ -51,8 +52,8 @@
 (SQLAlchemy 2.0 + SQLite), день 8 — подсчёт токенов (tiktoken) и таблицу
 `token_usage`, день 9 — сжатие истории (таблица `summaries`, конспект вместо
 старых реплик), стейт-машину на `Enum` + паттерн State и первые автотесты
-`pytest`. Автотесты есть у дней 9, 10 и 11 (`day9/tests/` — 167 тестов,
-`day10/tests/` — 193, `day11/tests/` — 235); для остальных прикладных дней
+`pytest`. Автотесты есть у дней 9–12 (`day9/tests/` — 167 тестов,
+`day10/tests/` — 193, `day11/tests/` — 235, `day12/tests/` — 314); для остальных прикладных дней
 проверка — `py_compile` и smoke-запуск, а целевой стандарт новых дней —
 `pytest` (см. [AGENTS.md](AGENTS.md)).
 
@@ -157,6 +158,14 @@ python -m uvicorn backend.main:app --port 8000   # терминал 1
 streamlit run app.py                             # терминал 2
 python -m pytest -q                              # автотесты дня 11 (235 тестов)
 python memory_layers_demo.py                     # офлайн-прогон по слоям, без сети
+
+# День 12 — «Персонализация: профиль пользователя» (из папки day12)
+pip install -r requirements.txt
+python -m uvicorn backend.main:app --port 8000   # терминал 1
+streamlit run app.py                             # терминал 2
+python -m pytest -q                              # автотесты дня 12 (314 тестов)
+python personalization_comparison.py             # сравнение профилей (нужен ключ)
+python personalization_comparison.py --no-api    # то же офлайн, без сети
 ```
 
 > **Важно:** приложение ищет `.env` в текущей рабочей директории, поэтому
@@ -170,7 +179,7 @@ python memory_layers_demo.py                     # офлайн-прогон п�
 День 5 можно запустить из готового окружения (PowerShell, из папки `day5`):
 `.venv\Scripts\streamlit run app.py`.
 
-Дни 6–11 запускаются так же, как день 9, но одним приложением: бэкенд
+Дни 6–12 запускаются так же, как день 9, но одним приложением: бэкенд
 `uvicorn backend.main:app --port 8000` из папки дня и `streamlit run app.py`
 во втором терминале.
 
