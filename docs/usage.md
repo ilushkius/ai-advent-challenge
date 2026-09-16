@@ -1,22 +1,23 @@
 # Запуск и общие модули
 
-Практическая часть междневных изменений: как запускать активный день 12 после
-рефакторинга и как пользоваться общим пакетом `shared/`. Установка, проверки и
-FAQ конкретного дня — в [`../day12/docs/usage.md`](../day12/docs/usage.md),
+Практическая часть междневных изменений: как запускать активный день 13 и как
+пользоваться общим пакетом `shared/`. Установка, проверки и
+FAQ конкретного дня — в [`../day13/docs/usage.md`](../day13/docs/usage.md),
 устройство модулей — в [`architecture.md`](architecture.md) и
-[`../day12/STRUCTURE.md`](../day12/STRUCTURE.md).
+[`../day13/STRUCTURE.md`](../day13/STRUCTURE.md).
 
-## Запуск day12 после рефакторинга
+## Запуск day13
 
-**Команды не изменились** — рефакторинг затронул раскладку кода, а не точки
+**Команды не изменились** — день 13 унаследовал раскладку дня 12, рефакторинг
+затронул раскладку кода, а не точки
 входа: `backend.main:app` по-прежнему собирается из `backend/routers/`, а
-Streamlit-страницу по-прежнему запускает `app.py` (теперь он вызывает секции
-пакета `ui/`). Из папки `day12`:
+Streamlit-страницу по-прежнему запускает `app.py` (он вызывает секции
+пакета `ui/`). Из папки `day13`:
 
 **Подготовка (один раз):**
 
 ```powershell
-cd day12
+cd day13
 python -m venv .venv
 .venv/Scripts/python -m pip install -r requirements.txt
 copy .env.example .env      # затем впишите DEEPSEEK_API_KEY=sk-...
@@ -25,37 +26,53 @@ copy .env.example .env      # затем впишите DEEPSEEK_API_KEY=sk-...
 **Терминал 1 — бэкенд (FastAPI + uvicorn, порт 8000):**
 
 ```powershell
-cd day12
+cd day13
 .venv/Scripts/python -m uvicorn backend.main:app --port 8000
 ```
 
-При старте создаются таблицы SQLite (`day12/agents.db`) и восстанавливаются
+При старте создаются таблицы SQLite (`day13/agents.db`) и восстанавливаются
 агенты из базы. Swagger — `http://127.0.0.1:8000/docs`, список эндпоинтов —
 `curl.exe http://127.0.0.1:8000/`.
 
 **Терминал 2 — интерфейс (Streamlit, порт 8501):**
 
 ```powershell
-cd day12
+cd day13
 .venv/Scripts/python -m streamlit run app.py
 ```
 
-**Тесты и проверки (из папки `day12`):**
+Основная область страницы переключается радиосекцией и содержит три раздела:
+«💬 Чат и память», «👤 Профиль пользователя» и «🧭 Состояние задачи» (текущий
+этап и шаг, ожидаемое действие, ASCII-схема переходов, кнопки «⏸ Пауза» /
+«▶️ Продолжить» / «⏭ Следующий шаг» / «↩️ Откат на предыдущий этап» /
+«✅ Завершить задачу», журнал переходов и блок состояния из системного промпта).
+
+**Тесты и проверки (из папки `day13`):**
 
 ```powershell
-.venv/Scripts/python -m pytest -q                  # автотесты дня 12
-.venv/Scripts/python -m py_compile backend/main.py backend/routers/agents.py backend/routers/context.py backend/routers/memory.py backend/routers/profiles.py backend/dependencies.py ui/api_client.py ui/chat_section.py ui/sidebar.py app.py
+.venv/Scripts/python -m pytest -q                  # автотесты дня 13 (584 теста)
+.venv/Scripts/python -m py_compile backend/main.py backend/dependencies.py backend/task_fsm.py backend/task_state.py backend/task_store.py backend/routers/agents.py backend/routers/context.py backend/routers/memory.py backend/routers/profiles.py backend/routers/tasks.py ui/api_client.py ui/chat_section.py ui/task_panel.py ui/sidebar.py app.py
 ```
 
 > **CWD важен.** Приложение ищет `.env` в текущей директории, поэтому и
 > `uvicorn`, и `streamlit` запускаются **из папки дня**. Пакет `shared/`
-> подключается автоматически: `day12/backend/__init__.py` добавляет корень
+> подключается автоматически: `day13/backend/__init__.py` добавляет корень
 > репозитория в `sys.path`.
 
-Офлайн-прогон отчёта персонализации (без запросов к API):
+Офлайн-прогон отчёта персонализации (унаследован из дня 12, без запросов к API):
 
 ```powershell
 .venv/Scripts/python personalization_comparison.py --no-api
+```
+
+Демонстрация состояния задачи — пять фаз, каждая в отдельном процессе
+(пауза → перезапуск → продолжение), отчёт пишется в `task_state_demo.md`:
+
+```powershell
+.venv/Scripts/python task_state_demo.py --all --no-api   # офлайн, без сети
+.venv/Scripts/python task_state_demo.py --all             # реальные запросы к DeepSeek
+.venv/Scripts/python task_state_demo.py --phase 2         # одна фаза в новом процессе
+.venv/Scripts/python task_state_demo.py --reset           # удалить демо-БД и перезаписать отчёт
 ```
 
 ## Работа с `shared/`
@@ -65,13 +82,13 @@ cd day12
 такого кода внутри `dayN/` запрещена — см. `AGENTS.md`, раздел «Запрещено».
 
 **Как импортировать в новом дне.** День добавляет корень репозитория в `sys.path`
-один раз — в `backend/__init__.py` (так сделано в дне 12):
+один раз — в `backend/__init__.py` (так сделано в дне 13):
 
 ```python
 import sys
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]   # day12/backend/__init__.py → корень репозитория
+_REPO_ROOT = Path(__file__).resolve().parents[2]   # day13/backend/__init__.py → корень репозитория
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 ```
@@ -114,8 +131,8 @@ from shared.deepseek_utils import read_key_from_env_file, DEEPSEEK_BASE_URL
 Проверять нужно до коммита: правило «любой `.py` ≤ 400 строк» (`app.py` ≤ 100,
 `backend/main.py` ≤ 80) — из `AGENTS.md`. Известные превышения в снимках
 `day8/`–`day12/` перечислены в `AGENTS.md` («Известные расхождения со
-снимками») и в `STRUCTURE.md` соответствующего дня; в дне 12 это
-`backend/agent.py` (1515 строк).
+снимками») и в `STRUCTURE.md` соответствующего дня; в активном дне 13 это
+`backend/agent.py` (1597 строк, унаследовано от дня 12).
 
 Чек-лист междневного изменения:
 

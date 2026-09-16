@@ -5,6 +5,62 @@
 структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
 `chore` (прочее: инфраструктура, скиллы, служебные изменения).
 
+## 2026-09-16 — feat — состояние задачи как конечный автомат (день 13)
+
+Создан `day13/` — копия `day12/` (агент с трёхслойной памятью и профилем
+пользователя) плюс **состояние задачи как FSM**. Состояние живёт в SQLite
+(таблицы `task_states` и `task_transitions`, всего 11 таблиц) и переживает
+перезапуск процесса:
+
+* `backend/task_fsm.py` — этапы (`planning` / `execution` / `validation` /
+  `done` / `paused`), шаги внутри этапа (`gather_requirements`, `define_scope`,
+  `create_plan`, `implement`, `test_locally`, `review`, `run_tests`,
+  `finalize`), события (`advance` / `rollback` / `pause` / `resume`), паттерн
+  State и явные ошибки `UnknownTaskEvent` / `InvalidTaskTransition`.
+* `backend/task_store.py` — `TaskStateStore`: единственное место работы с
+  таблицами состояния задачи (журнал переходов, снимок рабочей памяти);
+  `backend/task_state.py` — `TaskStateMachine`: переходы и валидация. Домен
+  разложен на два модуля: вместе они дали бы 441 строку при лимите 400.
+* `backend/task_prompt.py` — блок состояния в системном промпте: добавляется
+  **последним** (после профиля, рабочей и долговременной памяти, конспекта и
+  фактов) в системное сообщение каждого запроса — этап, шаг, ожидаемое
+  действие, перечень завершённых этапов.
+* `backend/task_intent.py` — авто-обновление состояния по реплике пользователя
+  (`пауза` → `pause`, `продолжи` → `resume`, `откат` → `rollback`,
+  `подтверждаю` → `advance`) с приоритетом групп и совпадением на границе
+  слова; применяется до сборки контекста, поэтому блок в промпте того же
+  запроса уже описывает новое состояние. Недопустимое намерение не роняет
+  диалог — пишется в лог.
+* Девять эндпоинтов (`backend/routers/tasks.py`): `POST /agents/{id}/tasks`,
+  `GET /agents/{id}/tasks`, `GET /tasks/{id}/state`, `GET /tasks/{id}/history`,
+  `POST /tasks/{id}/pause|resume|advance|rollback|transition`; всего 45
+  эндпоинтов, версия приложения — `7.0.0`. Недопустимый переход — 400,
+  повторная задача — 409, неизвестная — 404.
+* Раздел «🧭 Состояние задачи» в UI (`ui/task_panel.py`): этап, шаг, ожидаемое
+  действие, ASCII-схема переходов, кнопки «Пауза» / «Продолжить» / «Следующий
+  шаг» / «Откат на предыдущий этап» / «Завершить задачу», журнал переходов.
+* Отчёт `day13/task_state_demo.md`: пять фаз, каждая в отдельном процессе, —
+  доказательство «пауза → перезапуск → продолжение с того же места».
+
+Тесты: **584** (+270 к дню 12) — FSM, промпт состояния, распознавание
+намерения, хранение, менеджер, агент, API. `day13/backend/agent.py`
+(1597 строк) превышает лимит 400 — расхождение унаследовано от дня 12.
+
+**Затронуто:** `day13/**` (новые: `backend/task_fsm.py`, `backend/task_prompt.py`,
+`backend/task_intent.py`, `backend/task_store.py`, `backend/task_state.py`,
+`backend/tables_task.py`, `backend/manager_tasks.py`, `backend/models/task.py`,
+`backend/routers/tasks.py`, `ui/task_panel.py`, `task_state_demo.py`,
+`task_demo_report.py`, `tests/test_task_*.py`; изменённые: `backend/agent.py`,
+`backend/tables.py`, `backend/database.py`, `backend/config.py`,
+`backend/main.py`, `backend/models/agent.py`, `backend/models/__init__.py`,
+`backend/manager_agents.py`, `backend/dependencies.py`,
+`backend/routers/agents.py`, `app.py`, `ui/api_client.py`, `ui/common.py`,
+`ui/chat_section.py`, `tests/support.py`, `tests/conftest.py`,
+`day13/STRUCTURE.md`, `day13/README.md`, `day13/docs/**`), `README.md`,
+`docs/architecture.md`, `docs/usage.md`, `CHANGELOG.md`.
+
+Код `day1/`–`day12/` не изменялся.
+
 ## 2026-09-16 — chore — процедурные правила вынесены в скиллы omp.sh
 
 Создана система проектных скиллов в `.omp/skills/`; `AGENTS.md` сокращён —
