@@ -61,11 +61,17 @@ def _render_create_form(active) -> None:
         f"`{active.get('task_id')}`; создание сделает её активной и подключит "
         "блок состояния к системному промпту каждого запроса."
     )
-    with st.form(key=f"task_create_form_{agent_id}"):
+    # Ключи виджетов Streamlit глобальны для скрипта, а не локальны контейнеру:
+    # форма боковой панели (sidebar.py) уже занимает `task_create_form_*`, поэтому
+    # у формы состояния своё пространство имён — иначе StreamlitDuplicateElementKey.
+    with st.form(key=f"task_state_create_{agent_id}"):
         task_id = st.text_input("Новая задача (task_id)",
-                                value=active.get("task_id", "default"))
-        stage = st.selectbox("Начальный этап", START_STAGES)
-        submitted = st.form_submit_button("➕ Создать задачу", type="primary")
+                                value=active.get("task_id", "default"),
+                                key=f"task_state_new_id_{agent_id}")
+        stage = st.selectbox("Начальный этап", START_STAGES,
+                             key=f"task_state_stage_{agent_id}")
+        submitted = st.form_submit_button("➕ Создать задачу", type="primary",
+                                          key=f"task_state_create_btn_{agent_id}")
     if not submitted:
         return
     clean = task_id.strip()

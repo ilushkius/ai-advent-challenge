@@ -91,7 +91,7 @@ day13/
 | `backend/agents/manager_tasks.py` | 104 | Миксин `TaskOpsMixin`: тонкие обёртки для API, разрешение умолчаний шага/действия |
 | `backend/schemas/task.py` | 122 | Схемы API: `TaskStateOut`, `TaskTransitionOut`, `TaskCreateIn`, `TaskRollbackIn`, `TaskTransitionIn`, `TaskHistoryOut` |
 | `backend/api/tasks.py` | 183 | Роутер: 9 эндпоинтов состояния задачи |
-| `frontend/task_panel.py` | 200 | Раздел «🧭 Состояние задачи»: этап, шаг, ASCII-схема, пять кнопок, журнал переходов |
+| `frontend/task_panel.py` | 206 | Раздел «🧭 Состояние задачи»: этап, шаг, ASCII-схема, пять кнопок, журнал переходов |
 
 Почему `TaskStateMachine` и `TaskStateStore` — разные модули: это граница слоёв
 `services/` и `storage/` (та же, что у `ContextCompressor` и `MemoryManager`):
@@ -113,7 +113,7 @@ day13/
 | `frontend/memory_panels.py` | 229 | Панели трёх слоёв памяти, индикатор «что ушло в запрос» |
 | `frontend/profile_section.py` | 322 | Раздел «👤 Профиль пользователя»: CRUD профилей, предпросмотр промпта |
 | `frontend/profile_comparison.py` | 129 | Сравнение двух профилей на одном вопросе (временные агенты) |
-| `frontend/task_panel.py` | 200 | Раздел «🧭 Состояние задачи»: состояние, схема FSM, кнопки, журнал |
+| `frontend/task_panel.py` | 206 | Раздел «🧭 Состояние задачи»: состояние, схема FSM, кнопки, журнал |
 
 ## `backend/api/` — эндпоинты по доменам
 
