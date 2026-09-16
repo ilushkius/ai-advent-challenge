@@ -26,16 +26,16 @@ planning → execution → validation → done и шаги внутри этап
   и журнал переходов.
 
 Запуск из папки day13/:  streamlit run app.py  (бэкенд запускается отдельно:
-uvicorn backend.main:app --port 8000)
+uvicorn backend.api.main:app --port 8000)
 
-Код интерфейса разложен по пакету ``ui/``: ``api_client`` (HTTP-транспорт),
+Код интерфейса разложен по пакету ``frontend/``: ``api_client`` (HTTP-транспорт),
 ``common`` (подписи, форматтеры, состояние), ``sidebar``, ``chat_section``,
 ``context_panels``, ``memory_panels``, ``profile_section``,
 ``profile_comparison``, ``task_panel``.
 """
 import streamlit as st
 
-from ui import chat_section, common, sidebar
+from frontend import chat_section, common, sidebar
 
 st.set_page_config(page_title="Состояние задачи · День 13",
                    page_icon="🧭", layout="wide")

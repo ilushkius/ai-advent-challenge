@@ -1,12 +1,12 @@
 # API дня 13 — агенты DeepSeek с состоянием задачи, памятью и профилем
 
-Бэкенд — FastAPI-приложение `day13/backend/main.py`. Заголовок приложения —
+Бэкенд — FastAPI-приложение `day13/backend/api/main.py`. Заголовок приложения —
 «Агенты DeepSeek с состоянием задачи — День 13», версия схемы — `7.0.0`
 (видны в Swagger UI и `GET /openapi.json`). Базовый адрес после запуска
 (из папки `day13`):
 
 ```powershell
-.venv/Scripts/python -m uvicorn backend.main:app --port 8000
+.venv/Scripts/python -m uvicorn backend.api.main:app --port 8000
 ```
 
 | Что | Адрес |
@@ -49,7 +49,7 @@
 генерации. Агент без профиля работает как обычно: пустой профиль не даёт
 блоков промпта и ошибкой не считается.
 
-Схемы ответов описаны в пакете `day13/backend/models/` — по доменам: `agent.py`
+Схемы ответов описаны в пакете `day13/backend/schemas/` — по доменам: `agent.py`
 (агент, генерация, метрики), `context.py` (сжатие, стратегии, ветки, факты),
 `memory.py` (три слоя памяти), `profile.py` (профиль и его вклад в промпт),
 `task.py` (состояние задачи, его переходы и журнал);
@@ -1641,7 +1641,7 @@ curl.exe http://127.0.0.1:8000/agents/8f1c2d3e4b5a/profile
 возобновление: paused -> тот же этап и шаг, с которого встали
 ```
 
-Допустимые переходы этапов (`STAGE_TRANSITIONS` в `backend/task_fsm.py`):
+Допустимые переходы этапов (`STAGE_TRANSITIONS` в `backend/domain/task_fsm.py`):
 
 | Из этапа | Куда можно перейти |
 |---|---|
@@ -1673,13 +1673,13 @@ validation/review`, `finalize → done/finalize`). `rollback` — ровно о�
 Текущий этап: execution. Текущий шаг: implement. Ожидаемое действие: ожидается реализация модуля. Предыдущие шаги: planning (gather_requirements, define_scope, create_plan) — завершены.
 ```
 
-Ожидаемое действие — текст из `backend/task_prompt.py`: по строке на пару «этап +
+Ожидаемое действие — текст из `backend/domain/task_prompt.py`: по строке на пару «этап +
 шаг» (например, `planning/create_plan` — «ожидается утверждение плана
 пользователем», `validation/run_tests` — «ожидается проверка тестов»), у `paused`
 — «задача на паузе; ожидается продолжение (resume)», у `done` — «задача
 завершена; ожидается новая задача».
 
-Реплика пользователя сама двигает состояние: `backend/task_intent.py` распознаёт
+Реплика пользователя сама двигает состояние: `backend/domain/task_intent.py` распознаёт
 намерение (приоритет — пауза → продолжение → откат → подтверждение шага) **до**
 сборки контекста, поэтому блок в промпте того же запроса уже описывает новое
 состояние. Совпадение ищется на границе слова, поэтому «продолжительность
@@ -2591,22 +2591,22 @@ curl.exe -X POST http://127.0.0.1:8000/tasks/tz/transition \
 
 - **Что появилось в дне 13.** Состояние задачи как конечный автомат: таблицы
   `task_states` и `task_transitions` (ORM-классы `TaskState`/`TaskTransition` в
-  `backend/tables_task.py`); модули `backend/task_fsm.py` (этапы, шаги, события,
-  таблица переходов), `backend/task_prompt.py` (ожидаемые действия и сборка
-  блока промпта), `backend/task_intent.py` (распознавание намерения в реплике),
-  `backend/task_store.py` (доступ к таблицам), `backend/task_state.py`
-  (`TaskStateMachine` — валидация и переходы), `backend/manager_tasks.py`
-  (миксин `TaskOpsMixin`), `backend/models/task.py` (схемы),
-  `backend/routers/tasks.py` (девять эндпоинтов `/tasks...`); блок состояния
+  `backend/models/task_state.py`); модули `backend/domain/task_fsm.py` (этапы, шаги, события,
+  таблица переходов), `backend/domain/task_prompt.py` (ожидаемые действия и сборка
+  блока промпта), `backend/domain/task_intent.py` (распознавание намерения в реплике),
+  `backend/storage/task_store.py` (доступ к таблицам), `backend/services/task_state.py`
+  (`TaskStateMachine` — валидация и переходы), `backend/agents/manager_tasks.py`
+  (миксин `TaskOpsMixin`), `backend/schemas/task.py` (схемы),
+  `backend/api/tasks.py` (девять эндпоинтов `/tasks...`); блок состояния
   последним элементом системного промпта (учитывается и в `system_prompt` ответа
   генерации); авто-обновление состояния по реплике пользователя до сборки
   контекста; поле `task_state` в `GenerateResponse`; ключ `tasks` в ответе
   `GET /`; панель «🧭 Состояние задачи» в Streamlit и скрипт
-  `task_state_demo.py` (отчёт `task_state_demo.md`).
+  `scripts/task_state_demo.py` (отчёт `reports/task_state_demo.md`).
 - **Что появилось в дне 12.** Персонализация: таблица `user_profiles` (ORM-класс
-  `UserProfile`) и колонка `agents.user_id`; модули `backend/profiles.py`
-  (правила и сборка блока промпта), `backend/profile_store.py` (доступ к
-  таблице), `backend/demo_profiles.py` (данные демонстрации); эндпоинты
+  `UserProfile`) и колонка `agents.user_id`; модули `backend/domain/profiles.py`
+  (правила и сборка блока промпта), `backend/agents/profile_store.py` (доступ к
+  таблице), `backend/domain/demo_profiles.py` (данные демонстрации); эндпоинты
   `/users`, `/users/{user_id}/profile` (`GET`/`POST`/`PUT`/`DELETE`),
   `/agents/{agent_id}/profile`; схемы `UserProfileIn`, `UserProfileOut`,
   `UserProfileDeleteOut`, `ProfileElementOut`, `AppliedProfileOut`; поля
@@ -2669,7 +2669,7 @@ curl.exe -X POST http://127.0.0.1:8000/tasks/tz/transition \
 - **Лимиты контекста 8000/32000.** `deepseek-chat` — 8000 токенов,
   `deepseek-reasoner` — 32000. Это демонстрационные лимиты (как в задании дня 8),
   реальный контекст DeepSeek шире; при необходимости они правятся в
-  `MODEL_TOKEN_LIMITS` (`backend/config.py`). По ним считается
+  `MODEL_TOKEN_LIMITS` (`backend/core/config.py`). По ним считается
   `context.remaining_tokens` и срабатывает аварийный предохранитель
   `trimmed_messages`.
 - **Всё состояние переживает рестарт.** Реплики (`short_term_messages`), рабочая

@@ -25,19 +25,19 @@
 
 | Новое | Где |
 |---|---|
-| Таблицы `task_states` (одна строка на задачу) и `task_transitions` (журнал переходов) | `backend/tables_task.py` (реэкспорт — `backend/database.py`) |
-| FSM: `TaskStage`/`TaskStep`/`TaskEvent` (`Enum`), классы-этапы с `handle(event, step)`, таблица переходов | `backend/task_fsm.py` |
-| Хранилище состояния: чтение, журнал, запись перехода, снимок рабочей памяти в `context` | `backend/task_store.py` |
-| Публичный контракт переходов: `create`, `transition_to`, `pause`, `resume`, `advance_step`, `rollback` | `backend/task_state.py` |
-| Тексты блока состояния для промпта: ожидаемое действие, перечень завершённых этапов | `backend/task_prompt.py` |
-| Распознавание намерения в реплике («пауза», «продолжи», «откат», «подтверждаю») с приоритетом групп | `backend/task_intent.py` |
+| Таблицы `task_states` (одна строка на задачу) и `task_transitions` (журнал переходов) | `backend/models/task_state.py` (реэкспорт — `backend/storage/database.py`) |
+| FSM: `TaskStage`/`TaskStep`/`TaskEvent` (`Enum`), классы-этапы с `handle(event, step)`, таблица переходов | `backend/domain/task_fsm.py` |
+| Хранилище состояния: чтение, журнал, запись перехода, снимок рабочей памяти в `context` | `backend/storage/task_store.py` |
+| Публичный контракт переходов: `create`, `transition_to`, `pause`, `resume`, `advance_step`, `rollback` | `backend/services/task_state.py` |
+| Тексты блока состояния для промпта: ожидаемое действие, перечень завершённых этапов | `backend/domain/task_prompt.py` |
+| Распознавание намерения в реплике («пауза», «продолжи», «откат», «подтверждаю») с приоритетом групп | `backend/domain/task_intent.py` |
 | Блок состояния — **последний** блок системного сообщения каждого запроса | `Agent.task_state_block()` |
 | Авто-обновление состояния по реплике до сборки контекста | `Agent.apply_task_intent()` |
-| Поля `task_state` в ответе `POST /agents/{agent_id}/generate` | `backend/models/agent.py` |
-| Девять эндпоинтов `/agents/{id}/tasks` и `/tasks/{id}/...` | `backend/routers/tasks.py` |
-| Миксин менеджера: обёртки и разрешение умолчаний шага/действия | `backend/manager_tasks.py` |
-| Раздел «🧭 Состояние задачи» в Streamlit: схема FSM, пять кнопок, журнал | `ui/task_panel.py` |
-| Демонстрация: 5 фаз в 5 отдельных процессах (пауза → перезапуск → продолжение) | `task_state_demo.py`, `task_state_demo.md` |
+| Поля `task_state` в ответе `POST /agents/{agent_id}/generate` | `backend/schemas/agent.py` |
+| Девять эндпоинтов `/agents/{id}/tasks` и `/tasks/{id}/...` | `backend/api/tasks.py` |
+| Миксин менеджера: обёртки и разрешение умолчаний шага/действия | `backend/agents/manager_tasks.py` |
+| Раздел «🧭 Состояние задачи» в Streamlit: схема FSM, пять кнопок, журнал | `frontend/task_panel.py` |
+| Демонстрация: 5 фаз в 5 отдельных процессах (пауза → перезапуск → продолжение) | `scripts/task_state_demo.py`, `docs/reports/task_state_demo.md` |
 
 Наследовано из дня 12 (описано ниже как есть): персонализация профилем
 пользователя, три слоя памяти, четыре стратегии контекста, сжатие в конспект,
@@ -57,8 +57,8 @@
 артефактом дня 11 —
 [`../day11/memory_layers_comparison.md`](../day11/memory_layers_comparison.md).
 В `day13/` диалог ведётся вручную в чате, а доказательства дают
-[`task_state_demo.md`](task_state_demo.md) (состояние задачи) и унаследованный
-[`personalization_comparison.md`](personalization_comparison.md) (персонализация).
+[`docs/reports/task_state_demo.md`](docs/reports/task_state_demo.md) (состояние задачи) и унаследованный
+[`docs/reports/personalization_comparison.md`](docs/reports/personalization_comparison.md) (персонализация).
 
 ## Состояние задачи
 
@@ -104,7 +104,7 @@
 возобновление: paused -> тот же этап и шаг, с которого встали
 ```
 
-События — `advance`, `rollback`, `pause`, `resume` (`backend/task_fsm.py`).
+События — `advance`, `rollback`, `pause`, `resume` (`backend/domain/task_fsm.py`).
 У каждого события в конкретном этапе ровно один результат; всё, что не описано,
 — явная ошибка: `UnknownTaskEvent` для события, которого у этапа нет, и
 `InvalidTaskTransition` для недопустимого перехода (`planning → done`,
@@ -190,9 +190,9 @@ DeepSeek — они видны и при 502.
 виде, в каком он уходит в системный промпт. Если состояния у активной задачи ещё
 нет, панель предлагает его завести формой (`task_id` + начальный этап).
 
-### Демонстрация: `task_state_demo.md`
+### Демонстрация: `docs/reports/task_state_demo.md`
 
-[`task_state_demo.md`](task_state_demo.md) доказывает главное утверждение дня —
+[`docs/reports/task_state_demo.md`](docs/reports/task_state_demo.md) доказывает главное утверждение дня —
 состояние переживает перезапуск процесса. Скрипт прогоняет пять фаз, каждая в
 **отдельном процессе** (`subprocess`), и дописывает раздел с таблицей переходов,
 ответом агента, блоком состояния из системного промпта и строкой-доказательством
@@ -210,10 +210,10 @@ DeepSeek — они видны и при 502.
 
 ```bash
 cd day13
-python task_state_demo.py --all           # нужен DEEPSEEK_API_KEY в day13/.env
-python task_state_demo.py --all --no-api  # офлайн-заглушка, без сети
-python task_state_demo.py --phase 2       # одна фаза
-python task_state_demo.py --reset         # очистить демо-БД и отчёт
+python scripts/task_state_demo.py --all           # нужен DEEPSEEK_API_KEY в day13/.env
+python scripts/task_state_demo.py --all --no-api  # офлайн-заглушка, без сети
+python scripts/task_state_demo.py --phase 2       # одна фаза
+python scripts/task_state_demo.py --reset         # очистить демо-БД и отчёт
 ```
 
 Скрипт работает на отдельной базе `day13/task_state_demo.db` и переиспользует
@@ -244,7 +244,7 @@ NOT NULL, по умолчанию `"default"`). Внешнего ключа ме
 ### Поля и допустимые значения
 
 `preferences` — четыре поля с фиксированными значениями (`Enum` в
-`backend/profiles.py`). Пустое значение (`None`) означает «не настроено», такая
+`backend/domain/profiles.py`). Пустое значение (`None`) означает «не настроено», такая
 строка в промпт не попадает. В промпт уходит готовый текст:
 
 | Поле | Значение | Текст в промпте |
@@ -277,7 +277,7 @@ NOT NULL, по умолчанию `"default"`). Внешнего ключа ме
 
 ### Готовые профили демонстрации
 
-`backend/demo_profiles.py` держит три профиля с противоположными настройками —
+`backend/domain/demo_profiles.py` держит три профиля с противоположными настройками —
 их ставят кнопками в интерфейсе и прогоняют в отчёте (`DEMO_PROFILES`,
 `demo_profile()`, `demo_titles()`). Вопрос для сравнения — `DEMO_QUESTION`
 («Как ускорить медленный SQL-запрос в PostgreSQL?»), запрос про инструкцию о
@@ -376,9 +376,9 @@ NOT NULL, по умолчанию `"default"`). Внешнего ключа ме
 - Обращайся ко мне по имени
 ```
 
-### Отчёт `personalization_comparison.md`
+### Отчёт `docs/reports/personalization_comparison.md`
 
-[`personalization_comparison.md`](personalization_comparison.md) — прогон трёх
+[`docs/reports/personalization_comparison.md`](docs/reports/personalization_comparison.md) — прогон трёх
 профилей на одном и том же вопросе: таблица «Профиль — настройки — ответ — какие
 элементы профиля повлияли», полные ответы вместе с системными промптами запросов
 и таблица наблюдений (ограничение длины, отсутствие markdown у plain text, длина
@@ -388,11 +388,11 @@ NOT NULL, по умолчанию `"default"`). Внешнего ключа ме
 
 ```bash
 cd day13
-python personalization_comparison.py            # нужен DEEPSEEK_API_KEY в day13/.env
-python personalization_comparison.py --no-api   # офлайн-заглушка, без сети
+python scripts/personalization_comparison.py            # нужен DEEPSEEK_API_KEY в day13/.env
+python scripts/personalization_comparison.py --no-api   # офлайн-заглушка, без сети
 ```
 
-Скрипт пишет `day13/personalization_comparison.md` и работает на отдельной базе
+Скрипт пишет `day13/docs/reports/personalization_comparison.md` и работает на отдельной базе
 `day13/personalization_demo.db` (пересоздаётся при каждом прогоне).
 
 ## Как профиль попадает в запрос
@@ -558,8 +558,8 @@ python personalization_comparison.py --no-api   # офлайн-заглушка,
   диалог; строки задач удаляются вместе с агентом.
 * Проверки из задания (какие данные попадают в каждый слой и как слои влияют на
   ответы, два A/B-опыта) — в [docs/usage.md](docs/usage.md); персонализация
-  проверяется отчётом [`personalization_comparison.md`](personalization_comparison.md),
-  состояние задачи — [`task_state_demo.md`](task_state_demo.md).
+  проверяется отчётом [`docs/reports/personalization_comparison.md`](docs/reports/personalization_comparison.md),
+  состояние задачи — [`docs/reports/task_state_demo.md`](docs/reports/task_state_demo.md).
 
 ## Архитектура
 
@@ -604,13 +604,41 @@ Streamlit (порт 8501) ── HTTP (requests) ──► FastAPI (порт 800
 действие стратегии (сжатие / сохранение фактов / снимок ветки) → ответ** (детали
 — [docs/architecture.md](docs/architecture.md)).
 
+## Организация кода
+
+Код дня разложен по слоям: у каждого слоя своя папка, файл лежит в папке
+**своего** слоя, а не в «ближайшей». Пустой корень `backend/` (только
+`__init__.py`) — не случайность, а критерий: если в нём появился модуль, значит
+он не нашёл свой слой.
+
+| Слой | Папка | Зачем |
+|---|---|---|
+| Конфигурация и зависимости | `backend/core/` | Настройки дня (лимиты, цены, пути `.env`/`agents.db`) и доступ роутов к менеджеру агентов |
+| Домен | `backend/domain/` | Чистые правила и данные без БД, LLM и HTTP: FSM задачи и сжатия, стратегии, факты, слои памяти, профиль, тексты промпта |
+| Доступ к данным | `backend/storage/` | Движок и сессии SQLite, реэкспорт ORM, `TaskStateStore`, преобразования ORM-строк в словари |
+| Прикладные сервисы | `backend/services/` | Оркестрация домена и хранилища: суммаризация (`ContextCompressor`) и переходы задачи (`TaskStateMachine`) |
+| Агенты | `backend/agents/` | `Agent`, `MemoryManager`, `ProfileStore`, `AgentManager` и его миксины |
+| ORM-таблицы | `backend/models/` | SQLAlchemy-модели по доменам (агент, память, контекст, профиль, задача) |
+| Схемы API | `backend/schemas/` | Pydantic-модели запросов/ответов по доменам |
+| HTTP | `backend/api/` | FastAPI-роутеры по доменам и сборка `app` (`backend.api.main:app`) |
+| Утилиты | `backend/utils/` | Слой объявлен обязательным, но в дне 13 пуст: общий код живёт в repo-level `shared/` |
+| Интерфейс | `frontend/` | Streamlit по секциям: транспорт, подписи, панели, разделы |
+| Скрипты | `scripts/` | Прогоны демонстраций и сборка отчётов (в `docs/reports/`) |
+| Тесты | `tests/unit`, `tests/integration`, `tests/e2e` | Классификация по фикстурам: чистые модули / временная БД и агент / `TestClient` |
+
+Правило для будущих дней: **новая сущность сразу определяется в свой слой**
+(настройка — `core/`, чистая функция — `domain/`, запрос к БД — `storage/`,
+эндпоинт — `api/`, схема — `schemas/`, таблица — `models/`, панель —
+`frontend/`). Каждый пакет слоя имеет `__init__.py` с реэкспортом публичных
+имён — это и есть публичный контракт слоя.
+
 ## Структура
 
 ```
 day13/
 ├── app.py               # Streamlit, точка входа (45 строк): set_page_config →
 │                        # common.init_state() → sidebar.render_sidebar() → chat_section.render_main_area()
-├── ui/                  # интерфейс по секциям (10 модулей, карта — в STRUCTURE.md)
+├── frontend/            # интерфейс по секциям (10 модулей, карта — в STRUCTURE.md)
 │   ├── api_client.py    # HTTP-клиент бэкенда (requests): BACKEND_URL, BackendError, функции /tasks
 │   ├── common.py        # подписи (включая TASK_STAGE_LABELS), форматтеры, st.session_state
 │   ├── sidebar.py       # боковая панель: список агентов, создание агента, стратегия, задача и сессия
@@ -620,49 +648,35 @@ day13/
 │   ├── profile_section.py     # раздел «👤 Профиль пользователя»: форма, переключение, предпросмотр
 │   ├── profile_comparison.py  # сравнение двух профилей на одном вопросе (временные агенты)
 │   └── task_panel.py          # раздел «🧭 Состояние задачи»: схема FSM, пять кнопок, журнал
-├── task_state_demo.py   # прогон пяти фаз состояния задачи (--all/--phase/--reset), каждая — новый процесс
-├── task_demo_report.py  # сборка markdown-фрагментов отчёта демонстрации
-├── task_state_demo.md   # отчёт: 5 фаз, журнал переходов, подтверждение переживания рестарта
-├── personalization_comparison.py # унаследовано из дня 12: прогон трёх профилей (реальный API или --no-api)
-├── personalization_comparison.md # унаследованный отчёт персонализации
+├── scripts/             # прогоны демонстраций и сборка отчётов (не пакет, находят корень дня сами)
+│   ├── task_state_demo.py # прогон пяти фаз состояния задачи (--all/--phase/--reset), каждая — новый процесс
+│   ├── task_demo_report.py# сборка markdown-фрагментов отчёта демонстрации
+│   ├── personalization_comparison.py # унаследовано из дня 12: прогон трёх профилей (API или --no-api)
+│   ├── comparison_report.py # сборка отчёта сравнения профилей
+│   └── comparison_stub.py   # офлайн-заглушка DeepSeek (её же использует task_state_demo.py)
 ├── backend/
-│   ├── config.py        # URL/дефолты, лимиты/цены, сжатие, стратегии, память, профиль,
-│   │                    # границы полей состояния задачи, пути .env и agents.db
-│   ├── strategies.py    # Enum Strategy + AVAILABLE_STRATEGIES + strategy_from_value
-│   ├── task_fsm.py      # FSM состояния задачи: TaskStage/TaskStep/TaskEvent (Enum) + классы-этапы
-│   ├── task_prompt.py   # тексты блока состояния для системного промпта
-│   ├── task_intent.py   # распознавание намерения в реплике (пауза/продолжи/откат/подтверждаю)
-│   ├── task_store.py    # TaskStateStore: таблицы task_states/task_transitions (единственное место)
-│   ├── task_state.py    # TaskStateMachine: контракт переходов и валидация
-│   ├── memory.py        # MemoryManager + MemoryCategory (Enum) + чистые render/подбор
-│   ├── profiles.py      # персонализация: Enum Tone/Verbosity/Language/ResponseFormat, ProfilePrompt
-│   ├── profile_store.py # ProfileStore + ProfileData: доступ к user_profiles через фабрику сессий
-│   ├── demo_profiles.py # DEMO_PROFILES (strict_tech / friendly_mentor / process_orchestrator)
-│   ├── fact_extractor.py# эвристика извлечения фактов «ключ: значение»
-│   ├── context_fsm.py   # стейт-машина сжатия: ContextState/ContextEvent (Enum) + State
-│   ├── context_policy.py# чистая арифметика: когда сжимать, что оставить
-│   ├── tables.py        # ORM: agents / user_profiles / short_term_messages / working_memory /
-│   │                    # long_term_memory / summaries / token_usage / facts / checkpoints
-│   ├── tables_task.py   # ORM: task_states / task_transitions (день 13)
-│   ├── database.py      # движок и фабрика сессий через shared/db_base.py + реэкспорт таблиц
-│   ├── models/          # Pydantic-схемы API по доменам: agent, context, memory, profile, task
-│   ├── routers/         # эндпоинты по доменам: agents (11), context (9), memory (10), profiles (6), tasks (9)
-│   ├── dependencies.py  # get_manager / agent_or_404 / task_or_404 — доступ роутеров к менеджеру
-│   ├── manager_*.py     # миксины AgentManager: агенты, контекст, память, профили, статистика, задачи
-│   ├── compressor.py    # ContextCompressor: план, суммаризация, запись конспекта (summary)
-│   ├── agent.py         # Agent: session_id/task_id, профиль, слои памяти, состояние задачи, prepare_context
-│   ├── agent_manager.py # AgentManager (синглтон из миксинов): пул, restore, профили, стратегии, задачи
-│   └── main.py          # FastAPI: сборка app — lifespan, CORS, include_router (80 строк)
-├── tests/               # pytest: новые наборы состояния задачи (test_task_fsm, test_task_prompt,
-│                        # test_task_intent, test_task_state, test_task_store, test_task_manager,
-│                        # test_task_agent, test_task_api) плюс унаследованные из дней 9–12 — 584 теста
-├── STRUCTURE.md         # карта модулей дня: раскладка, что импортируется из shared/, лимит 400 строк
+│   ├── api/             # FastAPI: 5 роутеров по доменам + main.py (сборка app, 80 строк)
+│   ├── core/            # config.py (настройки, пути .env и agents.db), dependencies.py (get_manager, *_or_404)
+│   ├── domain/          # чистые правила: strategies, task_fsm, task_prompt, task_intent, context_fsm,
+│   │                    # context_policy, fact_extractor, memory_layers, profiles, profile_values, demo_profiles
+│   ├── services/        # compressor (суммаризация и конспект), task_state (контракт переходов)
+│   ├── storage/         # database.py (движок, сессии, реэкспорт ORM), task_store.py, memory_rows.py
+│   ├── agents/          # agent.py, memory.py, profile_store.py, agent_manager.py, manager_*.py (6 миксинов)
+│   ├── models/          # ORM-таблицы SQLAlchemy по доменам: agents, short_term_messages, working_memory,
+│   │                    # long_term_memory, summaries, token_usage, facts, checkpoints, user_profiles,
+│   │                    # task_states, task_transitions (реэкспорт — через storage/database.py)
+│   ├── schemas/         # Pydantic-схемы API по доменам: agent, context, memory, profile, task
+│   └── utils/           # своего кода нет: общий живёт в repo-level shared/
+├── tests/               # pytest: 584 теста в подпапках unit/ (7 файлов), integration/ (12), e2e/ (5)
+│                        # общие фикстуры и фейки — conftest.py и support.py в корне tests/
+├── STRUCTURE.md         # карта модулей дня: раскладка по слоям, что импортируется из shared/, лимит 400 строк
 ├── docs/
 │   ├── architecture.md  # компоненты и модульная структура, схема БД, слои памяти, персонализация, FSM задачи
 │   ├── api.md           # 45 эндпоинтов с примерами и кодами ошибок
-│   └── usage.md         # установка, запуск, слои памяти, профиль, состояние задачи, проверки, FAQ
+│   ├── usage.md         # установка, запуск, слои памяти, профиль, состояние задачи, проверки, FAQ
+│   └── reports/         # отчёты прогонов: task_state_demo.md, personalization_comparison.md
 ├── pytest.ini           # конфигурация pytest: testpaths = tests, pythonpath = . tests
-├── conftest.py          # добавляет корень day13 в sys.path (импорт `from backend.agent import Agent`)
+├── conftest.py          # добавляет корень day13 в sys.path (импорт `from backend.agents.agent import Agent`)
 ├── requirements.txt     # fastapi, uvicorn, streamlit, openai, requests, sqlalchemy,
 │                        # tiktoken, httpx, pytest, pandas
 ├── agents.db            # SQLite: агенты, слои памяти, профили, задачи (в .gitignore по *.db)
@@ -683,7 +697,7 @@ copy .env.example .env   # затем впишите DEEPSEEK_API_KEY=sk-...
 Терминал 1 (бэкенд):
 
 ```bash
-.venv/Scripts/python -m uvicorn backend.main:app --port 8000
+.venv/Scripts/python -m uvicorn backend.api.main:app --port 8000
 ```
 
 Терминал 2 (фронтенд): откройте <http://localhost:8501>.
@@ -697,8 +711,8 @@ copy .env.example .env   # затем впишите DEEPSEEK_API_KEY=sk-...
 [docs/usage.md](docs/usage.md); эндпоинты с примерами — в [docs/api.md](docs/api.md);
 как всё устроено внутри — в [docs/architecture.md](docs/architecture.md);
 Swagger — на `http://127.0.0.1:8000/docs`. Доказательства: состояние задачи —
-[`task_state_demo.md`](task_state_demo.md), персонализация —
-[`personalization_comparison.md`](personalization_comparison.md).
+[`docs/reports/task_state_demo.md`](docs/reports/task_state_demo.md), персонализация —
+[`docs/reports/personalization_comparison.md`](docs/reports/personalization_comparison.md).
 
 ## Тесты
 
@@ -711,14 +725,14 @@ cd day13
 
 | Файл | Что проверяет |
 |---|---|
-| `tests/test_task_fsm.py` | таблица переходов «этап × событие» (все 20 пар), негативные сценарии, `is_valid_transition`, шаги этапов, `stage_state_from_value` |
-| `tests/test_task_prompt.py` | ожидаемые действия по каждой паре «этап, шаг», перечень завершённых этапов, дословный формат строки блока |
-| `tests/test_task_intent.py` | распознавание всех фраз, регистр, приоритет групп, границы слов |
-| `tests/test_task_state.py` | поведение `TaskStateMachine`: создание, полный прямой ход, пауза/продолжение, откат, прямой переход, ошибки, неизвестная задача |
-| `tests/test_task_store.py` | хранение: журнал в `task_transitions`, снимок рабочей памяти, проекция в словарь, чтение новым объектом машины (переживание рестарта) |
-| `tests/test_task_manager.py` | `TaskOpsMixin`: умолчания шага и действия, список активных задач, причины в журнале, каскад удаления агента |
-| `tests/test_task_agent.py` | блок состояния в системном промпте, авто-обновление по реплике, недопустимое намерение не роняет диалог, переживание пересборки агента |
-| `tests/test_task_api.py` | девять эндпоинтов: коды 201/400/404/409/422, полный цикл, журнал, `task_state` в ответе генерации |
+| `tests/unit/test_task_fsm.py` | таблица переходов «этап × событие» (все 20 пар), негативные сценарии, `is_valid_transition`, шаги этапов, `stage_state_from_value` |
+| `tests/unit/test_task_prompt.py` | ожидаемые действия по каждой паре «этап, шаг», перечень завершённых этапов, дословный формат строки блока |
+| `tests/unit/test_task_intent.py` | распознавание всех фраз, регистр, приоритет групп, границы слов |
+| `tests/integration/test_task_state.py` | поведение `TaskStateMachine`: создание, полный прямой ход, пауза/продолжение, откат, прямой переход, ошибки, неизвестная задача |
+| `tests/integration/test_task_store.py` | хранение: журнал в `task_transitions`, снимок рабочей памяти, проекция в словарь, чтение новым объектом машины (переживание рестарта) |
+| `tests/integration/test_task_manager.py` | `TaskOpsMixin`: умолчания шага и действия, список активных задач, причины в журнале, каскад удаления агента |
+| `tests/integration/test_task_agent.py` | блок состояния в системном промпте, авто-обновление по реплике, недопустимое намерение не роняет диалог, переживание пересборки агента |
+| `tests/e2e/test_task_api.py` | девять эндпоинтов: коды 201/400/404/409/422, полный цикл, журнал, `task_state` в ответе генерации |
 
 Тесты работают офлайн: клиент DeepSeek подменяется фейком (`tests/support.py`),
 база — временная SQLite. Рядом живут наследованные наборы дней 9–12: слои памяти
@@ -731,7 +745,7 @@ cd day13
 ## Наследовано из дня 11: стратегии и сжатие
 
 Атрибут агента `strategy` принимает одно из четырёх значений (`Enum Strategy`,
-`backend/strategies.py`); сборка контекста — метод `Agent.prepare_context()`:
+`backend/domain/strategies.py`); сборка контекста — метод `Agent.prepare_context()`:
 
 | Стратегия | Что уходит в DeepSeek | Сильная сторона |
 |---|---|---|
@@ -770,20 +784,20 @@ cd day13
 * **Раздел «🧭 Состояние задачи»**: подпись «задача · агент · обновлено», этап и
   шаг, ожидаемое действие, ASCII-схема переходов, пять кнопок (пауза,
   продолжение, следующий шаг, откат, завершение) и журнал переходов таблицей.
-* **Доказательство переживания рестарта**: `task_state_demo.md` — пять фаз в пяти
+* **Доказательство переживания рестарта**: `docs/reports/task_state_demo.md` — пять фаз в пяти
   отдельных процессах, от постановки задачи до `done`.
 * **Персонализация каждого запроса**: профиль пользователя (`user_profiles`)
   подставляется первым блоком системного сообщения при любой стратегии
   контекста, а ответ генерации показывает, что именно применилось (`profile`,
   `system_prompt`).
 * **Три готовых профиля одной кнопкой**: «Строгий технический», «Дружелюбный
-  наставник» и «Оркестратор процесса» из `backend/demo_profiles.py`; рядом —
+  наставник» и «Оркестратор процесса» из `backend/domain/demo_profiles.py`; рядом —
   форма создания профиля, редактирование всех полей, предпросмотр блока промпта
   и удаление профиля.
 * **Сравнение двух профилей на одном вопросе** в интерфейсе (два ответа рядом +
   «что повлияло на ответ» и системный промпт) и офлайн-отчёт
-  [`personalization_comparison.md`](personalization_comparison.md)
-  (`python personalization_comparison.py --no-api` — без сети и ключа).
+  [`docs/reports/personalization_comparison.md`](docs/reports/personalization_comparison.md)
+  (`python scripts/personalization_comparison.py --no-api` — без сети и ключа).
 * **Живое применение настроек**: `PUT /users/{user_id}/profile` сразу рассылает
   профиль агентам пользователя (`applied_to_agents`), `PATCH /agents/{agent_id}`
   переключает профиль живого агента — перезапуск бэкенда не нужен.
@@ -824,7 +838,7 @@ cd day13
   `execution → planning`); из `planning`, `done` и `paused` откат не описан.
   Пауза разрешена из любого этапа, включая `done`.
 - Распознавание намерения в реплике — эвристика по фразам
-  (`backend/task_intent.py`), а не LLM: «готово» в середине рассуждения о работе
+  (`backend/domain/task_intent.py`), а не LLM: «готово» в середине рассуждения о работе
   тоже считается подтверждением шага. Фразы и приоритет групп — в таблице
   `INTENT_PHRASES`.
 - `new_session()` удаляет данные, производные от старого диалога: реплики его
@@ -843,7 +857,7 @@ cd day13
 - Внешнего ключа между `user_profiles` и `agents` нет: после удаления профиля
   агенты продолжают работать — просто без персонализации.
 - Стиль и формат ответа модель соблюдает приблизительно (наблюдения — в
-  `personalization_comparison.md`): обязательна подстановка блока профиля в
+  `docs/reports/personalization_comparison.md`): обязательна подстановка блока профиля в
   промпт каждого запроса, а длина и разметка оцениваются по факту ответа.
 - Отбор долговременных записей для контекста — эвристика по ключевым словам с
   добором по уверенности (детерминированная, без эмбеддингов); в запрос уходит
@@ -856,6 +870,6 @@ cd day13
 - Оценки tiktoken (`cl100k_base`) приблизительны: DeepSeek использует свой
   токенизатор; для запроса/ответа приоритет — фактические `usage` API.
 - Лимиты контекста 8K/32K демонстрационные; правка — `MODEL_TOKEN_LIMITS` в
-  `backend/config.py`.
+  `backend/core/config.py`.
 - Суммаризация всегда идёт на `deepseek-chat` (temperature 0.2); при коротких
   репликах конспект может оказаться дороже заменяемых сообщений.

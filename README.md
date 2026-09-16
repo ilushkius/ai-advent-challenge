@@ -28,7 +28,7 @@
 | `day13/` | **День 13 · «Состояние задачи как FSM»** | FastAPI + Streamlit + SQLite + tiktoken: структура дня 12 (три слоя памяти, четыре стратегии контекста, профиль пользователя) плюс формализованное состояние задачи — конечный автомат с этапами `planning`/`execution`/`validation`/`done`/`paused`, шагами внутри этапа, ожидаемым действием и паузой с продолжением с того же места. Состояние живёт в SQLite (таблицы `task_states`, `task_transitions`), блок состояния подключается к системному промпту КАЖДОГО запроса (последним), обновляется автоматически по реплике пользователя (`пауза`/`продолжи`/`откат`/`подтверждаю`), управляется девятью эндпоинтами `/agents/{id}/tasks` и `/tasks/{id}/...` (всего в API 45 эндпоинтов; версия приложения — `7.0.0`) и разделом «🧭 Состояние задачи» в UI; отчёт `task_state_demo.md` доказывает продолжение после перезапуска процесса (см. [`day13/STRUCTURE.md`](day13/STRUCTURE.md)) |
 | `shared/` | **Общие модули** (код, не меняющийся между днями) | `deepseek_utils.py` (endpoint DeepSeek, ключ из `.env`, stop-строки, `usage_to_dict`), `deepseek_client.py` (`make_client` — клиент OpenAI SDK), `db_base.py` (`Base`, `make_engine`, `init_db`, `make_session_factory`), `token_counter.py` (`count_tokens` через tiktoken), `logging_utils.py` (`get_logger`, `configure_logging`) |
 | `.clauderules` | Правила проекта для агента | Свод правил ai-challenge: стек, конвенции, процесс, проверки, секреты |
-| `AGENTS.md` | Архитектурные цели и правила структуры | Стейт-машина на Python, `Enum` + паттерн State, тесты через `pytest`, лимиты размера файлов (400 строк), раскладка `ui/` · `backend/routers/` · `backend/models/` · `shared/` |
+| `AGENTS.md` | Архитектурные цели и правила структуры | Стейт-машина на Python, `Enum` + паттерн State, тесты через `pytest`, лимиты размера файлов (400 строк), слои дня (`frontend/` · `backend/{api,core,models,schemas,services,storage,domain,agents,utils}/` · `scripts/` · `tests/{unit,integration,e2e}/` · `shared/`) |
 | `CHANGELOG.md` | История изменений | Записи о значимых изменениях структуры и документации (дата, тип, что затронуто) |
 | `.omp/config.yml` | Конфигурация omp.sh | Модель по умолчанию — `deepseek/deepseek-flash` (DeepSeek V4.1 Flash) и роли моделей |
 | `.omp/skills/` | **Скиллы проекта** | Процедурные правила для агента: `python-fsm-agent`, `fastapi-streamlit-day-structure`, `shared-modules-usage`, `tdd-pytest-workflow`, `day-docs-structure` (список — в `AGENTS.md`, раздел «Скиллы проекта») |
@@ -47,18 +47,21 @@
 | Путь | Что внутри | Строк кода |
 |---|---|---|
 | `day13/app.py` | точка входа Streamlit: `set_page_config` + вызовы секций | 45 |
-| `day13/ui/` | 10 модулей интерфейса: `sidebar.py`, `chat_section.py`, `context_panels.py`, `memory_panels.py`, `profile_section.py`, `profile_comparison.py`, `task_panel.py`, `common.py`, `api_client.py`, `__init__.py` | 6–327 |
-| `day13/backend/routers/` | эндпоинты по доменам: `agents.py` (11), `context.py` (9), `memory.py` (10), `profiles.py` (6), `tasks.py` (9) | 126–253 |
-| `day13/backend/models/` | Pydantic-схемы API по доменам (`agent`, `context`, `memory`, `profile`, `task`), реэкспорт через `models/__init__.py` | 122–319 |
-| `day13/backend/tables.py` + `tables_task.py` | ORM-таблицы SQLAlchemy: таблицы агента, памяти и профилей + `task_states`/`task_transitions`; реэкспортируются через `backend/database.py` | 393 + 102 |
-| `day13/backend/task_fsm.py`, `task_prompt.py`, `task_intent.py` | FSM состояния задачи (`Enum` + паттерн State), тексты блока состояния, распознавание намерения в реплике | 89–387 |
-| `day13/backend/task_store.py` + `task_state.py` | `TaskStateStore` — единственное место работы с таблицами задач; `TaskStateMachine` — переходы и валидация | 209 + 268 |
-| `day13/backend/manager_*.py` | миксины `AgentManager` по доменам (агенты, контекст, память, профили, статистика, задачи) | 88–249 |
-| `day13/backend/main.py` | сборка FastAPI-приложения: `lifespan`, CORS, `include_router` | 80 |
-| `day13/backend/agent.py` | `Agent`: слои памяти, стратегии, токены, `prepare_context`, профиль, состояние задачи | 1597 ⚠️ |
+| `day13/frontend/` | 10 модулей интерфейса: `sidebar.py`, `chat_section.py`, `context_panels.py`, `memory_panels.py`, `profile_section.py`, `profile_comparison.py`, `task_panel.py`, `common.py`, `api_client.py`, `__init__.py` | 6–327 |
+| `day13/backend/api/` | FastAPI: эндпоинты по доменам — `agents.py` (11), `context.py` (9), `memory.py` (10), `profiles.py` (6), `tasks.py` (9) — и сборка приложения `main.py` (`lifespan`, CORS, `include_router`) | 15–253, `main.py` — 80 |
+| `day13/backend/core/` | `config.py` (настройки, лимиты, цены, пути `.env` и `agents.db`), `dependencies.py` (`get_manager`, `agent_or_404`, `task_or_404`) | 41–156 |
+| `day13/backend/domain/` | чистые правила и данные: `strategies`, `context_fsm`, `context_policy`, `fact_extractor`, `memory_layers`, `profile_values`, `profiles`, `demo_profiles`, `task_fsm`, `task_prompt`, `task_intent` | 62–387 |
+| `day13/backend/services/` | `compressor.py` (`ContextCompressor`), `task_state.py` (`TaskStateMachine` — переходы и валидация) | 268–329 |
+| `day13/backend/storage/` | `database.py` (движок, сессии, реэкспорт ORM), `task_store.py` (`TaskStateStore`), `memory_rows.py` | 44–217 |
+| `day13/backend/agents/` | `agent.py` (`Agent`), `memory.py` (`MemoryManager`), `profile_store.py` (`ProfileStore`), `agent_manager.py` + `manager_*.py` (миксины менеджера по доменам) | 55–1603 ⚠️ |
+| `day13/backend/models/` | ORM-таблицы SQLAlchemy по доменам: `agent`, `message`, `memory`, `context`, `user_profile`, `task_state` (11 таблиц), реэкспорт через `backend/storage/database.py` | 41–157 |
+| `day13/backend/schemas/` | Pydantic-схемы API по доменам (`agent`, `context`, `memory`, `profile`, `task`), реэкспорт через `schemas/__init__.py` | 122–319 |
+| `day13/backend/utils/` | слой объявлен обязательным, но пуст: общий код живёт в `shared/` | 9 |
+| `day13/scripts/` | прогоны демонстраций и сборка отчётов: `task_state_demo.py`, `task_demo_report.py`, `personalization_comparison.py`, `comparison_report.py`, `comparison_stub.py` | 79–354 |
+| `day13/tests/` | 584 теста в подпапках `unit/` (7 файлов), `integration/` (12), `e2e/` (5); общие фикстуры — `conftest.py`, `support.py` | 60–395 |
 | `shared/` | общие модули, которые день импортирует как `from shared.<module> import ...` | 26–62 |
 
-⚠️ `day13/backend/agent.py` (1597 строк) превышает лимит 400 строк из
+⚠️ `day13/backend/agents/agent.py` (1603 строки) превышает лимит 400 строк из
 `AGENTS.md` — расхождение унаследовано от дня 12 и зафиксировано в
 `AGENTS.md` и [`day13/STRUCTURE.md`](day13/STRUCTURE.md).
 
@@ -71,8 +74,9 @@
   (`tdd-pytest-workflow`), документация дня (`day-docs-structure`).
 - **Архитектурные цели и структура файлов** — [`AGENTS.md`](AGENTS.md): явная
   стейт-машина на `Enum` + паттерн State, лимит **400 строк** на любой `.py`
-  (`app.py` ≤ 100, `backend/main.py` ≤ 80), раскладка по доменам
-  (`ui/`, `backend/routers/`, `backend/models/`, `backend/schemas/`, `shared/`),
+  (`app.py` ≤ 100, `backend/api/main.py` ≤ 80), раскладка по слоям
+  (`frontend/`, `backend/{api,core,models,schemas,services,storage,domain,agents,utils}/`,
+  `scripts/`, `tests/{unit,integration,e2e}/`, `shared/`),
   запрет дублирования кода между днями и правки снимков прошлых дней.
 - **Общие конвенции** (стек, git, команды проверки, стиль) —
   [`.clauderules`](.clauderules).
@@ -94,11 +98,11 @@
 
 | Модуль | Что делает | Кто использует |
 |---|---|---|
-| `shared/deepseek_utils.py` | `DEEPSEEK_BASE_URL` (endpoint `https://api.deepseek.com`), `read_key_from_env_file` (ключ из `.env`), `parse_stop_sequences` (stop-строки из UI), `usage_to_dict` (объект `Usage` → dict) | day2, day3, `day13/backend/config.py` |
-| `shared/deepseek_client.py` | `make_client(api_key, base_url, timeout)` — клиент OpenAI SDK для DeepSeek; `openai` импортируется лениво, `DEFAULT_TIMEOUT = 60.0` | `day13/backend/agent.py` |
-| `shared/db_base.py` | SQLAlchemy/SQLite: `Base` (декларативная база), `make_engine` (`check_same_thread=False` + `PRAGMA foreign_keys=ON`), `init_db` (создание таблиц), `make_session_factory` | `day13/backend/database.py`, `day13/backend/tables.py`, `day13/backend/tables_task.py` |
-| `shared/token_counter.py` | `count_tokens(text)` и `get_tokenizer()` — локальная оценка токенов через tiktoken (`cl100k_base`, кодировка кэшируется на процесс) | `day13/backend/agent.py` |
-| `shared/logging_utils.py` | `get_logger(name)` (логгер без хендлеров, вывод по умолчанию выключен), `configure_logging()` (включает вывод в консоль), `DEFAULT_FORMAT` | `day13/backend/main.py`, `day13/backend/agent.py`, `day13/backend/task_store.py` и модули `shared/` изнутри |
+| `shared/deepseek_utils.py` | `DEEPSEEK_BASE_URL` (endpoint `https://api.deepseek.com`), `read_key_from_env_file` (ключ из `.env`), `parse_stop_sequences` (stop-строки из UI), `usage_to_dict` (объект `Usage` → dict) | day2, day3, `day13/backend/core/config.py` |
+| `shared/deepseek_client.py` | `make_client(api_key, base_url, timeout)` — клиент OpenAI SDK для DeepSeek; `openai` импортируется лениво, `DEFAULT_TIMEOUT = 60.0` | `day13/backend/agents/agent.py` |
+| `shared/db_base.py` | SQLAlchemy/SQLite: `Base` (декларативная база), `make_engine` (`check_same_thread=False` + `PRAGMA foreign_keys=ON`), `init_db` (создание таблиц), `make_session_factory` | `day13/backend/storage/database.py`, `day13/backend/models/*.py` |
+| `shared/token_counter.py` | `count_tokens(text)` и `get_tokenizer()` — локальная оценка токенов через tiktoken (`cl100k_base`, кодировка кэшируется на процесс) | `day13/backend/agents/agent.py` |
+| `shared/logging_utils.py` | `get_logger(name)` (логгер без хендлеров, вывод по умолчанию выключен), `configure_logging()` (включает вывод в консоль), `DEFAULT_FORMAT` | `day13/backend/api/main.py`, `day13/backend/agents/agent.py`, `day13/backend/storage/task_store.py` и модули `shared/` изнутри |
 
 Сегодня `shared/` подключают `day2/`, `day3/` (только `deepseek_utils.py`)
 и `day13/` (все модули); дни 5–11 автономны, `day12/` — снимок той же
@@ -117,7 +121,7 @@
 | Модели | DeepSeek: `deepseek-chat` (основная), `deepseek-reasoner` (ограничения: может игнорировать `temperature`/`response_format`); HF (день 5): `Llama-3.1-8B-Instruct`, `Llama-3.3-70B-Instruct`, `Qwen3-235B-A22B-Instruct-2507` | все дни |
 | Хранилище | SQLite + SQLAlchemy 2.0 (дни 7–9): файлы `day7/agents.db`, `day8/agents.db`, `day9/agents.db`; таблицы `agents` (конфигурация), `messages` (диалог), `token_usage` (метрики токенов, день 8+) и `summaries` (конспекты истории, день 9) | day7–day9 |
 | Токенизация | `tiktoken` (`cl100k_base`) — локальный подсчёт токенов, оценки близки к токенизатору DeepSeek | day8–day9 |
-| Стейт-машина | `enum.Enum` + паттерн State (чистый Python): `backend/context_fsm.py` — сжатие истории (день 9), `backend/task_fsm.py` — состояние задачи (день 13) | day9, day13 |
+| Стейт-машина | `enum.Enum` + паттерн State (чистый Python): `context_fsm.py` — сжатие истории (день 9; в дне 13 — `backend/domain/context_fsm.py`), `backend/domain/task_fsm.py` — состояние задачи (день 13) | day9, day13 |
 | Тесты | `pytest` (день 9: 167 тестов — FSM, политика сжатия, хранилище, компрессор, агент, API; день 10: 193 — стратегии, факты, ветки, FSM, хранилище, API; день 11: 235 — слои памяти, API `/memory/...`, стратегии, факты, ветки, FSM, хранилище, компрессор, API; день 12: 314 — профили пользователей, промпт персонализации, API `/users...`, плюс всё из дня 11; день 13: 584 — FSM состояния задачи, хранение и журнал переходов, авто-обновление по реплике, API `/tasks...`, плюс всё из дня 12) | day9–day13 |
 | Виртуальные окружения | `day2/.venv` (streamlit 1.62.0, openai 3.6.0); `day5/.venv` (streamlit 1.63.0, huggingface_hub 1.30.0); `day6/.venv` (fastapi, streamlit, openai, requests); `day9/.venv` (fastapi, sqlalchemy, tiktoken, pytest и др.) | day2–day3, day5, day6, day9 |
 | Инструменты разработки | терминальный агент **omp.sh** (модель `deepseek/deepseek-flash` — DeepSeek V4.1 Flash), Python LSP `pyright`, `debugpy` | AI-воркфлоу |
@@ -246,11 +250,11 @@ python personalization_comparison.py --no-api    # то же офлайн, бе�
 
 # День 13 — «Состояние задачи как FSM» (из папки day13)
 pip install -r requirements.txt
-python -m uvicorn backend.main:app --port 8000   # терминал 1
-streamlit run app.py                             # терминал 2
-python -m pytest -q                              # автотесты дня 13 (584 теста)
-python task_state_demo.py --all                  # 5 фаз в 5 процессах (нужен ключ)
-python task_state_demo.py --all --no-api         # то же офлайн, без сети
+python -m uvicorn backend.api.main:app --port 8000   # терминал 1
+streamlit run app.py                                 # терминал 2
+python -m pytest -q                                  # автотесты дня 13 (584 теста)
+python scripts/task_state_demo.py --all              # 5 фаз в 5 процессах (нужен ключ)
+python scripts/task_state_demo.py --all --no-api     # то же офлайн, без сети
 ```
 
 > **Важно:** приложение ищет `.env` в текущей рабочей директории, поэтому
@@ -270,7 +274,11 @@ python task_state_demo.py --all --no-api         # то же офлайн, бе�
 
 После рефакторинга дня 12 **команды запуска не изменились**: `backend.main:app`
 собирает приложение из роутеров `backend/routers/`, а `app.py` вызывает секции
-пакета `ui/`. День 13 устроен так же и добавляет раздел «🧭 Состояние задачи».
+пакета `ui/`. В дне 13 раскладка доведена до слоёв: точка входа —
+`backend.api.main:app`, роутеры — `backend/api/`, ORM — `backend/models/*.py`,
+схемы API — `backend/schemas/`, интерфейс — `frontend/`, прогоны демонстраций —
+`scripts/` (отчёты — в `docs/reports/`), тесты — `tests/{unit,integration,e2e}/`.
+День 13 добавляет раздел «🧭 Состояние задачи».
 Команды и проверки — в [docs/usage.md](docs/usage.md),
 раскладка модулей — в [day13/STRUCTURE.md](day13/STRUCTURE.md).
 

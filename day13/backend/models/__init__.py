@@ -1,138 +1,43 @@
-"""Pydantic-схемы API дня 13: единое место моделей, разложенное по доменам.
+"""SQLAlchemy-модели дня 13, разложенные по доменам.
 
-Схемы перенесены из монолитного ``models.py`` без изменений и реэкспортируются
-отсюда, поэтому код дня (и тесты) продолжает импортировать их из
-``backend.models``:
+Модули:
 
-- ``agent.py``   — агент, генерация, метрики использования токенов;
-- ``context.py`` — сжатие истории, стратегии, ветки, факты;
-- ``memory.py``  — три слоя памяти агента;
-- ``profile.py`` — профиль пользователя и его вклад в промпт;
-- ``task.py``    — состояние задачи дня 13: этап, шаг, переходы и журнал.
+- ``agent.py`` — ``agents`` (AgentRecord): конфигурация агента и его связи;
+- ``message.py`` — ``short_term_messages`` (ShortTermMessage): диалог сессии;
+- ``memory.py`` — ``working_memory`` / ``long_term_memory``: рабочая и
+  долговременная память;
+- ``context.py`` — ``summaries`` / ``token_usage`` / ``facts`` / ``checkpoints``:
+  конспекты, метрики, факты и ветки;
+- ``user_profile.py`` — ``user_profiles`` (UserProfile): персонализация;
+- ``task_state.py`` — ``task_states`` / ``task_transitions``: состояние задачи.
+
+ORM-классы реэкспортируются через ``backend.storage.database`` (``Base``,
+``AgentRecord``, ``ShortTermMessage``, ``Summary``, ``TokenUsage``, ``Fact``,
+``WorkingMemory``, ``LongTermMemory``, ``Checkpoint``, ``UserProfile``,
+``TaskState``, ``TaskTransition``), поэтому остальной код дня импортирует их
+оттуда, а не отсюда. Импорт всех модулей пакета — он же и регистрация таблиц в
+``Base.metadata``, по которой ``init_db`` создаёт схему.
+
+Pydantic-схемы API — отдельный пакет ``backend/schemas/``.
 """
 
-from .agent import (
-    AgentConfig,
-    AgentPatch,
-    AgentSummary,
-    AgentInfo,
-    GenerateRequest,
-    MessageOut,
-    TokenMetrics,
-    UsageOut,
-    UsageSummary,
-    GenerateResponse,
-)
-
-from .context import (
-    CompressionInfo,
-    ContextInfo,
-    SummaryOut,
-    SummaryInfo,
-    SummarizeRequest,
-    CompareRequest,
-    CompareSide,
-    CompareResult,
-    StrategySetRequest,
-    StrategiesOut,
-    BranchCreateRequest,
-    BranchOut,
-    BranchListOut,
-    FactOut,
-    FactsOut,
-)
-
-from .memory import (
-    MemoryLayerInfo,
-    MemoryInfo,
-    ShortTermMessageIn,
-    ShortTermMessageOut,
-    ShortTermOut,
-    ShortTermClearOut,
-    WorkingEntryIn,
-    WorkingEntryOut,
-    WorkingMemoryOut,
-    LongTermEntryIn,
-    LongTermEntryOut,
-    LongTermMemoryOut,
-    LongTermDeleteOut,
-    SessionOut,
-    TaskSetRequest,
-    TaskOut,
-)
-
-from .profile import (
-    UserPreferences,
-    UserConstraints,
-    UserProfileIn,
-    UserProfileOut,
-    UserProfileDeleteOut,
-    ProfileElementOut,
-    AppliedProfileOut,
-)
-
-from .task import (
-    TaskCreateIn,
-    TaskHistoryOut,
-    TaskRollbackIn,
-    TaskStateOut,
-    TaskTransitionIn,
-    TaskTransitionOut,
-)
+from .agent import AgentRecord
+from .context import Checkpoint, Fact, Summary, TokenUsage
+from .memory import LongTermMemory, WorkingMemory
+from .message import ShortTermMessage
+from .task_state import TaskState, TaskTransition
+from .user_profile import UserProfile
 
 __all__ = [
-    "AgentConfig",
-    "AgentInfo",
-    "AgentPatch",
-    "AgentSummary",
-    "AppliedProfileOut",
-    "BranchCreateRequest",
-    "BranchListOut",
-    "BranchOut",
-    "CompareRequest",
-    "CompareResult",
-    "CompareSide",
-    "CompressionInfo",
-    "ContextInfo",
-    "FactOut",
-    "FactsOut",
-    "GenerateRequest",
-    "GenerateResponse",
-    "LongTermDeleteOut",
-    "LongTermEntryIn",
-    "LongTermEntryOut",
-    "LongTermMemoryOut",
-    "MemoryInfo",
-    "MemoryLayerInfo",
-    "MessageOut",
-    "ProfileElementOut",
-    "SessionOut",
-    "ShortTermClearOut",
-    "ShortTermMessageIn",
-    "ShortTermMessageOut",
-    "ShortTermOut",
-    "StrategiesOut",
-    "StrategySetRequest",
-    "SummarizeRequest",
-    "SummaryInfo",
-    "SummaryOut",
-    "TaskCreateIn",
-    "TaskHistoryOut",
-    "TaskOut",
-    "TaskRollbackIn",
-    "TaskSetRequest",
-    "TaskStateOut",
-    "TaskTransitionIn",
-    "TaskTransitionOut",
-    "TokenMetrics",
-    "UsageOut",
-    "UsageSummary",
-    "UserConstraints",
-    "UserPreferences",
-    "UserProfileDeleteOut",
-    "UserProfileIn",
-    "UserProfileOut",
-    "WorkingEntryIn",
-    "WorkingEntryOut",
-    "WorkingMemoryOut",
+    "AgentRecord",
+    "Checkpoint",
+    "Fact",
+    "LongTermMemory",
+    "ShortTermMessage",
+    "Summary",
+    "TaskState",
+    "TaskTransition",
+    "TokenUsage",
+    "UserProfile",
+    "WorkingMemory",
 ]

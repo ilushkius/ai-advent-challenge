@@ -20,11 +20,11 @@
 
 Устройство — в [architecture.md](architecture.md), контракты HTTP — в
 [api.md](api.md). Главное свойство дня доказывает прогон
-[`task_state_demo.md`](../task_state_demo.md) (скрипт `task_state_demo.py`): пять
+[`reports/task_state_demo.md`](reports/task_state_demo.md) (скрипт `scripts/task_state_demo.py`): пять
 фаз в пяти **отдельных процессах** — пауза, перезапуск, продолжение с того же
 шага. Персонализацию доказывает
-[`personalization_comparison.md`](../personalization_comparison.md) (скрипт
-`personalization_comparison.py`, наследовано из дня 12); отчёт дня 11 по трём
+[`reports/personalization_comparison.md`](reports/personalization_comparison.md) (скрипт
+`scripts/personalization_comparison.py`, наследовано из дня 12); отчёт дня 11 по трём
 слоям памяти остался в дне 11 —
 [`../../day11/memory_layers_comparison.md`](../../day11/memory_layers_comparison.md)
 (в `day13/` его нет).
@@ -104,12 +104,12 @@ from shared.logging_utils import get_logger
 from shared.deepseek_utils import read_key_from_env_file
 ```
 
-Кто что берёт в дне 13: `backend/agent.py` — `make_client` и `count_tokens`;
-`backend/config.py` — `DEEPSEEK_BASE_URL` и `read_key_from_env_file`;
-`backend/database.py`, `backend/tables.py` и `backend/tables_task.py` —
-`shared.db_base`; `backend/main.py`, `backend/agent.py` и
-`backend/task_store.py` — `get_logger`.
-Модули `ui/` обращаются к бэкенду по HTTP и `shared/` не импортируют.
+Кто что берёт в дне 13: `backend/agents/agent.py` — `make_client` и `count_tokens`;
+`backend/core/config.py` — `DEEPSEEK_BASE_URL` и `read_key_from_env_file`;
+`backend/storage/database.py`, `backend/models/*.py` и `backend/models/task_state.py` —
+`shared.db_base`; `backend/api/main.py`, `backend/agents/agent.py` и
+`backend/storage/task_store.py` — `get_logger`.
+Модули `frontend/` обращаются к бэкенду по HTTP и `shared/` не импортируют.
 
 Дублировать этот код внутри `dayN/` нельзя (`AGENTS.md`, раздел «Запрещено»):
 правка `shared/` меняет поведение всех дней сразу, поэтому её проверяют тестами
@@ -166,7 +166,7 @@ $env:DAY13_BACKEND_URL = "http://127.0.0.1:8019"
 
 ```powershell
 cd day13
-.venv/Scripts/python -m uvicorn backend.main:app --port 8000
+.venv/Scripts/python -m uvicorn backend.api.main:app --port 8000
 ```
 
 При старте бэкенд создаёт файл базы `day13/agents.db` (если его ещё нет) и
@@ -207,35 +207,75 @@ curl.exe http://127.0.0.1:8000/
 
 ### Запуск day13 после рефакторинга: что изменилось, а что нет
 
-**Команды запуска не изменились** — рефакторинг затронул раскладку кода, а не
-точки входа:
+**Изменилась раскладка кода и путь к приложению; команды те же:**
 
-* `backend.main:app` по-прежнему точка входа бэкенда; теперь этот модуль только
-  собирает приложение (`lifespan`, CORS, `include_router`), а эндпоинты лежат в
-  `backend/routers/` по доменам — `agents.py` (11), `context.py` (9),
+* точка входа бэкенда — `backend.api.main:app` (было `backend.main:app`); этот
+  модуль только собирает приложение (`lifespan`, CORS, `include_router`), а
+  эндпоинты лежат в `backend/api/` по доменам — `agents.py` (11), `context.py` (9),
   `memory.py` (10), `profiles.py` (6), `tasks.py` (9), всего 45;
-* `streamlit run app.py` по-прежнему запускает фронтенд; `app.py` стал точкой
-  входа на 45 строк и вызывает секции пакета `ui/` (`common`, `sidebar`,
-  `chat_section`). Логика панелей — в `ui/context_panels.py`,
-  `ui/memory_panels.py`, `ui/profile_section.py`, `ui/profile_comparison.py`,
-  `ui/task_panel.py`, HTTP-транспорт к бэкенду — в `ui/api_client.py`;
-* Pydantic-схемы переехали из `backend/models.py` в пакет `backend/models/`
-  (`agent`, `context`, `memory`, `profile`, `task`), ORM-таблицы — в
-  `backend/tables.py` (реэкспорт через `backend/database.py`), таблицы состояния
-  задачи — в `backend/tables_task.py` (реэкспорт там же). Импорты в коде и тестах
-  не менялись: `from backend.models import ...`,
-  `from backend.database import ...`;
-* состояние задачи разложено по обязанностям: правила FSM — `backend/task_fsm.py`,
-  тексты блока промпта — `backend/task_prompt.py`, распознавание намерения в
-  реплике — `backend/task_intent.py`, работа с таблицами — `backend/task_store.py`,
-  переходы и валидация — `backend/task_state.py`, обёртки менеджера —
-  `backend/manager_tasks.py`;
+* бэкенд разложен на слои: `core/` (настройки и зависимости), `domain/` (чистые
+  правила), `storage/` (доступ к БД), `services/` (суммаризация, переходы задачи),
+  `agents/` (`Agent`, `MemoryManager`, `ProfileStore`, `AgentManager`), `models/`
+  (ORM), `schemas/` (Pydantic-схемы), `api/` (роутеры и сборка `app`); корень
+  `backend/` пуст — в нём только `__init__.py`;
+* `streamlit run app.py` по-прежнему запускает фронтенд; `app.py` — точка входа
+  на 45 строк, а интерфейс лежит в пакете `frontend/` (было `ui/`): `common`,
+  `sidebar`, `chat_section`, `context_panels`, `memory_panels`,
+  `profile_section`, `profile_comparison`, `task_panel`, HTTP-транспорт —
+  `frontend/api_client.py`;
+* Pydantic-схемы лежат в `backend/schemas/` (`agent`, `context`, `memory`,
+  `profile`, `task`), ORM-таблицы — в `backend/models/*.py` по доменам
+  (`agent`, `message`, `memory`, `context`, `user_profile`, `task_state`);
+  реэкспорт таблиц — через `backend/storage/database.py`. Импорты:
+  `from backend.schemas import ...`, `from backend.storage.database import ...`;
+* состояние задачи разложено по обязанностям: правила FSM — `backend/domain/task_fsm.py`,
+  тексты блока промпта — `backend/domain/task_prompt.py`, распознавание намерения в
+  реплике — `backend/domain/task_intent.py`, работа с таблицами — `backend/storage/task_store.py`,
+  переходы и валидация — `backend/services/task_state.py`, обёртки менеджера —
+  `backend/agents/manager_tasks.py`;
+* прогоны демонстраций — в `scripts/` (`python scripts/task_state_demo.py --all`,
+  `python scripts/personalization_comparison.py --no-api`), их отчёты — в
+  `docs/reports/` (`task_state_demo.md`, `personalization_comparison.md`);
+* тесты разложены по подпапкам `tests/unit/`, `tests/integration/`, `tests/e2e/`
+  (классификация по фикстурам), запускаются как раньше:
+  `.venv/Scripts/python -m pytest -q`;
 * общий код (клиент DeepSeek, база SQLAlchemy, токены, логи) вынесен в пакет
   `shared/`; корень репозитория добавляет в `sys.path` `backend/__init__.py` —
-  см. §1, «Работа с `shared/`»;
-* тесты запускаются как раньше: `.venv/Scripts/python -m pytest -q`.
+  см. §1, «Работа с `shared/`».
 
 Карта модулей дня и лимит размера файлов — в [`../STRUCTURE.md`](../STRUCTURE.md).
+
+## Где искать функционал
+
+| Задача | Файл |
+|---|---|
+| Настройки, лимиты, цены, пути `.env` и `agents.db` | `backend/core/config.py` |
+| Доступ роутов к менеджеру (`get_manager`, `agent_or_404`, `task_or_404`) | `backend/core/dependencies.py` |
+| Состояния, события и переходы состояния задачи | `backend/domain/task_fsm.py` |
+| Тексты блока состояния для системного промпта | `backend/domain/task_prompt.py` |
+| Распознавание намерения в реплике («пауза», «продолжи», «откат», «подтверждаю») | `backend/domain/task_intent.py` |
+| Стейт-машина сжатия истории (день 9) и арифметика сжатия | `backend/domain/context_fsm.py`, `backend/domain/context_policy.py` |
+| Стратегии контекста (`sliding_window`, `sticky_facts`, `branching`, `summary`) | `backend/domain/strategies.py` + ветки `_prepare_*` в `backend/agents/agent.py` |
+| Извлечение фактов «ключ: значение» | `backend/domain/fact_extractor.py` |
+| Категории и тексты блоков слоёв памяти | `backend/domain/memory_layers.py` |
+| Значения и нормализация профиля, блок персонализации | `backend/domain/profile_values.py`, `backend/domain/profiles.py` |
+| Демонстрационные профили (UI и отчёт) | `backend/domain/demo_profiles.py` |
+| Переходы состояния задачи и их валидация | `backend/services/task_state.py` |
+| Вызов суммаризации и запись конспекта | `backend/services/compressor.py` |
+| Движок, сессии SQLite, реэкспорт ORM-классов | `backend/storage/database.py` |
+| Таблицы состояния задачи и журнал переходов (чтение/запись) | `backend/storage/task_store.py` |
+| Преобразования ORM-строк памяти в словари API | `backend/storage/memory_rows.py` |
+| ORM-таблицы по доменам (11 таблиц) | `backend/models/*.py` |
+| Pydantic-схемы API по доменам | `backend/schemas/*.py` |
+| Эндпоинты по доменам и сборка приложения | `backend/api/*.py`, `backend/api/main.py` |
+| Агент: слои памяти, токены, контекст, профиль, состояние задачи | `backend/agents/agent.py` |
+| Три слоя памяти в SQLite (`MemoryManager`) | `backend/agents/memory.py` |
+| Профиль пользователя в SQLite (`ProfileStore`) | `backend/agents/profile_store.py` |
+| Пул агентов и миксины менеджера | `backend/agents/agent_manager.py`, `backend/agents/manager_*.py` |
+| Интерфейс: транспорт, подписи, панели, разделы | `frontend/api_client.py`, `frontend/common.py`, `frontend/*_panels.py`, `frontend/task_panel.py`, `frontend/profile_section.py`, `frontend/sidebar.py`, `frontend/chat_section.py` |
+| Прогоны демонстраций и сборка отчётов | `scripts/*.py` (отчёты — в `docs/reports/`) |
+| Тесты: чистые модули / временная БД и агент / API | `tests/unit/`, `tests/integration/`, `tests/e2e/` |
+
 
 ### Порядок блоков в основной области
 
@@ -601,7 +641,7 @@ Streamlit не сохраняет выбранную вкладку между �
 
 **Готовые профили — одним нажатием.** Блок **«⚡ Готовые профили»** (подпись
 «создаются или обновляются одним нажатием») показывает три кнопки; данные берутся
-из `DEMO_PROFILES` (модуль `backend/demo_profiles.py` — его импортируют и
+из `DEMO_PROFILES` (модуль `backend/domain/demo_profiles.py` — его импортируют и
 интерфейс, и скрипт отчёта, поэтому настройки в UI и в отчёте не расходятся):
 
 | Кнопка | `user_id` | Настройки | Чего ожидать в ответе |
@@ -1114,7 +1154,7 @@ curl.exe -X POST http://127.0.0.1:8000/tasks/tz-portal/transition ^
 
    ```powershell
    cd day13
-   .venv/Scripts/python -m uvicorn backend.main:app --port 8000
+   .venv/Scripts/python -m uvicorn backend.api.main:app --port 8000
    ```
 
 4. Убедитесь, что состояние на месте:
@@ -1131,7 +1171,7 @@ curl.exe -X POST http://127.0.0.1:8000/tasks/tz-portal/transition ^
    описывает новое положение: агенту не нужно объяснять, где он остановился
    (§7.5, §7.8).
 
-Доказательство прогоном — [`task_state_demo.md`](../task_state_demo.md): пять фаз,
+Доказательство прогоном — [`reports/task_state_demo.md`](reports/task_state_demo.md): пять фаз,
 каждая в **отдельном процессе** (`subprocess`), с реальными ответами DeepSeek.
 Фаза 1 оставляет задачу в `paused/create_plan`, фаза 2 в новом процессе читает это
 состояние и репликой «продолжи» возвращает задачу на тот же шаг, фазы 3–4 доводят
@@ -1139,16 +1179,16 @@ curl.exe -X POST http://127.0.0.1:8000/tasks/tz-portal/transition ^
 
 ```powershell
 cd day13
-.venv/Scripts/python task_state_demo.py --reset         # очистить демо-БД и отчёт
-.venv/Scripts/python task_state_demo.py --phase 2       # одна фаза в отдельном процессе
-.venv/Scripts/python task_state_demo.py --all           # все 5 фаз, нужен ключ DeepSeek
-.venv/Scripts/python task_state_demo.py --all --no-api  # то же офлайн, без сети
+.venv/Scripts/python scripts/task_state_demo.py --reset         # очистить демо-БД и отчёт
+.venv/Scripts/python scripts/task_state_demo.py --phase 2       # одна фаза в отдельном процессе
+.venv/Scripts/python scripts/task_state_demo.py --all           # все 5 фаз, нужен ключ DeepSeek
+.venv/Scripts/python scripts/task_state_demo.py --all --no-api  # то же офлайн, без сети
 ```
 
 Скрипт работает на **отдельной** базе `day13/task_state_demo.db`, агентом `demo13`
 и задачей `tz-portal`; ваша `agents.db` не затрагивается. Текст отчёта собирает
-`task_demo_report.py` (как `comparison_report.py` у дня 12), офлайн-заглушку даёт
-`comparison_stub.py`.
+`scripts/task_demo_report.py` (как `scripts/comparison_report.py` у дня 12), офлайн-заглушку даёт
+`scripts/comparison_stub.py`.
 
 ### 7.10 Проверить в SQLite
 
@@ -1212,8 +1252,8 @@ cd day13
 ```
 
 Детерминированная версия той же проверки — без сети, ключа и UI: наследованные
-тесты слоёв (`tests/test_memory_agent.py`, `tests/test_memory_manager.py`,
-`tests/test_memory_api.py`) проверяют маршрутизацию «действие → слой», очистку
+тесты слоёв (`tests/integration/test_memory_agent.py`, `tests/integration/test_memory_manager.py`,
+`tests/e2e/test_memory_api.py`) проверяют маршрутизацию «действие → слой», очистку
 `new_session()` и переключение задачи. Команда запуска — §10.
 
 ---
@@ -1286,26 +1326,26 @@ on-premise.»; (б) общий ответ про размещение в обл�
 ## 10. Проверка 3: персонализация — один вопрос, два профиля
 
 Доказательство персонализации (наследовано из дня 12) — отчёт
-[`personalization_comparison.md`](../personalization_comparison.md), который
-собирает скрипт `personalization_comparison.py` из папки `day13`.
+[`reports/personalization_comparison.md`](reports/personalization_comparison.md), который
+собирает скрипт `scripts/personalization_comparison.py` из папки `day13`.
 
 ```powershell
 cd day13
-.venv/Scripts/python personalization_comparison.py            # реальные запросы к deepseek-chat
-.venv/Scripts/python personalization_comparison.py --no-api   # офлайн-заглушка, без сети
+.venv/Scripts/python scripts/personalization_comparison.py            # реальные запросы к deepseek-chat
+.venv/Scripts/python scripts/personalization_comparison.py --no-api   # офлайн-заглушка, без сети
 .venv/Scripts/python -m pytest -q                             # 584 теста
 ```
 
 В активированном виртуальном окружении те же команды короче:
-`python personalization_comparison.py`,
-`python personalization_comparison.py --no-api`,
+`python scripts/personalization_comparison.py`,
+`python scripts/personalization_comparison.py --no-api`,
 `cd day13 && python -m pytest -q`.
 
 * первый запуск требует `DEEPSEEK_API_KEY` в `day13/.env` (§2) — в отчёте
   реальные ответы модели;
 * `--no-api` — офлайн-прогон на заглушке: сеть и ключ не нужны, подстановка
   профиля в промпт проверяется без вызовов DeepSeek;
-* скрипт пишет `day13/personalization_comparison.md` и работает на **отдельной
+* скрипт пишет `day13/docs/reports/personalization_comparison.md` и работает на **отдельной
   БД** `day13/personalization_demo.db` (пересоздаётся при каждом прогоне), ваша
   `day13/agents.db` не затрагивается.
 
@@ -1335,17 +1375,17 @@ cd day13
 
 | Файл | Тестов | Что проверяет |
 |---|---|---|
-| `tests/test_task_fsm.py` | 86 | чистые правила `backend/task_fsm.py`: таблица переходов (все 20 пар «этап × событие»), шаги этапов, `is_valid_transition`, `rollback_target`, явные ошибки `UnknownTaskEvent`/`InvalidTaskTransition` |
-| `tests/test_task_prompt.py` | 26 | тексты блока состояния: ожидаемое действие для каждого шага, перечень завершённых этапов, дословный формат строки промпта |
-| `tests/test_task_intent.py` | 63 | распознавание намерения по реплике: фразы всех четырёх групп, приоритет пауза → продолжение → откат → подтверждение, граница слова («продолжительность» не намерение) |
-| `tests/test_task_state.py`, `tests/test_task_store.py` | 47 | таблицы `task_states`/`task_transitions`: создание, цепочка шагов, пауза и продолжение, откат, завершение, журнал, снимок рабочей памяти в `context`, коды ошибок хранилища |
-| `tests/test_task_manager.py` | 13 | обёртки `TaskOpsMixin`: умолчания шага и ожидаемого действия, `list_active_tasks`, причины переходов |
-| `tests/test_task_agent.py` | 10 | блок состояния в системном сообщении, поля `task_state` в отчёте генерации, авто-обновление по реплике, чтение состояния новым агентом (перезапуск) |
-| `tests/test_task_api.py` | 25 | девять эндпоинтов `/tasks...`: `201`/`400`/`404`/`409`/`422`, полный цикл, журнал, поле `task_state` в генерации |
+| `tests/unit/test_task_fsm.py` | 86 | чистые правила `backend/domain/task_fsm.py`: таблица переходов (все 20 пар «этап × событие»), шаги этапов, `is_valid_transition`, `rollback_target`, явные ошибки `UnknownTaskEvent`/`InvalidTaskTransition` |
+| `tests/unit/test_task_prompt.py` | 26 | тексты блока состояния: ожидаемое действие для каждого шага, перечень завершённых этапов, дословный формат строки промпта |
+| `tests/unit/test_task_intent.py` | 63 | распознавание намерения по реплике: фразы всех четырёх групп, приоритет пауза → продолжение → откат → подтверждение, граница слова («продолжительность» не намерение) |
+| `tests/integration/test_task_state.py`, `tests/integration/test_task_store.py` | 47 | таблицы `task_states`/`task_transitions`: создание, цепочка шагов, пауза и продолжение, откат, завершение, журнал, снимок рабочей памяти в `context`, коды ошибок хранилища |
+| `tests/integration/test_task_manager.py` | 13 | обёртки `TaskOpsMixin`: умолчания шага и ожидаемого действия, `list_active_tasks`, причины переходов |
+| `tests/integration/test_task_agent.py` | 10 | блок состояния в системном сообщении, поля `task_state` в отчёте генерации, авто-обновление по реплике, чтение состояния новым агентом (перезапуск) |
+| `tests/e2e/test_task_api.py` | 25 | девять эндпоинтов `/tasks...`: `201`/`400`/`404`/`409`/`422`, полный цикл, журнал, поле `task_state` в генерации |
 
 Быстрая синтаксическая проверка изменённых файлов (после рефакторинга — вместе с
-роутерами и пакетом `ui/`):
-`python -m py_compile backend/main.py backend/dependencies.py backend/routers/agents.py backend/routers/context.py backend/routers/memory.py backend/routers/profiles.py backend/routers/tasks.py backend/task_fsm.py backend/task_prompt.py backend/task_intent.py backend/task_store.py backend/task_state.py backend/tables_task.py backend/manager_tasks.py backend/models/task.py ui/api_client.py ui/chat_section.py ui/sidebar.py ui/task_panel.py app.py`.
+роутерами и пакетом `frontend/`):
+`python -m py_compile backend/api/main.py backend/core/dependencies.py backend/api/agents.py backend/api/context.py backend/api/memory.py backend/api/profiles.py backend/api/tasks.py backend/domain/task_fsm.py backend/domain/task_prompt.py backend/domain/task_intent.py backend/storage/task_store.py backend/services/task_state.py backend/models/task_state.py backend/agents/manager_tasks.py backend/schemas/task.py frontend/api_client.py frontend/chat_section.py frontend/sidebar.py frontend/task_panel.py app.py`.
 
 ---
 
@@ -1409,7 +1449,7 @@ print(state["stage"], state["current_step"], state["is_active"])  # done finaliz
 `id`, включая строку создания (`from_stage`/`from_step` пусты). В сквозном прогоне
 дня 13 журнал собрал **14 записей** с причинами «задача создана», «следующий шаг»,
 «пауза», «продолжение после паузы», «откат на предыдущий этап», «задача
-завершена»; в демонстрации `task_state_demo.md` — **15** (там на один откат и
+завершена»; в демонстрации `reports/task_state_demo.md` — **15** (там на один откат и
 возврат больше).
 
 **4. Перезапуск процесса.** Остановите uvicorn (Ctrl+C) и запустите снова тем же
@@ -1434,21 +1474,21 @@ execution», «▶️ Продолжить» возвращает `execution/tes
 
 ```powershell
 cd day13
-.venv/Scripts/python -m pytest -q tests/test_task_fsm.py tests/test_task_state.py tests/test_task_api.py
-.venv/Scripts/python task_state_demo.py --all --no-api   # офлайн, без сети
-.venv/Scripts/python task_state_demo.py --all            # реальные ответы DeepSeek
+.venv/Scripts/python -m pytest -q tests/unit/test_task_fsm.py tests/integration/test_task_state.py tests/e2e/test_task_api.py
+.venv/Scripts/python scripts/task_state_demo.py --all --no-api   # офлайн, без сети
+.venv/Scripts/python scripts/task_state_demo.py --all            # реальные ответы DeepSeek
 ```
 
 Полный прогон — **584 теста** (§10). Итог виден в панели «🧭 Состояние задачи»,
 в `GET /tasks/{task_id}/state` и `/history`, в таблицах `task_states` /
-`task_transitions` (§7.10) и в отчёте `task_state_demo.md`.
+`task_transitions` (§7.10) и в отчёте `reports/task_state_demo.md`.
 
 ---
 
 ## 12. Сценарий демонстрации для видео (день 13)
 
 Покадрово, 5–7 минут. Числа, цитаты ответов и полный журнал для сверки — в
-[`task_state_demo.md`](../task_state_demo.md).
+[`reports/task_state_demo.md`](reports/task_state_demo.md).
 
 **Кадр 0 — интро (30 сек).** Задание дня: вынести состояние задачи в явный
 конечный автомат, чтобы агент после перезапуска продолжал с того же места.
@@ -1471,7 +1511,7 @@ cd day13
 вернуться можно на них же.
 
 **Кадр 4 — остановить и запустить бэкенд (1 мин).** Ctrl+C в первом терминале,
-затем снова `uvicorn backend.main:app --port 8000` на той же `day13/agents.db`.
+затем снова `uvicorn backend.api.main:app --port 8000` на той же `day13/agents.db`.
 `curl.exe http://127.0.0.1:8000/tasks/tz-portal/state` → те же
 `"stage": "paused"`, `"current_step": "implement"`. Главное доказательство дня:
 состояние живёт в SQLite, а не в памяти процесса.
@@ -1490,8 +1530,8 @@ cd day13
 шаг» после этого даёт `400`, а задача уходит из `GET /agents/{id}/tasks`.
 
 **Кадр 8 — журнал и отчёт (1 мин).** Вкладка «📜 Журнал переходов» — весь путь
-задачи; затем `python task_state_demo.py --all` (или `--all --no-api`) и открыть
-`task_state_demo.md`: пять фаз в пяти процессах, таблицы переходов, ответы агента,
+задачи; затем `python scripts/task_state_demo.py --all` (или `--all --no-api`) и открыть
+`reports/task_state_demo.md`: пять фаз в пяти процессах, таблицы переходов, ответы агента,
 блок состояния из системного промпта и вывод «состояние сохранено между пятью
 запусками».
 
@@ -1522,8 +1562,8 @@ cd day13
 пришли из дня 11. Профиль дня 12 и состояние задачи дня 13 — надстройки над ними:
 ни одна из панелей не заменяется, маршрутизация записей по слоям не меняется.
 Захардкоженного демонстрационного сценария по слоям в дне 13 нет — диалог ведётся
-вручную в чате (§5.7), доказательства дают `task_state_demo.py` (§7.9) и
-`personalization_comparison.py` (§10).
+вручную в чате (§5.7), доказательства дают `scripts/task_state_demo.py` (§7.9) и
+`scripts/personalization_comparison.py` (§10).
 
 ---
 
@@ -1634,7 +1674,7 @@ cd day13
 | После новой сессии пропал конспект старого диалога — почему? | Конспект (`summaries`) — сжатие **краткосрочного** слоя, то есть производное от конкретного диалога. Если оставить его при смене сессии, устаревшее содержание продолжало бы подставляться в системное сообщение. Факты (`facts`) удаляются по той же причине. Если данные нужно сохранить между сессиями, перенесите их в долговременную память (категория `knowledge` или `preference`) — автоматического переноса нет. |
 | Запись рабочей памяти «не сохранилась», а значение изменилось | Это upsert: пара «задача + ключ» уникальна, поэтому повторное сохранение того же ключа перезаписывает значение. Хотите две записи — используйте разные ключи (`цель` и `критерий_приёмки`). |
 | Переключил задачу — рабочая память «опустела» | Записи привязаны к `task_id`, поэтому у новой задачи свой набор. Вернитесь к прежней задаче селектором «🔀 Переключить задачу» — записи на месте. Диалог при переключении не теряется. |
-| Записей в долговременной памяти больше, чем видно в контексте | В запрос уходит до 5 записей (`LONG_TERM_LIMIT`): сначала совпавшие по ключевым словам запроса (и по упоминанию категории), затем самые уверенные. Поднять лимит — правка `LONG_TERM_LIMIT` в `backend/config.py`. |
+| Записей в долговременной памяти больше, чем видно в контексте | В запрос уходит до 5 записей (`LONG_TERM_LIMIT`): сначала совпавшие по ключевым словам запроса (и по упоминанию категории), затем самые уверенные. Поднять лимит — правка `LONG_TERM_LIMIT` в `backend/core/config.py`. |
 | `422` при сохранении долговременной записи | Проверьте: категория — только `profile` / `preference` / `decision` / `knowledge`, `confidence` — от 0 до 1, ключ и значение непустые. Категория `profile` здесь — обычные данные агента, к профилю пользователя она отношения не имеет (§5.4, §6). |
 | Записал в рабочую память, а индикатор показывает `0 записей` | Проверьте активную задачу (§5.5): запись ушла в другую задачу, либо это первая реплика сессии — в ней краткосрочный слой всегда `0` токенов, а рабочая метрика появится только после успешного хода. |
 
@@ -1653,8 +1693,8 @@ cd day13
 
 | Проблема | Решение |
 |---|---|
-| «🔌 Бэкенд недоступен» в интерфейсе | Запустите бэкенд из папки `day13`: `.venv/Scripts/python -m uvicorn backend.main:app --port 8000`. Проверьте адрес: он должен совпадать с `DAY13_BACKEND_URL` (по умолчанию `http://127.0.0.1:8000`). |
-| Порт 8000 (или 8501) занят | Запустите на другом порту: `uvicorn backend.main:app --port 8019` и, для фронтенда, задайте `$env:DAY13_BACKEND_URL="http://127.0.0.1:8019"`; Streamlit — `--server.port 8502`. |
+| «🔌 Бэкенд недоступен» в интерфейсе | Запустите бэкенд из папки `day13`: `.venv/Scripts/python -m uvicorn backend.api.main:app --port 8000`. Проверьте адрес: он должен совпадать с `DAY13_BACKEND_URL` (по умолчанию `http://127.0.0.1:8000`). |
+| Порт 8000 (или 8501) занят | Запустите на другом порту: `uvicorn backend.api.main:app --port 8019` и, для фронтенда, задайте `$env:DAY13_BACKEND_URL="http://127.0.0.1:8019"`; Streamlit — `--server.port 8502`. |
 | Генерация вернула `502` «Ключ API не задан» | Ключа нет ни в `day13/.env`, ни в переменной `DEEPSEEK_API_KEY`. Сделайте `copy .env.example .env` и впишите `DEEPSEEK_API_KEY=sk-...`, затем перезапустите бэкенд. Карточки агентов, слои памяти, CRUD профилей, CRUD состояния задачи и скрипт с `--no-api` работают и без ключа. |
 | Ошибка `429` (rate limit) от DeepSeek | Слишком много запросов подряд. Подождите и повторите; для демонстрации делайте паузы между ходами. Панель сравнения профилей тратит **два** запроса сразу, «⚖️ Сравнить режимы» с галочкой — тоже два. |
 | `404` на агента | Агент был удалён или `agent_id` указан неверно. Обновите список кнопкой «🔄 Обновить список» и выберите агента заново. |
@@ -1690,16 +1730,16 @@ cd day13
 
 **Артефакты дня 13 (в `day13/`):**
 
-* [`task_state_demo.md`](../task_state_demo.md) — отчёт прогона состояния задачи:
+* [`reports/task_state_demo.md`](reports/task_state_demo.md) — отчёт прогона состояния задачи:
   пять фаз в пяти отдельных процессах (пауза → перезапуск → продолжение),
   таблицы переходов, ответы агента, блок состояния из системного промпта и вывод
   о сохранении между запусками. Собирается скриптом
   `../task_state_demo.py` (§7.9), текст отчёта рисует
   `../task_demo_report.py`.
-* `task_state_demo.py` — демонстрация дня 13: `--reset`, `--phase N`, `--all`,
+* `scripts/task_state_demo.py` — демонстрация дня 13: `--reset`, `--phase N`, `--all`,
   `--all --no-api`; работает на отдельной БД `task_state_demo.db` (агент
   `demo13`, задача `tz-portal`), вашу `agents.db` не затрагивает.
-* [`personalization_comparison.md`](../personalization_comparison.md) — отчёт
+* [`reports/personalization_comparison.md`](reports/personalization_comparison.md) — отчёт
   прогона персонализации (наследовано из дня 12): таблица «Профиль | Настройки |
   Ответ агента | Какие элементы профиля повлияли», полные ответы с системными
   промптами, наблюдения и вывод. Собирается скриптом

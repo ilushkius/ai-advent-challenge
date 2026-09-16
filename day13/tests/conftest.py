@@ -7,10 +7,10 @@ from datetime import datetime, timezone
 
 import pytest
 
-from backend import config
-from backend.agent import Agent
-from backend.database import AgentRecord, init_db, make_engine, make_session_factory
-from backend.task_state import TaskStateMachine
+from backend.core import config
+from backend.agents.agent import Agent
+from backend.storage.database import AgentRecord, init_db, make_engine, make_session_factory
+from backend.services.task_state import TaskStateMachine
 
 from support import FakeClient, create_agent
 

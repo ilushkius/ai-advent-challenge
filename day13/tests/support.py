@@ -12,13 +12,13 @@ import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from backend import config
-from backend.agent import Agent
-from backend.compressor import SUMMARY_SYSTEM_PROMPT
-from backend.database import AgentRecord
-from backend.models import AgentConfig
-from backend.profile_store import ProfileStore
-from backend.task_state import TaskStateMachine
+from backend.core import config
+from backend.agents.agent import Agent
+from backend.services.compressor import SUMMARY_SYSTEM_PROMPT
+from backend.storage.database import AgentRecord
+from backend.schemas import AgentConfig
+from backend.agents.profile_store import ProfileStore
+from backend.services.task_state import TaskStateMachine
 
 
 # ---------- фейковый клиент DeepSeek ----------

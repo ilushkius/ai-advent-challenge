@@ -8,11 +8,10 @@ FAQ конкретного дня — в [`../day13/docs/usage.md`](../day13/doc
 
 ## Запуск day13
 
-**Команды не изменились** — день 13 унаследовал раскладку дня 12, рефакторинг
-затронул раскладку кода, а не точки
-входа: `backend.main:app` по-прежнему собирается из `backend/routers/`, а
-Streamlit-страницу по-прежнему запускает `app.py` (он вызывает секции
-пакета `ui/`). Из папки `day13`:
+**Команды те же, путь к приложению изменился**: день 13 разложен по слоям, и
+точка входа бэкенда — `backend.api.main:app` (собирает `app` из роутеров
+`backend/api/`), а Streamlit-страницу по-прежнему запускает `app.py` (он вызывает
+секции пакета `frontend/` — бывший `ui/`). Из папки `day13`:
 
 **Подготовка (один раз):**
 
@@ -27,7 +26,7 @@ copy .env.example .env      # затем впишите DEEPSEEK_API_KEY=sk-...
 
 ```powershell
 cd day13
-.venv/Scripts/python -m uvicorn backend.main:app --port 8000
+.venv/Scripts/python -m uvicorn backend.api.main:app --port 8000
 ```
 
 При старте создаются таблицы SQLite (`day13/agents.db`) и восстанавливаются
@@ -51,7 +50,7 @@ cd day13
 
 ```powershell
 .venv/Scripts/python -m pytest -q                  # автотесты дня 13 (584 теста)
-.venv/Scripts/python -m py_compile backend/main.py backend/dependencies.py backend/task_fsm.py backend/task_state.py backend/task_store.py backend/routers/agents.py backend/routers/context.py backend/routers/memory.py backend/routers/profiles.py backend/routers/tasks.py ui/api_client.py ui/chat_section.py ui/task_panel.py ui/sidebar.py app.py
+.venv/Scripts/python -m py_compile backend/api/main.py backend/core/dependencies.py backend/domain/task_fsm.py backend/services/task_state.py backend/storage/task_store.py backend/api/agents.py backend/api/context.py backend/api/memory.py backend/api/profiles.py backend/api/tasks.py frontend/api_client.py frontend/chat_section.py frontend/task_panel.py frontend/sidebar.py app.py
 ```
 
 > **CWD важен.** Приложение ищет `.env` в текущей директории, поэтому и
@@ -62,17 +61,18 @@ cd day13
 Офлайн-прогон отчёта персонализации (унаследован из дня 12, без запросов к API):
 
 ```powershell
-.venv/Scripts/python personalization_comparison.py --no-api
+.venv/Scripts/python scripts/personalization_comparison.py --no-api
 ```
 
 Демонстрация состояния задачи — пять фаз, каждая в отдельном процессе
-(пауза → перезапуск → продолжение), отчёт пишется в `task_state_demo.md`:
+(пауза → перезапуск → продолжение), отчёт пишется в
+`docs/reports/task_state_demo.md`:
 
 ```powershell
-.venv/Scripts/python task_state_demo.py --all --no-api   # офлайн, без сети
-.venv/Scripts/python task_state_demo.py --all             # реальные запросы к DeepSeek
-.venv/Scripts/python task_state_demo.py --phase 2         # одна фаза в новом процессе
-.venv/Scripts/python task_state_demo.py --reset           # удалить демо-БД и перезаписать отчёт
+.venv/Scripts/python scripts/task_state_demo.py --all --no-api   # офлайн, без сети
+.venv/Scripts/python scripts/task_state_demo.py --all             # реальные запросы к DeepSeek
+.venv/Scripts/python scripts/task_state_demo.py --phase 2         # одна фаза в новом процессе
+.venv/Scripts/python scripts/task_state_demo.py --reset           # удалить демо-БД и перезаписать отчёт
 ```
 
 ## Работа с `shared/`
@@ -129,15 +129,17 @@ from shared.deepseek_utils import read_key_from_env_file, DEEPSEEK_BASE_URL
 ```
 
 Проверять нужно до коммита: правило «любой `.py` ≤ 400 строк» (`app.py` ≤ 100,
-`backend/main.py` ≤ 80) — из `AGENTS.md`. Известные превышения в снимках
+`backend/api/main.py` ≤ 80) — из `AGENTS.md`. Известные превышения в снимках
 `day8/`–`day12/` перечислены в `AGENTS.md` («Известные расхождения со
 снимками») и в `STRUCTURE.md` соответствующего дня; в активном дне 13 это
-`backend/agent.py` (1597 строк, унаследовано от дня 12).
+`backend/agents/agent.py` (1603 строки, унаследовано от дня 12).
 
 Чек-лист междневного изменения:
 
-1. Новый модуль лежит в своём домене (`ui/`, `backend/routers/`,
-   `backend/models/`, `shared/`), а не в «ближайшем» файле.
+1. Новый модуль лежит в своём слое (`frontend/`, `backend/api/`,
+   `backend/core/`, `backend/domain/`, `backend/services/`, `backend/storage/`,
+   `backend/agents/`, `backend/models/`, `backend/schemas/`, `scripts/`,
+   `tests/{unit,integration,e2e}/`, `shared/`), а не в «ближайшем» файле.
 2. Обновлён `STRUCTURE.md` дня (список модулей и назначение каждого).
 3. Обновлён [`../CHANGELOG.md`](../CHANGELOG.md) (дата, тип, что затронуто).
 4. `pytest` из папки дня зелёный, `py_compile` по изменённым файлам без ошибок.

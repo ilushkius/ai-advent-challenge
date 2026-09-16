@@ -5,6 +5,66 @@
 структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
 `chore` (прочее: инфраструктура, скиллы, служебные изменения).
 
+## 2026-09-16 — refactor — day13 разложен по слоям (api, core, models, schemas, services, storage, domain, agents, utils)
+
+`day13/` переразложен без изменения поведения: в корне `backend/` лежали 31
+модуль, теперь там только `__init__.py` и девять папок-слоёв. Файл лежит в папке
+своего слоя, у каждой папки `__init__.py` с реэкспортом публичных имён.
+
+Перемещения:
+
+* `backend/config.py`, `dependencies.py` → `backend/core/`;
+* `backend/strategies.py`, `context_fsm.py`, `context_policy.py`,
+  `fact_extractor.py`, `memory_layers.py`, `profiles.py`, `profile_values.py`,
+  `demo_profiles.py`, `task_fsm.py`, `task_prompt.py`, `task_intent.py` →
+  `backend/domain/`;
+* `backend/database.py`, `task_store.py` → `backend/storage/` (+ новый
+  `memory_rows.py` — ORM-строки памяти → словари, вынесены из
+  `domain/memory_layers.py`, чтобы домен остался без SQLAlchemy);
+* `backend/compressor.py`, `task_state.py` → `backend/services/`;
+* `backend/agent.py`, `agent_manager.py`, `manager_*.py`, `memory.py`,
+  `profile_store.py` → `backend/agents/`;
+* Pydantic-схемы `backend/models/*.py` → `backend/schemas/*.py`;
+* `backend/tables.py` (393 строки) разложен на `backend/models/{agent,message,memory,context,user_profile}.py`,
+  `backend/tables_task.py` → `backend/models/task_state.py`;
+* `backend/routers/*.py` → `backend/api/*.py`, `backend/main.py` →
+  `backend/api/main.py` (точка запуска — `uvicorn backend.api.main:app --port 8000`);
+* `ui/` → `frontend/`, прогоны демонстраций → `scripts/`, отчёты →
+  `docs/reports/`, тесты → `tests/unit/`, `tests/integration/`, `tests/e2e/`;
+* новый пустой слой `backend/utils/` (свой код дня живёт в `shared/`).
+
+Импорты переписаны по слоям (абсолютные и относительные); два импорта отложены
+намеренно, чтобы не замыкать циклы `storage ⇄ agents` и `core ⇄ agents`
+(`TaskStateStore.memory_manager`, аннотация `AgentManager` под `TYPE_CHECKING`).
+`backend/core/config.py` пересчитан на новый уровень вложенности
+(`parents[1]` → `parents[2]`), поэтому `agents.db` и `.env` по-прежнему ищутся в
+корне дня; скрипты в `scripts/` сами добавляют корень дня в `sys.path`, а
+демо-база и отчёты остались в корне дня и `docs/reports/`.
+
+**Поведение не изменилось: те же 45 эндпоинтов и 584 теста; команда запуска —
+`uvicorn backend.api.main:app`.** Проверено: `pytest -q` — 584 passed; openapi
+до/после — побайтово одинаково (32 пути, 45 операций, 56 схем); схема БД
+до/после — те же 11 таблиц и колонки; набор node-id тестов тот же; E2E-цикл
+задачи по API (создание → шаги → пауза → продолжение → откат → завершение →
+журнал из 15 переходов) и сохранение состояния после перезапуска бэкенда;
+раздел «🧭 Состояние задачи» в браузере (шаг, пауза, продолжение); офлайн-прогоны
+`scripts/task_state_demo.py --all --no-api` (5 фаз) и
+`scripts/personalization_comparison.py --no-api`. Найденный при проверке UI
+дубликат ключа формы (`task_create_form_<agent>` в `task_panel` и `sidebar`) —
+баг дня 13, существовавший до рефакторинга, не тронут.
+
+**Затронуто:** `day13/**` (все модули переехали, импорты переписаны;
+`backend/__init__.py`, `backend/core/config.py`, `backend/storage/task_store.py`,
+`backend/core/dependencies.py`, `backend/domain/memory_layers.py`, `app.py`,
+`frontend/__init__.py`, `pytest.ini`, `scripts/*.py`, `docs/reports/*.md`,
+`STRUCTURE.md`, `README.md`, `docs/architecture.md`, `docs/usage.md`,
+`docs/api.md`), `AGENTS.md` (раздел «Структура дня», лимиты, известные
+расхождения), `.omp/skills/fastapi-streamlit-day-structure/SKILL.md`
+(раскладка по девяти слоям), `README.md`, `docs/architecture.md`,
+`docs/usage.md`, `CHANGELOG.md`.
+
+Код `day1/`–`day12/` не изменялся.
+
 ## 2026-09-16 — feat — состояние задачи как конечный автомат (день 13)
 
 Создан `day13/` — копия `day12/` (агент с трёхслойной памятью и профилем

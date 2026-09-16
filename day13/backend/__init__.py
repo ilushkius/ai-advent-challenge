@@ -1,36 +1,33 @@
-"""Пакет backend дня 13: агенты DeepSeek с тремя слоями памяти и профилем.
+"""Пакет backend дня 13: агенты DeepSeek с тремя слоями памяти и состоянием задачи.
 
-День 12 развивает день 11: к слоям памяти и стратегиям управления контекстом
-добавляется персонализация — профиль пользователя, подключаемый к системному
-промпту каждого запроса.
+День 13 развивает день 12: к слоям памяти, стратегиям управления контекстом и
+персонализации добавляется СОСТОЯНИЕ ЗАДАЧИ как конечный автомат.
 
-Модули:
-- config.py          — базовый URL DeepSeek, дефолты, чтение DEEPSEEK_API_KEY,
-                       лимиты/цены моделей, параметры сжатия, стратегий, памяти
-                       и профиля, путь к SQLite-файлу day13/agents.db;
-- strategies.py      — Enum Strategy (sliding_window/sticky_facts/branching/
-                       summary) и проверка допустимости значения;
-- fact_extractor.py  — чистая эвристика извлечения фактов «ключ → значение»;
-- context_fsm.py     — стейт-машина сжатия (Enum + паттерн State, день 9);
-- context_policy.py  — чистая арифметика сжатия (когда сжимать, что оставить);
-- database.py        — SQLAlchemy: движок, сессии и ORM-модели таблиц дня;
-- memory_layers.py   — словари-представления слоёв памяти и их тексты;
-- memory.py          — MemoryManager: хранение трёх слоёв памяти;
-- models/            — Pydantic-схемы API (agent, context, memory, profile);
-- profile_values.py  — значения профиля: Enum-перечисления и нормализация;
-- profiles.py        — сборка блока персонализации для системного промпта;
-- profile_store.py   — чтение/запись профиля пользователя в SQLite;
-- demo_profiles.py   — демонстрационные профили для офлайн-сравнения;
-- compressor.py      — ContextCompressor: вызов суммаризации и запись конспекта;
-- agent.py           — класс Agent (память, токены, prepare_context, стратегии,
-                       факты, ветки, метрики, профиль);
-- manager_*.py       — миксины AgentManager по доменам (агенты, контекст,
-                       статистика, память, профили);
-- agent_manager.py   — класс AgentManager (синглтон, пул, стратегии, ветки);
-- dependencies.py    — зависимости API-слоя (доступ к менеджеру агентов);
-- routers/           — роутеры API по доменам (agents, memory, profiles,
-                       context);
-- main.py            — FastAPI-приложение: сборка app и подключение роутеров.
+Слои (каждый — подпапка пакета; файл лежит в папке своего слоя):
+
+- ``core/``     — конфигурация (``config``) и зависимости роутов
+                  (``dependencies``): доступ к ``AgentManager`` и помощники 404;
+- ``domain/``   — чистые правила и данные без БД и LLM: ``strategies``,
+                  ``context_fsm`` / ``context_policy`` (сжатие), ``fact_extractor``,
+                  ``memory_layers``, ``profile_values`` / ``profiles`` /
+                  ``demo_profiles``, ``task_fsm`` / ``task_prompt`` /
+                  ``task_intent``;
+- ``storage/``  — доступ к БД: ``database`` (движок, сессии, реэкспорт ORM),
+                  ``task_store`` (состояние задачи и журнал переходов),
+                  ``memory_rows`` (ORM-строки → словари API/UI);
+- ``services/`` — прикладные сервисы: ``compressor`` (суммаризация и конспект),
+                  ``task_state`` (переходы состояния задачи);
+- ``agents/``   — ``agent`` (``Agent``), ``memory`` (``MemoryManager``),
+                  ``profile_store``, ``agent_manager`` (``AgentManager``) и
+                  миксины ``manager_*`` по доменам;
+- ``models/``   — ORM-таблицы SQLAlchemy по доменам (``agent``, ``message``,
+                  ``memory``, ``context``, ``user_profile``, ``task_state``);
+- ``schemas/``  — Pydantic-схемы API по доменам (``agent``, ``context``,
+                  ``memory``, ``profile``, ``task``);
+- ``api/``      — FastAPI: роутеры по доменам (``agents``, ``context``,
+                  ``memory``, ``profiles``, ``tasks``) и сборка приложения
+                  (``main`` — ``uvicorn backend.api.main:app``);
+- ``utils/``    — собственных утилит нет: общий код живёт в ``shared/``.
 
 Общий пакет ``shared/`` (код, не меняющийся между днями) подключается здесь:
 корень репозитория добавляется в ``sys.path`` до импорта подмодулей.

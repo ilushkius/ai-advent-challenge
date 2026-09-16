@@ -53,8 +53,8 @@ from shared.deepseek_utils import read_key_from_env_file, DEEPSEEK_BASE_URL
 
 - Логика конкретного дня (правила домена, политики, эвристики).
 - FSM конкретного дня (`context_fsm.py` — модуль дня, см. скилл `python-fsm-agent`).
-- ORM-таблицы конкретного дня (`backend/tables.py`).
-- Pydantic-схемы API конкретного дня (`backend/models/`).
+- ORM-таблицы конкретного дня (`backend/models/*.py`).
+- Pydantic-схемы API конкретного дня (`backend/schemas/`).
 
 ## Что можно выносить в `shared/`
 
