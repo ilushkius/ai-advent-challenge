@@ -43,6 +43,7 @@ day13/
 │   └── comparison_stub.py    # офлайн-заглушка (её же использует task_state_demo.py)
 ├── conftest.py, pytest.ini   # конфигурация pytest (pythonpath = . tests)
 ├── pyproject.toml, uv.lock   # зависимости (uv): прямые — в pyproject, точные версии — в локе
+├── .agents/skills/           # симлинки на AI-скиллы библиотек (uvx library-skills)
 ├── .python-version           # 3.14 (версия для `uv sync`)
 ├── .env.example              # шаблон ключа DEEPSEEK_API_KEY
 └── agents.db                 # SQLite (в .gitignore по *.db)

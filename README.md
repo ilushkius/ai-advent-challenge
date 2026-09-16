@@ -170,7 +170,10 @@ cd day11 && pip install -r requirements.txt
 `uv.lock` + `.python-version`; `requirements.txt` там нет): установка — `uv sync`
 из папки дня, запуск — `uv run <команда>`. Правило для новых дней и порядок
 миграции — в `AGENTS.md`, раздел «Зависимости: uv»; если `uv` ещё не установлен —
-`irm https://astral.sh/uv/install.ps1 | iex`.
+`irm https://astral.sh/uv/install.ps1 | iex`. Скиллы библиотек (FastAPI,
+Streamlit) отслеживаются через `uvx library-skills`: симлинки лежат в
+`day13/.agents/skills/` и коммитятся в Git — см. `AGENTS.md`, раздел «Скиллы
+библиотек».
 
 Для дня 2 локально доступно готовое виртуальное окружение `day2/.venv` —
 его можно переиспользовать и для дня 3; у дня 5 своё окружение `day5/.venv`

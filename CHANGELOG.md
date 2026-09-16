@@ -5,6 +5,47 @@
 структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
 `chore` (прочее: инфраструктура, скиллы, служебные изменения).
 
+## 2026-09-16 — chore — day13: скиллы библиотек через uvx library-skills, верхние границы зависимостей
+
+AI-скиллы библиотек дня теперь отслеживаются версией самой библиотеки.
+`uvx library-skills 0.0.19` просканировал зависимости дня и создал в
+`day13/.agents/skills/` относительные симлинки на скиллы, лежащие **внутри**
+пакетов: `fastapi` → `.venv/Lib/site-packages/fastapi/.agents/skills/fastapi`
+(0.141.1) и `developing-with-streamlit` →
+`.venv/Lib/site-packages/streamlit/.agents/skills/developing-with-streamlit`
+(1.64.0), плюс скопированный скилл самого инструмента
+`.agents/skills/library-skills/` (тул-скилл объясняет агенту команды
+discover/install/check). Скиллы в Git — симлинки (`mode 120000`, цель
+`../../.venv/...`), поэтому при апгрейде библиотеки через `uv` содержимое
+обновляется само; `uvx library-skills --check --tool-skill` завершается кодом 0,
+дрейфа нет. Заодно у прямых зависимостей `day13` появились верхние границы
+(`fastapi>=0.141,<0.142` … `uvicorn[standard]>=0.53,<0.54`; для `0.x` —
+следующий минор, для `>=1.0` — следующий мажор): `uv lock` не сдвинул ни одной
+версии из 66, `uv sync --locked` и `uv lock --check` — код 0.
+
+* `day13/.agents/skills/` — новый каталог: два симлинка (mode `120000`) и
+  скопированный `library-skills/` (`SKILL.md` + `.library-skills.json`);
+* `day13/pyproject.toml` — верхние границы у десяти прямых зависимостей;
+* `day13/uv.lock` — только `requires-dist`-спекы пакета `day13`, версии пакетов
+  не изменились;
+* `day13/README.md` — новый раздел «Отслеживание версий библиотек»;
+* `day13/STRUCTURE.md` — `.agents/skills/` в дереве дня;
+* `AGENTS.md` — подраздел «Скиллы библиотек: uvx library-skills» (правила,
+  таблица команд, ограничения) и пункт в `## Definition of Done`;
+* `README.md` — упоминание `uvx library-skills` в §1 «Зависимости приложений»;
+* `.omp/config.yml` — `skills.customDirectories: day13/.agents/skills`: провайдер
+  `agents` ищет `.agents/skills` от `cwd` вверх, поэтому скиллы дня не были
+  видны сессии, запущенной из корня репозитория;
+* `CHANGELOG.md` — эта запись.
+
+Проверка: `uvx library-skills --check --tool-skill` — код 0 (обе записи
+`up to date`); `git ls-files -s day13/.agents/skills` — два `120000` и два
+`100644`; `omp read skill://developing-with-streamlit` из корня репозитория
+отдаёт `SKILL.md` Streamlit'а; `uv lock --check` — код 0;
+`uv run uvicorn backend.api.main:app` + `AppTest` — 32 пути в `/openapi.json`,
+0 исключений, 15 кнопок, 3 вкладки; `uv run pytest -q` — **584 passed**.
+Дни 1–12 не тронуты.
+
 ## 2026-09-16 — chore — day13 переведён на uv (pyproject.toml + uv.lock вместо requirements.txt)
 
 Менеджер зависимостей дня 13 — `uv` вместо `pip`/`venv`: прямые зависимости

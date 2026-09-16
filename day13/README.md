@@ -721,6 +721,40 @@ Swagger — на `http://127.0.0.1:8000/docs`. Доказательства: с�
 [`docs/reports/task_state_demo.md`](docs/reports/task_state_demo.md), персонализация —
 [`docs/reports/personalization_comparison.md`](docs/reports/personalization_comparison.md).
 
+## Отслеживание версий библиотек
+
+Библиотеки дня везут официальные AI-скиллы **внутри пакета** (FastAPI —
+`.venv/Lib/site-packages/fastapi/.agents/skills/fastapi`, Streamlit —
+`.../streamlit/.agents/skills/developing-with-streamlit`), поэтому скилл всегда
+описывает именно ту версию, что стоит в `.venv`. `uvx library-skills` находит
+такие скиллы в зависимостях дня и кладёт их в `.agents/skills/`
+**относительными симлинками**, поэтому при обновлении библиотеки через `uv`
+содержимое скилла меняется автоматически — обновлять скиллы вручную не нужно
+(и не следует: их пересобирает команда).
+
+Симлинки относительные и закоммичены в Git (`mode 120000`, цель —
+`../../.venv/Lib/site-packages/...`). До `uv sync` они «битые» — это нормально,
+после установки зависимостей оживают.
+
+```bash
+cd day13
+uv sync                       # зависимости из pyproject.toml / uv.lock
+uvx library-skills            # установить/обновить скиллы (интерактивно)
+uvx library-skills list       # посмотреть скиллы
+uvx library-skills --check    # проверить целостность (код 1 при дрейфе)
+```
+
+Если в системе нет прав на символические ссылки (Windows без режима
+разработчика), CLI падает с `Could not create symlink` — тогда запускать с
+флагом `--copy`; скиллы станут копиями, авто-обновление пропадёт и команду
+`uvx library-skills` нужно повторять после апгрейда библиотек.
+
+Скиллы видны агенту omp, если сессия запущена **из папки `day13`** (провайдер
+`agents` ищет `<проект>/.agents/skills/<имя>/SKILL.md`, поднимаясь от `cwd`
+вверх). Для сессии из корня репозитория путь добавлен в `.omp/config.yml`
+(`skills.customDirectories: day13/.agents/skills`) — там же он ищет только на
+один уровень вглубь, поэтому скиллы каталога подхватываются целиком.
+
 ## Тесты
 
 ```bash
