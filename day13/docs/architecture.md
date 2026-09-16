@@ -48,7 +48,9 @@
 
 Стек: Python 3.14, FastAPI + uvicorn (порт 8000), Streamlit (порт 8501),
 SQLite + SQLAlchemy 2.0, tiktoken, OpenAI SDK → DeepSeek
-(`https://api.deepseek.com`), pytest.
+(`https://api.deepseek.com`), pytest. Управление зависимостями — **uv**
+(`pyproject.toml` + `uv.lock` + `.python-version`) вместо `pip` и
+`requirements.txt` — см. раздел «Структура проекта» → «Зависимости (uv)».
 
 ```mermaid
 flowchart LR
@@ -149,6 +151,25 @@ day13/
 под `TYPE_CHECKING` (для аннотации). Публичный контракт слоя объявлен в его
 `__init__.py` — там реэкспорт имён, и `backend/api/__init__.py` намеренно не
 импортирует `main` (его тянет `dependencies.get_manager` в момент вызова).
+
+### Зависимости (uv)
+
+Зависимости дня управляются **uv** — он заменяет собой `pip`, `virtualenv` и
+`pip-tools`, поэтому `requirements.txt` в дне больше нет. Три файла лежат в корне
+дня и фиксируются в Git:
+
+| Файл | Что в нём |
+|---|---|
+| `pyproject.toml` | десять **прямых** зависимостей дня (`fastapi`, `uvicorn[standard]`, `streamlit`, `openai`, `requests`, `sqlalchemy`, `tiktoken`, `httpx`, `pytest`, `pandas`) и нижняя граница версии Python (`requires-python = ">=3.14"`) |
+| `uv.lock` | **точные** версии всех прямых и транзитивных пакетов (66 разрешённых) — одинаковое окружение у всех, кто склонировал репозиторий |
+| `.python-version` | `3.14` — интерпретатор, который uv берёт для проекта |
+
+Команды: `uv sync` создаёт `.venv` и приводит его ровно к содержимому лока (лишние
+пакеты удаляются), `uv run <команда>` выполняет команду в этом окружении —
+активация `.venv` не нужна. Проверки дня: `uv run pytest -q`,
+`uv run python -m py_compile <файл>`. Проект объявлен без сборочного бэкенда
+(`uv init --no-package`): день — приложение, а не распространяемый пакет, поэтому
+`uv sync` не пытается установить сам `day13/` в `.venv`.
 
 ## Компоненты
 
@@ -532,9 +553,9 @@ system-сообщений подряд, и `_system_text(payload)` однозн�
 
 ### Отчёт `reports/personalization_comparison.md`
 
-Доказательство персонализации — прогон `python scripts/personalization_comparison.py`
+Доказательство персонализации — прогон `uv run python scripts/personalization_comparison.py`
 (нужен `DEEPSEEK_API_KEY` в `day13/.env`) либо офлайн-прогон
-`python scripts/personalization_comparison.py --no-api`. Скрипт работает на отдельной
+`uv run python scripts/personalization_comparison.py --no-api`. Скрипт работает на отдельной
 БД `day13/personalization_demo.db` (пересоздаётся при каждом прогоне),
 использует профили из `demo_profiles.py` и пишет
 [`reports/personalization_comparison.md`](reports/personalization_comparison.md): таблицу
@@ -1164,7 +1185,7 @@ SQLite-БД (фикстуры `session_factory` и `make_agent`). Всего **5
 Запуск из папки `day13`:
 
 ```
-python -m pytest -q
+uv run pytest -q
 ```
 
 | Файл | Что проверяет |
@@ -1198,7 +1219,7 @@ python -m pytest -q
 `scripts/personalization_comparison.py` — два противоположных профиля на одном вопросе и
 отчёт [`reports/personalization_comparison.md`](reports/personalization_comparison.md).
 Состояние задачи (день 13): `scripts/task_state_demo.py` — пять фаз полного цикла,
-каждая в **отдельном процессе** (`python scripts/task_state_demo.py --all`,
+каждая в **отдельном процессе** (`uv run python scripts/task_state_demo.py --all`,
 `--phase N`, `--reset`, `--no-api`), и отчёт
 [`reports/task_state_demo.md`](reports/task_state_demo.md) с таблицами переходов, ответами
 агента, блоком состояния из системного промпта и строкой-доказательством «новый
@@ -1223,9 +1244,9 @@ execution»); **остановка и повторный запуск бэкен
 задачу» → `done/finalize`, после чего «⏭ Следующий шаг» даёт `400`, а задача уходит
 из `GET /agents/{id}/tasks`. Готовые числа, журнал переходов и ответы для
 сверки — в [`reports/task_state_demo.md`](reports/task_state_demo.md)
-(`python scripts/task_state_demo.py --all`). Отчёт по персонализации (наследовано из дня
+(`uv run python scripts/task_state_demo.py --all`). Отчёт по персонализации (наследовано из дня
 12) — [`reports/personalization_comparison.md`](reports/personalization_comparison.md)
-(`python scripts/personalization_comparison.py`).
+(`uv run python scripts/personalization_comparison.py`).
 
 ## Ограничения
 

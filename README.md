@@ -123,7 +123,8 @@
 | Токенизация | `tiktoken` (`cl100k_base`) — локальный подсчёт токенов, оценки близки к токенизатору DeepSeek | day8–day9 |
 | Стейт-машина | `enum.Enum` + паттерн State (чистый Python): `context_fsm.py` — сжатие истории (день 9; в дне 13 — `backend/domain/context_fsm.py`), `backend/domain/task_fsm.py` — состояние задачи (день 13) | day9, day13 |
 | Тесты | `pytest` (день 9: 167 тестов — FSM, политика сжатия, хранилище, компрессор, агент, API; день 10: 193 — стратегии, факты, ветки, FSM, хранилище, API; день 11: 235 — слои памяти, API `/memory/...`, стратегии, факты, ветки, FSM, хранилище, компрессор, API; день 12: 314 — профили пользователей, промпт персонализации, API `/users...`, плюс всё из дня 11; день 13: 584 — FSM состояния задачи, хранение и журнал переходов, авто-обновление по реплике, API `/tasks...`, плюс всё из дня 12) | day9–day13 |
-| Виртуальные окружения | `day2/.venv` (streamlit 1.62.0, openai 3.6.0); `day5/.venv` (streamlit 1.63.0, huggingface_hub 1.30.0); `day6/.venv` (fastapi, streamlit, openai, requests); `day9/.venv` (fastapi, sqlalchemy, tiktoken, pytest и др.) | day2–day3, day5, day6, day9 |
+| Виртуальные окружения | `day2/.venv` (streamlit 1.62.0, openai 3.6.0); `day5/.venv` (streamlit 1.63.0, huggingface_hub 1.30.0); `day6/.venv` (fastapi, streamlit, openai, requests); `day9/.venv` (fastapi, sqlalchemy, tiktoken, pytest и др.); `day13/.venv` создаётся `uv sync` | day2–day3, day5, day6, day9, day13 |
+| Зависимости | `uv` в дне 13 и далее: прямые зависимости — `pyproject.toml`, точные версии — `uv.lock`, интерпретатор — `.python-version` (в снимках `day1`–`day12` — `pip` + `requirements.txt`) | day13+ |
 | Инструменты разработки | терминальный агент **omp.sh** (модель `deepseek/deepseek-flash` — DeepSeek V4.1 Flash), Python LSP `pyright`, `debugpy` | AI-воркфлоу |
 
 Код дней 1–4 и 6–9 написан в синтаксисе, совместимом с OpenAI SDK 1.x/2.x/3.x
@@ -140,7 +141,7 @@
 
 ## Требования
 
-- Windows, **Python 3.14+** и `pip`.
+- Windows, **Python 3.14+** и `pip` (для дня 13 и последующих — менеджер `uv`).
 - API-ключ DeepSeek (https://platform.deepseek.com → API Keys).
 - Для дня 5: токен Hugging Face (`hf_...`, https://huggingface.co/settings/tokens);
   бесплатные аккаунты HF получают небольшие месячные включённые кредиты Inference
@@ -152,7 +153,8 @@
 
 ### 1. Зависимости приложений (Python)
 
-У каждого прикладного дня свой `requirements.txt` — устанавливайте из папки дня:
+У каждого прикладного дня из снимков (`day1`–`day12`) свой `requirements.txt` —
+устанавливайте из папки дня:
 
 ```bash
 cd day1 && pip install -r requirements.txt
@@ -163,6 +165,12 @@ cd day9 && pip install -r requirements.txt
 cd day10 && pip install -r requirements.txt
 cd day11 && pip install -r requirements.txt
 ```
+
+День 13 и последующие дни зависимости ведут через **uv** (`pyproject.toml` +
+`uv.lock` + `.python-version`; `requirements.txt` там нет): установка — `uv sync`
+из папки дня, запуск — `uv run <команда>`. Правило для новых дней и порядок
+миграции — в `AGENTS.md`, раздел «Зависимости: uv»; если `uv` ещё не установлен —
+`irm https://astral.sh/uv/install.ps1 | iex`.
 
 Для дня 2 локально доступно готовое виртуальное окружение `day2/.venv` —
 его можно переиспользовать и для дня 3; у дня 5 своё окружение `day5/.venv`
@@ -248,13 +256,13 @@ python -m pytest -q                              # автотесты дня 12 
 python personalization_comparison.py             # сравнение профилей (нужен ключ)
 python personalization_comparison.py --no-api    # то же офлайн, без сети
 
-# День 13 — «Состояние задачи как FSM» (из папки day13)
-pip install -r requirements.txt
-python -m uvicorn backend.api.main:app --port 8000   # терминал 1
-streamlit run app.py                                 # терминал 2
-python -m pytest -q                                  # автотесты дня 13 (584 теста)
-python scripts/task_state_demo.py --all              # 5 фаз в 5 процессах (нужен ключ)
-python scripts/task_state_demo.py --all --no-api     # то же офлайн, без сети
+# День 13 — «Состояние задачи как FSM» (из папки day13, зависимости — uv)
+uv sync
+uv run uvicorn backend.api.main:app --port 8000       # терминал 1
+uv run streamlit run app.py                           # терминал 2
+uv run pytest -q                                      # автотесты дня 13 (584 теста)
+uv run python scripts/task_state_demo.py --all        # 5 фаз в 5 процессах (нужен ключ)
+uv run python scripts/task_state_demo.py --all --no-api  # то же офлайн, без сети
 ```
 
 > **Важно:** приложение ищет `.env` в текущей рабочей директории, поэтому

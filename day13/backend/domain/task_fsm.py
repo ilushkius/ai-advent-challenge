@@ -32,7 +32,7 @@
     кроме стандартной библиотеки. Проверяется тестами:
 
         # из папки day13
-        python -m pytest -q tests/unit/test_task_fsm.py
+        uv run pytest -q tests/unit/test_task_fsm.py
 
     Пример использования:
 

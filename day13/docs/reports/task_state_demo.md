@@ -10,10 +10,10 @@
 
 ```bash
 cd day13
-python scripts/task_state_demo.py --all           # с API-ключом
-python scripts/task_state_demo.py --all --no-api  # офлайн, без сети
-python scripts/task_state_demo.py --phase 2       # одна фаза
-python scripts/task_state_demo.py --reset         # очистить БД и отчёт
+uv run python scripts/task_state_demo.py --all           # с API-ключом
+uv run python scripts/task_state_demo.py --all --no-api  # офлайн, без сети
+uv run python scripts/task_state_demo.py --phase 2       # одна фаза
+uv run python scripts/task_state_demo.py --reset         # очистить БД и отчёт
 ```
 
 ## Фаза 1 — постановка задачи и пауза (pid 24028)
@@ -192,7 +192,7 @@ python scripts/task_state_demo.py --reset         # очистить БД и о�
 
 ```bash
 cd day13
-python scripts/task_state_demo.py --all           # нужен DEEPSEEK_API_KEY в day13/.env
-python scripts/task_state_demo.py --all --no-api  # офлайн-заглушка, без сети
+uv run python scripts/task_state_demo.py --all           # нужен DEEPSEEK_API_KEY в day13/.env
+uv run python scripts/task_state_demo.py --all --no-api  # офлайн-заглушка, без сети
 ```
 

@@ -18,7 +18,7 @@
     тестами:
 
         # из папки day13
-        python -m pytest -q tests/unit/test_task_intent.py
+        uv run pytest -q tests/unit/test_task_intent.py
 """
 
 from __future__ import annotations

@@ -18,8 +18,11 @@ description: "Test-Driven Development workflow with pytest for the ai-challenge 
 - Запуск — **из папки дня** (CWD важен: `.env` ищется здесь):
 
 ```powershell
-.venv\Scripts\python -m pytest -q
+uv run pytest -q
 ```
+
+(с `day13` зависимости ведёт `uv` — см. `AGENTS.md`, раздел «Зависимости: uv»;
+для снимков `day1`–`day12` команда прежняя: `.venv\Scripts\python -m pytest -q`)
 
 - `pytest.ini` дня задаёт `testpaths = tests` и `pythonpath = . tests`, поэтому
   тесты импортируют модули дня как `from backend.agent import Agent`.

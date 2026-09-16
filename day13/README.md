@@ -210,10 +210,10 @@ DeepSeek — они видны и при 502.
 
 ```bash
 cd day13
-python scripts/task_state_demo.py --all           # нужен DEEPSEEK_API_KEY в day13/.env
-python scripts/task_state_demo.py --all --no-api  # офлайн-заглушка, без сети
-python scripts/task_state_demo.py --phase 2       # одна фаза
-python scripts/task_state_demo.py --reset         # очистить демо-БД и отчёт
+uv run python scripts/task_state_demo.py --all           # нужен DEEPSEEK_API_KEY в day13/.env
+uv run python scripts/task_state_demo.py --all --no-api  # офлайн-заглушка, без сети
+uv run python scripts/task_state_demo.py --phase 2       # одна фаза
+uv run python scripts/task_state_demo.py --reset         # очистить демо-БД и отчёт
 ```
 
 Скрипт работает на отдельной базе `day13/task_state_demo.db` и переиспользует
@@ -388,8 +388,8 @@ NOT NULL, по умолчанию `"default"`). Внешнего ключа ме
 
 ```bash
 cd day13
-python scripts/personalization_comparison.py            # нужен DEEPSEEK_API_KEY в day13/.env
-python scripts/personalization_comparison.py --no-api   # офлайн-заглушка, без сети
+uv run python scripts/personalization_comparison.py            # нужен DEEPSEEK_API_KEY в day13/.env
+uv run python scripts/personalization_comparison.py --no-api   # офлайн-заглушка, без сети
 ```
 
 Скрипт пишет `day13/docs/reports/personalization_comparison.md` и работает на отдельной базе
@@ -677,33 +677,40 @@ day13/
 │   └── reports/         # отчёты прогонов: task_state_demo.md, personalization_comparison.md
 ├── pytest.ini           # конфигурация pytest: testpaths = tests, pythonpath = . tests
 ├── conftest.py          # добавляет корень day13 в sys.path (импорт `from backend.agents.agent import Agent`)
-├── requirements.txt     # fastapi, uvicorn, streamlit, openai, requests, sqlalchemy,
-│                        # tiktoken, httpx, pytest, pandas
+├── pyproject.toml       # зависимости дня: fastapi, uvicorn, streamlit, openai, requests,
+│                        # sqlalchemy, tiktoken, httpx, pytest, pandas (менеджер — uv)
+├── uv.lock                # точные версии всех пакетов (66) — фиксируется в Git
+├── .python-version        # 3.14 — версия интерпретатора для `uv sync`
 ├── agents.db            # SQLite: агенты, слои памяти, профили, задачи (в .gitignore по *.db)
 ├── personalization_demo.db # отдельная БД прогона отчёта персонализации (пересоздаётся скриптом)
 ├── task_state_demo.db   # отдельная БД демонстрации состояния задачи (пересоздаётся скриптом)
 └── .env.example         # шаблон ключа DEEPSEEK_API_KEY
 ```
 
-## Быстрый старт
+## Установка и запуск
+
+Менеджер зависимостей — **uv** (заменяет `pip`, `virtualenv` и `pip-tools`):
+прямые зависимости объявлены в `pyproject.toml`, точные версии всех пакетов
+зафиксированы в `uv.lock`, версия интерпретатора — в `.python-version` (`3.14`).
+`uv sync` создаёт `.venv` и приводит его ровно к содержимому лока; активировать
+окружение не нужно — `uv run <команда>` подхватывает `.venv` проекта сам.
 
 ```bash
 cd day13
-python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements.txt
+uv sync
 copy .env.example .env   # затем впишите DEEPSEEK_API_KEY=sk-...
 ```
 
 Терминал 1 (бэкенд):
 
 ```bash
-.venv/Scripts/python -m uvicorn backend.api.main:app --port 8000
+uv run uvicorn backend.api.main:app --reload --port 8000
 ```
 
 Терминал 2 (фронтенд): откройте <http://localhost:8501>.
 
 ```bash
-.venv/Scripts/python -m streamlit run app.py
+uv run streamlit run app.py
 ```
 
 Полная инструкция (ключ, запуск, три вкладки слоёв памяти, раздел «👤 Профиль
@@ -718,7 +725,7 @@ Swagger — на `http://127.0.0.1:8000/docs`. Доказательства: с�
 
 ```bash
 cd day13
-.venv/Scripts/python -m pytest -q      # 584 теста
+uv run pytest -q      # 584 теста
 ```
 
 584 теста = 314 унаследованных из дня 12 плюс **270 новых** на состояние задачи:
@@ -797,7 +804,7 @@ cd day13
 * **Сравнение двух профилей на одном вопросе** в интерфейсе (два ответа рядом +
   «что повлияло на ответ» и системный промпт) и офлайн-отчёт
   [`docs/reports/personalization_comparison.md`](docs/reports/personalization_comparison.md)
-  (`python scripts/personalization_comparison.py --no-api` — без сети и ключа).
+  (`uv run python scripts/personalization_comparison.py --no-api` — без сети и ключа).
 * **Живое применение настроек**: `PUT /users/{user_id}/profile` сразу рассылает
   профиль агентам пользователя (`applied_to_agents`), `PATCH /agents/{agent_id}`
   переключает профиль живого агента — перезапуск бэкенда не нужен.

@@ -2,10 +2,10 @@
 
 Запуск из папки дня (обязательно: пути к БД и .env считаются от ``backend/``):
 
-    python scripts/task_state_demo.py --reset          # удалить демо-БД и завести отчёт
-    python scripts/task_state_demo.py --phase 2        # одна фаза в отдельном процессе
-    python scripts/task_state_demo.py --all            # все фазы, каждая — новый процесс
-    python scripts/task_state_demo.py --all --no-api   # то же офлайн, без сети
+    uv run python scripts/task_state_demo.py --reset          # удалить демо-БД и завести отчёт
+    uv run python scripts/task_state_demo.py --phase 2        # одна фаза в отдельном процессе
+    uv run python scripts/task_state_demo.py --all            # все фазы, каждая — новый процесс
+    uv run python scripts/task_state_demo.py --all --no-api   # то же офлайн, без сети
 
 Зачем фазы в отдельных процессах.
 
@@ -257,8 +257,8 @@ def phase_5(manager, agent) -> list:
         "",
         "```bash",
         "cd day13",
-        "python scripts/task_state_demo.py --all           # нужен DEEPSEEK_API_KEY в day13/.env",
-        "python scripts/task_state_demo.py --all --no-api  # офлайн-заглушка, без сети",
+        "uv run python scripts/task_state_demo.py --all           # нужен DEEPSEEK_API_KEY в day13/.env",
+        "uv run python scripts/task_state_demo.py --all --no-api  # офлайн-заглушка, без сети",
         "```",
         "",
     ]
@@ -290,10 +290,10 @@ def write_header(offline: bool) -> None:
             "",
             "```bash",
             "cd day13",
-            "python scripts/task_state_demo.py --all           # с API-ключом",
-            "python scripts/task_state_demo.py --all --no-api  # офлайн, без сети",
-            "python scripts/task_state_demo.py --phase 2       # одна фаза",
-            "python scripts/task_state_demo.py --reset         # очистить БД и отчёт",
+            "uv run python scripts/task_state_demo.py --all           # с API-ключом",
+            "uv run python scripts/task_state_demo.py --all --no-api  # офлайн, без сети",
+            "uv run python scripts/task_state_demo.py --phase 2       # одна фаза",
+            "uv run python scripts/task_state_demo.py --reset         # очистить БД и отчёт",
             "```",
             "",
         ]) + "\n",

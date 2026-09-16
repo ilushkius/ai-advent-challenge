@@ -49,21 +49,28 @@
 
 ```powershell
 cd day13
-python -m venv .venv
-.venv/Scripts/python -m pip install --upgrade pip
-.venv/Scripts/python -m pip install -r requirements.txt
+uv sync
 ```
+
+Менеджер зависимостей — **uv**: прямые зависимости объявлены в `pyproject.toml`,
+точные версии всех прямых и транзитивных пакетов — в `uv.lock`, версия
+интерпретатора — в `.python-version` (`3.14`). `uv sync` создаёт `.venv` (если его
+нет) и приводит его ровно к содержимому лока; отдельно создавать окружение и
+активировать его не нужно — `uv run <команда>` сам находит `.venv` проекта.
 
 Проверка, что все зависимости импортируются (одна команда, ничего не запускает):
 
 ```powershell
-.venv/Scripts/python -c "import fastapi, uvicorn, streamlit, openai, requests, sqlalchemy, tiktoken, httpx, pytest, pandas; print('ok')"
+uv run python -c "import fastapi, uvicorn, streamlit, openai, requests, sqlalchemy, tiktoken, httpx, pytest, pandas; print('ok')"
 ```
 
-Ожидаемый вывод — `ok`. Если какой-то пакет не найден, повторите
-`pip install -r requirements.txt` (убедитесь, что активирован именно `.venv`).
+Ожидаемый вывод — `ok`. Если какой-то пакет не найден, выполните `uv sync`
+(или `uv run python -c` из папки `day13` — окружение проекта подхватится само).
 
-### Состав `requirements.txt`
+### Состав зависимостей
+
+Источник правды — `pyproject.toml`; точные версии прямых и транзитивных пакетов —
+в `uv.lock` (файл коммитится, чтобы окружение воспроизводилось один в один).
 
 | Пакет | Зачем он дню 13 |
 |---|---|
@@ -78,7 +85,7 @@ python -m venv .venv
 | `pytest>=8.0.0` | прогон тестов (в дне 13 их 584) |
 | `pandas>=2.0.0` | таблицы слоёв памяти, таблицы элементов профиля, график и таблица `token_usage` в интерфейсе |
 
-Тесты (по желанию, из папки `day13`): `.venv/Scripts/python -m pytest -q`.
+Тесты (по желанию, из папки `day13`): `uv run pytest -q`.
 
 ### Работа с `shared/`
 
@@ -151,7 +158,7 @@ DEEPSEEK_API_KEY=sk-ваш-ключ
 
 ```powershell
 $env:DAY13_BACKEND_URL = "http://127.0.0.1:8019"
-.venv/Scripts/python -m streamlit run app.py
+uv run streamlit run app.py
 ```
 
 Скрипт отчёта читает ключ из того же `day13/.env` (или из окружения) — см. §10.
@@ -166,7 +173,7 @@ $env:DAY13_BACKEND_URL = "http://127.0.0.1:8019"
 
 ```powershell
 cd day13
-.venv/Scripts/python -m uvicorn backend.api.main:app --port 8000
+uv run uvicorn backend.api.main:app --port 8000
 ```
 
 При старте бэкенд создаёт файл базы `day13/agents.db` (если его ещё нет) и
@@ -183,7 +190,7 @@ cd day13
 
 ```powershell
 cd day13
-.venv/Scripts/python -m streamlit run app.py
+uv run streamlit run app.py
 ```
 
 Откройте адрес, который Streamlit напечатал в консоли (обычно
@@ -233,12 +240,12 @@ curl.exe http://127.0.0.1:8000/
   реплике — `backend/domain/task_intent.py`, работа с таблицами — `backend/storage/task_store.py`,
   переходы и валидация — `backend/services/task_state.py`, обёртки менеджера —
   `backend/agents/manager_tasks.py`;
-* прогоны демонстраций — в `scripts/` (`python scripts/task_state_demo.py --all`,
-  `python scripts/personalization_comparison.py --no-api`), их отчёты — в
+* прогоны демонстраций — в `scripts/` (`uv run python scripts/task_state_demo.py --all`,
+  `uv run python scripts/personalization_comparison.py --no-api`), их отчёты — в
   `docs/reports/` (`task_state_demo.md`, `personalization_comparison.md`);
 * тесты разложены по подпапкам `tests/unit/`, `tests/integration/`, `tests/e2e/`
   (классификация по фикстурам), запускаются как раньше:
-  `.venv/Scripts/python -m pytest -q`;
+  `uv run pytest -q`;
 * общий код (клиент DeepSeek, база SQLAlchemy, токены, логи) вынесен в пакет
   `shared/`; корень репозитория добавляет в `sys.path` `backend/__init__.py` —
   см. §1, «Работа с `shared/`».
@@ -1154,7 +1161,7 @@ curl.exe -X POST http://127.0.0.1:8000/tasks/tz-portal/transition ^
 
    ```powershell
    cd day13
-   .venv/Scripts/python -m uvicorn backend.api.main:app --port 8000
+   uv run uvicorn backend.api.main:app --port 8000
    ```
 
 4. Убедитесь, что состояние на месте:
@@ -1179,10 +1186,10 @@ curl.exe -X POST http://127.0.0.1:8000/tasks/tz-portal/transition ^
 
 ```powershell
 cd day13
-.venv/Scripts/python scripts/task_state_demo.py --reset         # очистить демо-БД и отчёт
-.venv/Scripts/python scripts/task_state_demo.py --phase 2       # одна фаза в отдельном процессе
-.venv/Scripts/python scripts/task_state_demo.py --all           # все 5 фаз, нужен ключ DeepSeek
-.venv/Scripts/python scripts/task_state_demo.py --all --no-api  # то же офлайн, без сети
+uv run python scripts/task_state_demo.py --reset         # очистить демо-БД и отчёт
+uv run python scripts/task_state_demo.py --phase 2       # одна фаза в отдельном процессе
+uv run python scripts/task_state_demo.py --all           # все 5 фаз, нужен ключ DeepSeek
+uv run python scripts/task_state_demo.py --all --no-api  # то же офлайн, без сети
 ```
 
 Скрипт работает на **отдельной** базе `day13/task_state_demo.db`, агентом `demo13`
@@ -1196,9 +1203,9 @@ cd day13
 папки `day13`):
 
 ```powershell
-.venv/Scripts/python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, task_id, agent_id, stage, current_step, expected_action, updated_at from task_states order by id').fetchall())"
-.venv/Scripts/python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, task_id, from_stage, from_step, to_stage, to_step, reason, created_at from task_transitions order by id').fetchall())"
-.venv/Scripts/python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select task_id, substr(context,1,120), substr(history,1,80) from task_states order by id').fetchall())"
+uv run python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, task_id, agent_id, stage, current_step, expected_action, updated_at from task_states order by id').fetchall())"
+uv run python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, task_id, from_stage, from_step, to_stage, to_step, reason, created_at from task_transitions order by id').fetchall())"
+uv run python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select task_id, substr(context,1,120), substr(history,1,80) from task_states order by id').fetchall())"
 ```
 
 Первая выборка — по строке на задачу (этап, шаг, ожидаемое действие), вторая —
@@ -1246,9 +1253,9 @@ cd day13
 Проверка в БД (однострочники выполняются из папки `day13`):
 
 ```powershell
-.venv/Scripts/python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, agent_id, session_id, role, substr(content,1,60), created_at from short_term_messages order by id').fetchall())"
-.venv/Scripts/python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select agent_id, task_id, key, value, updated_at from working_memory order by task_id, key').fetchall())"
-.venv/Scripts/python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select agent_id, category, key, value, confidence from long_term_memory order by category, key').fetchall())"
+uv run python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, agent_id, session_id, role, substr(content,1,60), created_at from short_term_messages order by id').fetchall())"
+uv run python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select agent_id, task_id, key, value, updated_at from working_memory order by task_id, key').fetchall())"
+uv run python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select agent_id, category, key, value, confidence from long_term_memory order by category, key').fetchall())"
 ```
 
 Детерминированная версия той же проверки — без сети, ключа и UI: наследованные
@@ -1331,15 +1338,16 @@ on-premise.»; (б) общий ответ про размещение в обл�
 
 ```powershell
 cd day13
-.venv/Scripts/python scripts/personalization_comparison.py            # реальные запросы к deepseek-chat
-.venv/Scripts/python scripts/personalization_comparison.py --no-api   # офлайн-заглушка, без сети
-.venv/Scripts/python -m pytest -q                             # 584 теста
+uv run python scripts/personalization_comparison.py            # реальные запросы к deepseek-chat
+uv run python scripts/personalization_comparison.py --no-api   # офлайн-заглушка, без сети
+uv run pytest -q                             # 584 теста
 ```
 
-В активированном виртуальном окружении те же команды короче:
-`python scripts/personalization_comparison.py`,
+Те же команды короче, если `uv run` уже не нужен (например, в активированном
+окружении): `python scripts/personalization_comparison.py`,
 `python scripts/personalization_comparison.py --no-api`,
-`cd day13 && python -m pytest -q`.
+`cd day13 && pytest -q`. Базовый вариант — через `uv run` выше: он не зависит от
+того, какое окружение активно в терминале.
 
 * первый запуск требует `DEEPSEEK_API_KEY` в `day13/.env` (§2) — в отчёте
   реальные ответы модели;
@@ -1369,7 +1377,7 @@ cd day13
 
 ### Тесты
 
-`cd day13 && python -m pytest -q` — **584 теста**, все зелёные: 235
+`cd day13 && uv run pytest -q` — **584 теста**, все зелёные: 235
 наследованных из дня 11 (слои памяти, стратегии, сжатие, API памяти), 79 по
 персонализации дня 12 и 270 новых по состоянию задачи.
 
@@ -1385,7 +1393,7 @@ cd day13
 
 Быстрая синтаксическая проверка изменённых файлов (после рефакторинга — вместе с
 роутерами и пакетом `frontend/`):
-`python -m py_compile backend/api/main.py backend/core/dependencies.py backend/api/agents.py backend/api/context.py backend/api/memory.py backend/api/profiles.py backend/api/tasks.py backend/domain/task_fsm.py backend/domain/task_prompt.py backend/domain/task_intent.py backend/storage/task_store.py backend/services/task_state.py backend/models/task_state.py backend/agents/manager_tasks.py backend/schemas/task.py frontend/api_client.py frontend/chat_section.py frontend/sidebar.py frontend/task_panel.py app.py`.
+`uv run python -m py_compile backend/api/main.py backend/core/dependencies.py backend/api/agents.py backend/api/context.py backend/api/memory.py backend/api/profiles.py backend/api/tasks.py backend/domain/task_fsm.py backend/domain/task_prompt.py backend/domain/task_intent.py backend/storage/task_store.py backend/services/task_state.py backend/models/task_state.py backend/agents/manager_tasks.py backend/schemas/task.py frontend/api_client.py frontend/chat_section.py frontend/sidebar.py frontend/task_panel.py app.py`.
 
 ---
 
@@ -1474,9 +1482,9 @@ execution», «▶️ Продолжить» возвращает `execution/tes
 
 ```powershell
 cd day13
-.venv/Scripts/python -m pytest -q tests/unit/test_task_fsm.py tests/integration/test_task_state.py tests/e2e/test_task_api.py
-.venv/Scripts/python scripts/task_state_demo.py --all --no-api   # офлайн, без сети
-.venv/Scripts/python scripts/task_state_demo.py --all            # реальные ответы DeepSeek
+uv run pytest -q tests/unit/test_task_fsm.py tests/integration/test_task_state.py tests/e2e/test_task_api.py
+uv run python scripts/task_state_demo.py --all --no-api   # офлайн, без сети
+uv run python scripts/task_state_demo.py --all            # реальные ответы DeepSeek
 ```
 
 Полный прогон — **584 теста** (§10). Итог виден в панели «🧭 Состояние задачи»,
@@ -1530,7 +1538,7 @@ cd day13
 шаг» после этого даёт `400`, а задача уходит из `GET /agents/{id}/tasks`.
 
 **Кадр 8 — журнал и отчёт (1 мин).** Вкладка «📜 Журнал переходов» — весь путь
-задачи; затем `python scripts/task_state_demo.py --all` (или `--all --no-api`) и открыть
+задачи; затем `uv run python scripts/task_state_demo.py --all` (или `--all --no-api`) и открыть
 `reports/task_state_demo.md`: пять фаз в пяти процессах, таблицы переходов, ответы агента,
 блок состояния из системного промпта и вывод «состояние сохранено между пятью
 запусками».
@@ -1577,68 +1585,68 @@ cd day13
 прошлая сессия удаляется):
 
 ```powershell
-.venv/Scripts/python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, agent_id, session_id, role, substr(content,1,60), created_at from short_term_messages order by id').fetchall())"
+uv run python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, agent_id, session_id, role, substr(content,1,60), created_at from short_term_messages order by id').fetchall())"
 ```
 
 Рабочая память (пары задача+ключ уникальны):
 
 ```powershell
-.venv/Scripts/python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select agent_id, task_id, key, value, updated_at from working_memory order by task_id, key').fetchall())"
+uv run python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select agent_id, task_id, key, value, updated_at from working_memory order by task_id, key').fetchall())"
 ```
 
 Долговременная память (категория + ключ уникальны):
 
 ```powershell
-.venv/Scripts/python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select agent_id, category, key, value, confidence from long_term_memory order by category, key').fetchall())"
+uv run python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select agent_id, category, key, value, confidence from long_term_memory order by category, key').fetchall())"
 ```
 
 Агенты (конфиг, настройки сжатия, стратегия, окно, активные сессия/задача и
 профиль пользователя):
 
 ```powershell
-.venv/Scripts/python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select agent_id, name, user_id, strategy, window_size, current_session_id, current_task_id, summary_enabled from agents').fetchall())"
+uv run python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select agent_id, name, user_id, strategy, window_size, current_session_id, current_task_id, summary_enabled from agents').fetchall())"
 ```
 
 Профили пользователей (наследовано из дня 12; `user_id` уникален):
 
 ```powershell
-.venv/Scripts/python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, user_id, name, preferences, constraints, custom_instructions, created_at, updated_at from user_profiles order by user_id').fetchall())"
+uv run python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, user_id, name, preferences, constraints, custom_instructions, created_at, updated_at from user_profiles order by user_id').fetchall())"
 ```
 
 Конспекты (append-only: текущий — последняя строка по `id`):
 
 ```powershell
-.venv/Scripts/python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, agent_id, covered_from_message_id, covered_to_message_id, covered_messages, source_tokens, summary_tokens, cost from summaries order by id').fetchall())"
+uv run python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, agent_id, covered_from_message_id, covered_to_message_id, covered_messages, source_tokens, summary_tokens, cost from summaries order by id').fetchall())"
 ```
 
 Метрики, включая поля сжатия и расход по слоям памяти:
 
 ```powershell
-.venv/Scripts/python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, agent_id, total_tokens, mode, saved_tokens, short_term_tokens, working_tokens, long_term_tokens from token_usage order by id').fetchall())"
+uv run python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, agent_id, total_tokens, mode, saved_tokens, short_term_tokens, working_tokens, long_term_tokens from token_usage order by id').fetchall())"
 ```
 
 Факты (стратегия sticky_facts; пара agent_id+key уникальна):
 
 ```powershell
-.venv/Scripts/python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select agent_id, key, value, updated_at from facts order by key').fetchall())"
+uv run python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select agent_id, key, value, updated_at from facts order by key').fetchall())"
 ```
 
 Чекпоинты/ветки (стратегия branching; parent_id — дерево, messages — JSON-снимок):
 
 ```powershell
-.venv/Scripts/python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, agent_id, parent_id, json_array_length(messages), created_at from checkpoints order by id').fetchall())"
+uv run python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, agent_id, parent_id, json_array_length(messages), created_at from checkpoints order by id').fetchall())"
 ```
 
 Состояние задачи (день 13; этап, шаг и ожидаемое действие — по строке на задачу):
 
 ```powershell
-.venv/Scripts/python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, task_id, agent_id, stage, current_step, expected_action, updated_at from task_states order by id').fetchall())"
+uv run python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, task_id, agent_id, stage, current_step, expected_action, updated_at from task_states order by id').fetchall())"
 ```
 
 Журнал переходов задачи (строка создания — с пустыми `from_stage`/`from_step`):
 
 ```powershell
-.venv/Scripts/python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, task_id, from_stage, from_step, to_stage, to_step, reason, created_at from task_transitions order by id').fetchall())"
+uv run python -c "import sqlite3; print(sqlite3.connect('agents.db').execute('select id, task_id, from_stage, from_step, to_stage, to_step, reason, created_at from task_transitions order by id').fetchall())"
 ```
 
 Для интерактивной работы можно открыть файл любым SQLite-клиентом — формат
@@ -1693,7 +1701,7 @@ cd day13
 
 | Проблема | Решение |
 |---|---|
-| «🔌 Бэкенд недоступен» в интерфейсе | Запустите бэкенд из папки `day13`: `.venv/Scripts/python -m uvicorn backend.api.main:app --port 8000`. Проверьте адрес: он должен совпадать с `DAY13_BACKEND_URL` (по умолчанию `http://127.0.0.1:8000`). |
+| «🔌 Бэкенд недоступен» в интерфейсе | Запустите бэкенд из папки `day13`: `uv run uvicorn backend.api.main:app --port 8000`. Проверьте адрес: он должен совпадать с `DAY13_BACKEND_URL` (по умолчанию `http://127.0.0.1:8000`). |
 | Порт 8000 (или 8501) занят | Запустите на другом порту: `uvicorn backend.api.main:app --port 8019` и, для фронтенда, задайте `$env:DAY13_BACKEND_URL="http://127.0.0.1:8019"`; Streamlit — `--server.port 8502`. |
 | Генерация вернула `502` «Ключ API не задан» | Ключа нет ни в `day13/.env`, ни в переменной `DEEPSEEK_API_KEY`. Сделайте `copy .env.example .env` и впишите `DEEPSEEK_API_KEY=sk-...`, затем перезапустите бэкенд. Карточки агентов, слои памяти, CRUD профилей, CRUD состояния задачи и скрипт с `--no-api` работают и без ключа. |
 | Ошибка `429` (rate limit) от DeepSeek | Слишком много запросов подряд. Подождите и повторите; для демонстрации делайте паузы между ходами. Панель сравнения профилей тратит **два** запроса сразу, «⚖️ Сравнить режимы» с галочкой — тоже два. |

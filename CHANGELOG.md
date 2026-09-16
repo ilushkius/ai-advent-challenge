@@ -5,6 +5,48 @@
 структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
 `chore` (прочее: инфраструктура, скиллы, служебные изменения).
 
+## 2026-09-16 — chore — day13 переведён на uv (pyproject.toml + uv.lock вместо requirements.txt)
+
+Менеджер зависимостей дня 13 — `uv` вместо `pip`/`venv`: прямые зависимости
+объявлены в `pyproject.toml`, точные версии всех 66 разрешённых пакетов
+зафиксированы в `uv.lock`, интерпретатор — в `.python-version` (`3.14`). Файл
+`requirements.txt` удалён, состав зависимостей сохранён полностью (fastapi,
+uvicorn[standard], streamlit, openai, requests, sqlalchemy, tiktoken, httpx,
+pytest, pandas). Дни 1–12 не тронуты: они остаются снимками с `requirements.txt`.
+
+* `day13/pyproject.toml`, `day13/uv.lock`, `day13/.python-version` — новые файлы
+  (`uv init --no-package` + `uv add -r requirements.txt`); флага `--requirements`
+  у `uv init` в uv 0.12.15 нет;
+* `day13/requirements.txt` — удалён;
+* `day13/README.md` — раздел «Быстрый старт» заменён на «Установка и запуск»
+  (`uv sync`, `uv run streamlit run app.py`,
+  `uv run uvicorn backend.api.main:app --reload --port 8000`), тесты —
+  `uv run pytest -q`, дерево дня обновлено;
+* `day13/STRUCTURE.md` — дерево дня и команда замера лимита строк (`uv run python`);
+* `day13/docs/usage.md` — §1 переписан на `uv sync`, раздел «Состав
+  `requirements.txt`» → «Состав зависимостей», все команды `.venv/Scripts/python …`
+  → `uv run …`;
+* `day13/docs/architecture.md` — новый раздел «Зависимости (uv)» (три файла, роль
+  `uv.lock`, `--no-package`), uv добавлен в описание стека;
+* `day13/docs/api.md`, `day13/pytest.ini` — команды запуска через `uv run`;
+* `day13/scripts/*.py`, `day13/docs/reports/*.md`, `day13/frontend/task_panel.py` —
+  тексты команд в докстрингах, отчётах и комментариях переведены на `uv run`
+  (генераторы отчётов печатают те же команды, что и раньше, но в форме uv);
+* `README.md` (корень) — установка дня 13 (`uv sync`) и его блок в «Как
+  запустить», строка про uv в таблице стека;
+* `AGENTS.md` — правило uv для всех дней, инструкция для `day14+` и порядок
+  миграции существующего дня, пункт в Definition of Done;
+* `.clauderules`, `.gitignore` — снимки `day1`–`day12` оговорены явно; `!uv.lock`
+  добавлен в исключения (широкое `*.lock` вырезало лок из Git);
+* `.omp/skills/day-docs-structure/SKILL.md`,
+  `.omp/skills/tdd-pytest-workflow/SKILL.md` — команды шага установки и запуска
+  тестов приведены к uv.
+
+Проверено: `uv sync` (`.venv` под управлением uv), `uv run pytest -q` — 584 passed,
+`uv run uvicorn backend.api.main:app` — Swagger `/docs` и 32 эндпоинта из
+`openapi.json` отвечают 200, `uv run streamlit run app.py` — страница 200,
+`AppTest` без исключений (все разделы дня рисуются).
+
 ## 2026-09-16 — refactor — day13: ключи формы «➕ Создать задачу» разведены по разделам
 
 Раздел «🧭 Состояние задачи» падал с `StreamlitDuplicateElementKey` сразу после

@@ -9,7 +9,9 @@ description: "Documentation structure for each day in the ai-challenge project. 
 
 - Краткое описание дня (одна строка заголовком).
 - Стек дня.
-- Установка: `pip install -r requirements.txt` из папки дня (и создание `.venv`).
+- Установка: `uv sync` из папки дня (зависимости — `pyproject.toml` + `uv.lock`,
+  версия Python — `.python-version`; снимки `day1`–`day12` остаются на
+  `pip install -r requirements.txt`).
 - Запуск: команды бэкенда и фронтенда в двух терминалах (из папки дня).
 - Структура: ссылка на `STRUCTURE.md` дня.
 - Примеры использования.

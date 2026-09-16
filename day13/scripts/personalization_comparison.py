@@ -2,8 +2,8 @@
 
 Запуск из папки дня (обязательно: пути к БД и .env считаются от ``backend/``):
 
-    python scripts/personalization_comparison.py            # реальные запросы к DeepSeek
-    python scripts/personalization_comparison.py --no-api   # офлайн, без сети (заглушка)
+    uv run python scripts/personalization_comparison.py            # реальные запросы к DeepSeek
+    uv run python scripts/personalization_comparison.py --no-api   # офлайн, без сети (заглушка)
 
 Что делает скрипт.
 

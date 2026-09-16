@@ -126,6 +126,6 @@
 
 ```bash
 cd day13
-python scripts/personalization_comparison.py          # с API-ключом (day13/.env)
-python scripts/personalization_comparison.py --no-api # офлайн, без сети
+uv run python scripts/personalization_comparison.py          # с API-ключом (day13/.env)
+uv run python scripts/personalization_comparison.py --no-api # офлайн, без сети
 ```

@@ -6,7 +6,7 @@
 (из папки `day13`):
 
 ```powershell
-.venv/Scripts/python -m uvicorn backend.api.main:app --port 8000
+uv run uvicorn backend.api.main:app --port 8000
 ```
 
 | Что | Адрес |

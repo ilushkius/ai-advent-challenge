@@ -42,14 +42,16 @@ day13/
 │   ├── comparison_report.py  # сборка отчёта сравнения профилей
 │   └── comparison_stub.py    # офлайн-заглушка (её же использует task_state_demo.py)
 ├── conftest.py, pytest.ini   # конфигурация pytest (pythonpath = . tests)
-├── requirements.txt, .env.example
+├── pyproject.toml, uv.lock   # зависимости (uv): прямые — в pyproject, точные версии — в локе
+├── .python-version           # 3.14 (версия для `uv sync`)
+├── .env.example              # шаблон ключа DEEPSEEK_API_KEY
 └── agents.db                 # SQLite (в .gitignore по *.db)
 ```
 
 Отчёты прогонов лежат в `docs/reports/` (`task_state_demo.md`,
 `personalization_comparison.md`). Скрипты в `scripts/` не пакет: они находят
 корень дня (`Path(__file__).resolve().parents[1]`) и добавляют его в `sys.path`
-сами, поэтому `python scripts/<script>.py` работает из любой рабочей
+сами, поэтому `uv run python scripts/<script>.py` работает из любой рабочей
 директории, а отчёт и демо-база по-прежнему создаются в корне дня и в
 `docs/reports/`.
 
@@ -226,7 +228,7 @@ DeepSeek), разложены по трём подпапкам **по фикст
 Из папки `day13` (`.venv` исключён):
 
 ```powershell
-.venv/Scripts/python -c "from pathlib import Path; print([(str(p), len(p.read_text(encoding='utf-8').splitlines())) for p in sorted(Path('.').rglob('*.py')) if '.venv' not in p.parts and len(p.read_text(encoding='utf-8').splitlines()) > 400])"
+uv run python -c "from pathlib import Path; print([(str(p), len(p.read_text(encoding='utf-8').splitlines())) for p in sorted(Path('.').rglob('*.py')) if '.venv' not in p.parts and len(p.read_text(encoding='utf-8').splitlines()) > 400])"
 ```
 
 Ожидаемый вывод сегодня: `[('backend\\agents\\agent.py', 1603)]`.

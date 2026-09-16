@@ -180,13 +180,64 @@ dayN/
 | API | OpenAI SDK → DeepSeek (`https://api.deepseek.com`) |
 | Стейт-машина | `enum.Enum` + паттерн State (чистый Python) |
 | Тесты | `pytest` |
+| Зависимости | `uv` (`pyproject.toml` + `uv.lock`), интерпретатор — `.python-version` (day13 и далее) |
 
 ```powershell
 # из папки дня (CWD важен: .env ищется здесь)
-pip install -r requirements.txt
-streamlit run app.py          # UI
-python -m pytest -q           # тесты
+uv sync                       # зависимости из pyproject.toml/uv.lock в .venv
+uv run streamlit run app.py   # UI
+uv run pytest -q              # тесты
 ```
+
+Для **снимков `day1`–`day12`** команды прежние (`pip install -r requirements.txt`,
+`python -m pytest -q`): их код не меняется. Правило uv действует для `day13` и
+всех последующих дней.
+
+### Зависимости: uv (day13 и далее)
+
+**Правило.** Все проекты `dayN` используют `uv` для управления зависимостями.
+Зависимости объявляются в `pyproject.toml`, точные версии фиксируются в
+`uv.lock`. Для установки: `uv sync`. Для запуска: `uv run <команда>`.
+`requirements.txt` не используется.
+
+В корне дня лежат три файла, и все три коммитятся: `pyproject.toml` (прямые
+зависимости + `requires-python`), `uv.lock` (точные версии всех прямых и
+транзитивных пакетов), `.python-version` (интерпретатор для `uv sync`).
+Окружение `.venv` создаёт `uv sync`, в Git оно не попадает. Активировать
+окружение не нужно — `uv run` находит `.venv` проекта сам.
+
+**Новый день (начиная с `day14`).** Сразу инициализировать проект через uv:
+
+```powershell
+cd dayN
+uv init --no-package          # pyproject.toml + .python-version, без сборочного бэкенда
+uv add <package>              # каждая зависимость — своим вызовом
+uv add --dev pytest           # инструменты разработки — в dev-группу
+```
+
+Не создавать `requirements.txt` — использовать `pyproject.toml` и `uv.lock`.
+Это правило обязательно для всех последующих дней челленджа. Созданный
+`uv init` файл `main.py` удалять: точка входа дня — `app.py`.
+
+**Миграция существующего дня на uv** (для `day1`–`day12` — только по прямому
+запросу пользователя: это снимки). Порядок одинаков для любого дня:
+
+1. из папки дня — `uv init --no-package --no-readme --vcs none` (создаёт
+   `pyproject.toml` и `.python-version`; появившийся `main.py` удалить);
+2. `uv add -r requirements.txt` — переносит зависимости; дополнительные файлы
+   требований добавлять отдельными вызовами
+   (`uv add --dev -r requirements-dev.txt`);
+3. `uv sync` — создаёт `uv.lock` и `.venv`; сверить состав `pyproject.toml` с
+   прежним `requirements.txt` (ничего не потерялось);
+4. проверить работоспособность: `uv run pytest -q`,
+   `uv run uvicorn <module>:app`, `uv run streamlit run app.py`;
+5. удалить `requirements.txt`, обновить `README.md` дня (раздел «Установка и
+   запуск»: `uv sync`, `uv run streamlit run app.py`,
+   `uv run uvicorn <module>:app --reload`), `STRUCTURE.md` дня и `CHANGELOG.md`.
+
+Флага `--requirements` у `uv init` **нет** (проверено на uv 0.12.15:
+`error: unexpected argument '--requirements' found`) — перенос зависимостей
+делает `uv add -r requirements.txt`.
 
 ## Definition of Done
 
@@ -196,6 +247,8 @@ python -m pytest -q           # тесты
 - [ ] `python -m py_compile` по изменённым файлам без ошибок.
 - [ ] Smoke-запуск приложения без реальных запросов к API.
 - [ ] Обновлены `README.md` дня и `.env.example` (если менялись ключи).
+- [ ] Зависимости ведёт `uv`: `pyproject.toml` + `uv.lock` + `.python-version`,
+      `requirements.txt` в дне нет (раздел «Зависимости: uv» в этом файле).
 - [ ] Секреты (`.env`) не закоммичены.
 - [ ] Лимиты соблюдены: любой `.py` ≤ 400 строк (`app.py` ≤ 100,
       `backend/api/main.py` ≤ 80) — проверено командой из скилла

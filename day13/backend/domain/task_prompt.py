@@ -21,7 +21,7 @@
     литералы, никаких БД, сети и UI. Проверяется тестами:
 
         # из папки day13
-        python -m pytest -q tests/unit/test_task_prompt.py
+        uv run pytest -q tests/unit/test_task_prompt.py
 """
 
 from __future__ import annotations

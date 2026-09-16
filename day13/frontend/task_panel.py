@@ -9,7 +9,7 @@ import streamlit as st
 
 from . import api_client, common
 
-# Схема FSM в виде текста: библиотек для диаграмм в requirements нет, а ASCII
+# Схема FSM в виде текста: библиотек для диаграмм в зависимостях дня нет, а ASCII
 # читается и в браузере, и в отчёте. Единственный источник правды о переходах —
 # backend/task_fsm.py: здесь та же картина словами.
 FSM_DIAGRAM = "\n".join([
