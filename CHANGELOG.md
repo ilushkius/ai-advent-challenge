@@ -5,6 +5,73 @@
 структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
 `chore` (прочее: инфраструктура, скиллы, служебные изменения).
 
+## 2026-09-17 — feat — day14: инварианты агента (таблица invariants, InvariantChecker, отказ при нарушении hard)
+
+День 14 — рабочая копия дня 13 плюс **система инвариантов**: правила проекта,
+которые агент не имеет права нарушать. Правила хранятся в отдельной таблице
+`invariants` (не в истории сообщений — их не вымывает сжатие контекста), блок
+активных правил подставляется в системный промпт каждого запроса сразу после роли
+агента, а предложение проверяется перед выдачей: сначала детерминированными
+правилами (регулярные выражения, без сети), при неоднозначности — одним вызовом
+LLM. Нарушение `hard`-инварианта превращается в отказ с именем правила и причиной
+(DeepSeek при отказе в запросе не вызывается вовсе), нарушение `soft` — в
+предупреждение перед ответом, но решение предлагается. Вердикты запроса и ответа
+объединяются (`merged_with`), поэтому нарушение из запроса не теряется за чистым
+ответом модели, а одно правило не называется дважды. Проверка текста доступна
+отдельно (шесть эндпоинтов `/invariants...` и раздел «📏 Инварианты»). Код дней
+1–13 не изменялся.
+
+* `day14/` — новый день целиком (копия `day13/` с заменой токенов `day13`→`day14`):
+  `pyproject.toml` (`name = "day14"`), `uv.lock`, `.python-version`, `app.py`,
+  `frontend/`, `backend/`, `tests/`, `scripts/`, `docs/`, `README.md`,
+  `STRUCTURE.md`, `.agents/skills/` (относительные симлинки, `uvx library-skills`);
+* `day14/backend/domain/invariant_values.py`, `invariant_rules.py`,
+  `invariant_prompt.py`, `demo_invariants.py` — значения (категории, важность,
+  вердикты), детерминированные правила (15 правил: 14 по средствам + платные
+  сервисы с исключением «согласие пользователя»), тексты промпта/отказа/предупреждения
+  и четыре демо-правила;
+* `day14/backend/models/invariant.py`, `day14/backend/storage/invariant_store.py` —
+  ORM-таблица `invariants` (12-я таблица дня, без FK) и `InvariantManager` (CRUD,
+  фильтры, включение-выключение, ошибки 404/409/422);
+* `day14/backend/services/invariant_checker.py` — `InvariantChecker` (правила →
+  LLM, строгий JSON-протокол, `note` при сбое) и `InvariantCheckResult` с
+  `merged_with`;
+* `day14/backend/agents/manager_invariants.py`, `day14/backend/agents/agent.py` —
+  миксин `InvariantOpsMixin` и интеграция в `Agent`: блок инвариантов в
+  `_system_message`, проверка запроса до вызова DeepSeek, пост-проверка ответа,
+  `_refuse_by_invariants`, поле `record["invariants"]`;
+* `day14/backend/schemas/invariant.py`, `day14/backend/api/invariants.py`,
+  `day14/backend/api/main.py` — схемы, шесть эндпоинтов и сборка приложения
+  (версия `8.0.0`, всего 51 эндпоинт);
+* `day14/frontend/invariant_panel.py`, `common.py`, `api_client.py`,
+  `chat_section.py`, `app.py` — раздел «📏 Инварианты», подписи и
+  `invariant_notice`, шесть функций HTTP-клиента, блок предупреждения/отказа над
+  полем ввода, четвёртый раздел;
+* `day14/scripts/seed_invariants.py`, `day14/scripts/invariants_demo.py` — посев
+  демо-правил и офлайн-прогон трёх сценариев;
+* `day14/invariants_demo.md` — отчёт: разрешено / предупреждение / отказ, с
+  таблицей вызовов модели по сценариям;
+* `day14/tests/unit/test_invariant_values.py`, `test_invariant_rules.py`,
+  `test_invariant_prompt.py`, `day14/tests/integration/test_invariant_manager.py`,
+  `test_invariant_checker.py`, `test_invariant_agent.py`,
+  `day14/tests/e2e/test_invariant_api.py` — 141 новый тест;
+* `day14/README.md`, `day14/STRUCTURE.md`, `day14/docs/architecture.md`,
+  `day14/docs/api.md`, `day14/docs/usage.md` — документация дня (в `usage.md`
+  добавлен §8 и сдвинута нумерация §9…§17 вместе со ссылками `§N`);
+* `AGENTS.md` — пункт про проверку инвариантов при изменении архитектуры;
+* `.omp/config.yml` — `skills.customDirectories: day14/.agents/skills`;
+* `CHANGELOG.md` — эта запись.
+
+Проверка: `uv run pytest -q` — **725 passed** (584 унаследованных от дня 13 +
+141 новый; унаследованные не правились); `uv sync` и `uv lock --check` — код 0;
+`uvx library-skills --check --tool-skill` — код 0; `python -m py_compile` — без
+ошибок; лимит строк — превышает только унаследованный `backend/agents/agent.py`
+(1727; `app.py` 50 ≤ 100, `backend/api/main.py` 79 ≤ 80); прогон
+`scripts/invariants_demo.py` — `allowed` / `warning` / `refusal` (в отказе 0
+вызовов DeepSeek); smoke бэкенда без ключа: `POST /agents/{id}/generate` с
+запросом про Flask отдаёт отказ, `/invariants/check` — `refusal` на «поднимем
+Redis» и `allowed` на чистый текст. Дни 1–13 не изменялись.
+
 ## 2026-09-16 — chore — day13: скиллы библиотек через uvx library-skills, верхние границы зависимостей
 
 AI-скиллы библиотек дня теперь отслеживаются версией самой библиотеки.
