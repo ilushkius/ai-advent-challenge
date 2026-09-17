@@ -28,31 +28,20 @@ uv run uvicorn backend.api.main:app --port 8000
 эндпоинты `POST/GET/DELETE /agents/{id}/memory/...`, а разбивка контекста по
 слоям возвращается в поле `memory` ответа генерации.
 
-День 13 добавляет к этому состояние задачи — конечный автомат из этапов
-(`planning`, `execution`, `validation`, `done`, `paused`) и шагов внутри этапов.
-Состояние живёт в SQLite (таблицы `task_states` и `task_transitions`), читается
-из БД на каждый запрос — поэтому переживает перезапуск процесса — и
-подключается **последним** блоком к системному промпту (после профиля, роли и
-блоков памяти). Новая реплика пользователя сама двигает состояние: «пауза»,
-«продолжи», «вернись на предыдущий этап», «подтверждаю» распознаются до сборки
-контекста, поэтому промпт того же запроса описывает уже новое состояние.
-Управление — девять эндпоинтов `/tasks...`: создание, список, чтение состояния и
-журнала, пауза, продолжение, следующий шаг, откат и прямой переход. Разбор —
-в разделе [«Состояние задачи»](#состояние-задачи-день-13).
+Кроме агентов API закрывает три слоя памяти, профили пользователей, состояние
+задачи как конечный автомат и инварианты проекта.
 
-День 14 добавляет к этому **инварианты** — правила проекта, которые агент не
-имеет права нарушать. Они лежат в отдельной таблице `invariants` (не в истории
-сообщений), блок активных правил подставляется в системный промпт каждого
-запроса сразу после роли агента, а предложение проверяется перед выдачей: сначала
-детерминированными правилами, при неоднозначности — одним вызовом LLM. Нарушение
-hard-инварианта превращается в отказ (поле `response` содержит объяснение, какое
-правило нарушено), soft — в предупреждение, но решение предлагается. Управление —
-шесть эндпоинтов `/invariants...` и раздел «📏 Инварианты» в интерфейсе. Разбор —
-в разделе [«Инварианты»](#инварианты-день-14).
+**Инварианты** — правила проекта, которые агент не имеет права нарушать: они
+лежат в отдельной таблице `invariants`, блок активных правил подставляется в
+системный промпт каждого запроса сразу после роли агента, а предложение
+проверяется перед выдачей — сначала детерминированными правилами, при
+неоднозначности одним вызовом LLM. Нарушение `hard`-инварианта превращается в
+отказ, `soft` — в предупреждение. Управление — шесть эндпоинтов `/invariants...`
+и раздел «📏 Инварианты» в интерфейсе; разбор — в разделе
+[«Инварианты»](#инварианты).
 
-Профиль пользователя (наследовано из дня 12): у агента есть поле `user_id` —
-идентификатор пользователя, чей профиль из таблицы `user_profiles`
-подключается **первым** блоком к системному промпту каждого запроса (до роли
+Профиль пользователя: у агента есть поле `user_id` — идентификатор
+пользователя, чей профиль из таблицы `user_profiles` подключается **первым** блоком к системному промпту каждого запроса (до роли
 агента и до блоков памяти). Профиль заводится и правится через `/users/...`,
 применяется к живым агентам пользователя сразу, без перезапуска; его вклад
 виден в `GET /agents/{id}/profile` и в полях `profile`/`system_prompt` ответа
@@ -72,10 +61,10 @@ hard-инварианта превращается в отказ (поле `resp
 статистики плюс корневой `GET /`), 9 контекста (сжатие, стратегии, ветки,
 факты), 10 памяти, 6 профилей пользователей, 9 состояния задачи и 6 инвариантов.
 Ниже — сводка; разбор по группам —
-в разделах [«Слои памяти»](#слои-памяти-день-11),
-[«Персонализация»](#персонализация-профили-пользователей-день-12),
-[«Состояние задачи»](#состояние-задачи-день-13) и
-[«Инварианты»](#инварианты-день-14).
+в разделах [«Слои памяти»](#слои-памяти),
+[«Персонализация»](#персонализация-профили-пользователей),
+[«Состояние задачи»](#состояние-задачи) и
+[«Инварианты»](#инварианты).
 
 | Метод | Путь | Назначение | Успех |
 |---|---|---|---|
@@ -215,7 +204,7 @@ curl.exe http://127.0.0.1:8000/
 Настройки сжатия по умолчанию: `summary_enabled = true`,
 `keep_last_messages = 6`, `summarize_every = 10`.
 
-Персонализация (день 12): поле `user_id` (строка 1–64 символа, по умолчанию
+Персонализация: поле `user_id` (строка 1–64 символа, по умолчанию
 `"default"`) указывает, чей профиль подключается к системному промпту запросов
 агента. Профиль создавать заранее не обязательно — агент с несуществующим
 профилем работает без персонализации.
@@ -340,7 +329,7 @@ curl.exe http://127.0.0.1:8000/agents/8f1c2d3e4b5a
 | `summary_enabled` | bool | включить/выключить сжатие |
 | `keep_last_messages` | число | 2–20 |
 | `summarize_every` | число | 2–40 |
-| `user_id` | строка | 1–64 символа; переключает профиль живого агента (день 12) |
+| `user_id` | строка | 1–64 символа; переключает профиль живого агента |
 
 Модель (`model`) через `PATCH` не меняется.
 
@@ -575,7 +564,7 @@ curl.exe -X POST http://127.0.0.1:8000/agents/8f1c2d3e4b5a/generate \
   произойдёт на следующем ходу;
 - `compression.saved_percent` — доля экономии относительно полного контекста.
 
-Пояснения к персонализации (день 12):
+Пояснения к персонализации:
 
 - `profile` — применённый к запросу профиль (`AppliedProfileOut`): `elements`
   (по элементу на каждую заполненную настройку), `prompt_block` — текст блока
@@ -957,7 +946,7 @@ curl.exe -X POST http://127.0.0.1:8000/agents/8f1c2d3e4b5a/compare \
 ## GET /agents/{agent_id}/usage
 
 Сводка по таблице `token_usage`: суммы токенов и стоимости, занятость контекста
-и экономия от сжатия. Поля дня 9 — `total_full_context_tokens`,
+и экономия от сжатия. Поля сжатия — `total_full_context_tokens`,
 `total_sent_context_tokens`, `total_saved_tokens`, `total_summary_cost`,
 `total_net_saved_tokens`, `compressed_requests`.
 
@@ -1030,7 +1019,7 @@ curl.exe http://127.0.0.1:8000/agents/8f1c2d3e4b5a/usage/graph
 
 Коды: `200`, `404`.
 
-## Стратегии, ветки и факты (наследовано из дня 10)
+## Стратегии, ветки и факты
 
 ### POST /agents/{agent_id}/strategy
 
@@ -1095,7 +1084,7 @@ curl.exe -X POST http://127.0.0.1:8000/agents/АГЕНТ/branches `
 Текущие факты диалога (стратегия `sticky_facts`): `{ "agent_id", "facts": [
 {"key", "value", "updated_at"}, …] }`. Коды: `200`, `404`.
 
-## Слои памяти (день 11)
+## Слои памяти
 
 Десять эндпоинтов трёх слоёв памяти. Краткосрочный слой привязан к сессии
 (`session_id`), рабочий — к задаче (`task_id`), долговременный — к категории
@@ -1342,9 +1331,9 @@ curl.exe -X PUT http://127.0.0.1:8000/agents/8f1c2d3e4b5a/memory/task \
 Коды: `200`, `400` (пустой `task_id` после обрезки), `404`, `422` (пустая строка
 в теле).
 
-## Персонализация: профили пользователей (день 12)
+## Персонализация: профили пользователей
 
-Шесть эндпоинтов дня 12. Профиль лежит в таблице `user_profiles` и привязан к
+Шесть эндпоинтов. Профиль лежит в таблице `user_profiles` и привязан к
 `user_id` (строка 1–64 символа): одни и те же настройки действуют для всех
 агентов пользователя, всех его задач и сессий. Профиль — не слой памяти: он не
 хранит диалог и не отбирается по релевантности, а целиком подставляется
@@ -1639,9 +1628,9 @@ curl.exe http://127.0.0.1:8000/agents/8f1c2d3e4b5a/profile
 генерации) считают только три слоя; токены блока профиля входят в общие
 `prompt_tokens` / `sent_context_tokens`.
 
-## Состояние задачи (день 13)
+## Состояние задачи
 
-Девять эндпоинтов дня 13. Состояние задачи — конечный автомат: пять **этапов**
+Девять эндпоинтов. Состояние задачи — конечный автомат: пять **этапов**
 (`planning`, `execution`, `validation`, `done`, `paused`) и **шаги** внутри
 этапов. Этап, шаг и ожидаемое действие лежат в таблице `task_states` (по строке
 на задачу), каждый переход — в журнале `task_transitions`; состояние читается из
@@ -2144,7 +2133,7 @@ curl.exe -X POST http://127.0.0.1:8000/tasks/tz/transition \
 Недопустимое намерение (например, «вернись на предыдущий этап» на `planning`)
 состояние не меняет, а запрос проходит как обычно.
 
-## Инварианты (день 14)
+## Инварианты
 
 Шесть эндпоинтов с абсолютными путями (`/invariants...`; префиксов нет).
 
@@ -2318,7 +2307,7 @@ curl.exe -X POST http://127.0.0.1:8000/invariants/check ^
 | `summary_count` | int | сколько конспектов создано |
 | `session_id` | строка | активная сессия краткосрочной памяти (пусто — у схемы нет данных) |
 | `task_id` | строка | активная задача рабочей памяти, по умолчанию `default` |
-| `user_id` | строка | пользователь, чей профиль применяется к запросам агента (день 12), по умолчанию `default` |
+| `user_id` | строка | пользователь, чей профиль применяется к запросам агента, по умолчанию `default` |
 
 ### AgentInfo (расширяет AgentSummary)
 
@@ -2338,7 +2327,7 @@ curl.exe -X POST http://127.0.0.1:8000/invariants/check ^
 | `role` | строка | `user` или `assistant` |
 | `content` | строка | текст реплики |
 | `created_at` | datetime | время записи (бывшее `timestamp`) |
-| `summarized` | bool | покрыта ли реплика конспектом (день 9) |
+| `summarized` | bool | покрыта ли реплика конспектом |
 
 ### GenerateResponse
 
@@ -2355,9 +2344,9 @@ curl.exe -X POST http://127.0.0.1:8000/invariants/check ^
 | `token_metrics` | TokenMetrics/null | метрики хода, включая экономию и токены по слоям |
 | `context` | ContextInfo/null | лимит, остаток, обрезка, состояние, блок сжатия |
 | `memory` | MemoryInfo/null | разбивка контекста по слоям памяти (заполнена и при `error`) |
-| `profile` | AppliedProfileOut/null | применённый профиль и его вклад в промпт (день 12; заполнен и при `error`) |
-| `task_state` | TaskStateOut/null | состояние задачи на момент ответа (день 13; заполнено и при `error`; `null` — задачи нет) |
-| `invariants` | InvariantCheckOut/null | вердикт проверки запроса и ответа против правил проекта (день 14; заполнен и при отказе, и при `error`) |
+| `profile` | AppliedProfileOut/null | применённый профиль и его вклад в промпт (заполнен и при `error`) |
+| `task_state` | TaskStateOut/null | состояние задачи на момент ответа (заполнено и при `error`; `null` — задачи нет) |
+| `invariants` | InvariantCheckOut/null | вердикт проверки запроса и ответа против правил проекта (заполнен и при отказе, и при `error`) |
 | `system_prompt` | строка | итоговое system-сообщение запроса (профиль + роль + инварианты + блоки памяти + блок состояния задачи; считается до вызова DeepSeek) |
 | `duration_sec` | float/null | длительность запроса |
 | `timestamp` | datetime | время ответа |
@@ -2503,23 +2492,23 @@ curl.exe -X POST http://127.0.0.1:8000/invariants/check ^
 | `context_limit_tokens` | int | лимит контекста модели |
 | `current_history_tokens` | int | токены текущей истории |
 | `remaining_tokens` | int | остаток контекста |
-| `total_full_context_tokens` | int | сколько заняла бы полная история (день 9) |
-| `total_sent_context_tokens` | int | сколько реально отправлено (день 9) |
-| `total_saved_tokens` | int | суммарная экономия токенов (день 9) |
-| `total_summary_cost` | float | стоимость всех суммаризаций (день 9) |
-| `total_net_saved_tokens` | int | чистая экономия (день 9) |
-| `compressed_requests` | int | запросов со сжатым контекстом (день 9) |
-| `total_short_term_tokens` | int | сумма токенов краткосрочного слоя по ходам (день 11) |
-| `total_working_tokens` | int | сумма токенов рабочей памяти по ходам (день 11) |
-| `total_long_term_tokens` | int | сумма токенов долговременной памяти по ходам (день 11) |
+| `total_full_context_tokens` | int | сколько заняла бы полная история |
+| `total_sent_context_tokens` | int | сколько реально отправлено |
+| `total_saved_tokens` | int | суммарная экономия токенов |
+| `total_summary_cost` | float | стоимость всех суммаризаций |
+| `total_net_saved_tokens` | int | чистая экономия |
+| `compressed_requests` | int | запросов со сжатым контекстом |
+| `total_short_term_tokens` | int | сумма токенов краткосрочного слоя по ходам |
+| `total_working_tokens` | int | сумма токенов рабочей памяти по ходам |
+| `total_long_term_tokens` | int | сумма токенов долговременной памяти по ходам |
 
 ### UsageOut
 
 Одна запись `token_usage`: `id`, `agent_id`, `timestamp`, `prompt_tokens`,
 `completion_tokens`, `total_tokens`, `history_tokens`, `response_tokens`,
-`cost`, поля дня 9 — `mode`, `full_context_tokens`, `sent_context_tokens`,
+`cost`, поля сжатия — `mode`, `full_context_tokens`, `sent_context_tokens`,
 `saved_tokens`, `summary_tokens`, `summarized_messages`, `summary_used`, и поля
-дня 11 — `short_term_tokens`, `working_tokens`, `long_term_tokens`.
+по слоям — `short_term_tokens`, `working_tokens`, `long_term_tokens`.
 
 ### Слои памяти
 
@@ -2580,10 +2569,10 @@ curl.exe -X POST http://127.0.0.1:8000/invariants/check ^
 | `total_tokens` | int | сумма трёх слоёв (конспект сюда не входит) |
 | `keywords` | [строка] | ключевые слова запроса, по которым отобран долговременный слой |
 
-### Профили пользователей (день 12)
+### Профили пользователей
 
 `UserProfileIn` — тело `POST`/`PUT /users/{user_id}/profile` (поля разобраны в
-разделе [«Персонализация»](#персонализация-профили-пользователей-день-12)):
+разделе [«Персонализация»](#персонализация-профили-пользователей)):
 `name`, `preferences` (`tone`/`verbosity`/`language`/`format`), `constraints`
 (`max_response_length`/`forbidden_topics`/`required_disclaimers`),
 `custom_instructions`. Схема строгая (`extra="forbid"`), все поля необязательные.
@@ -2622,7 +2611,7 @@ curl.exe -X POST http://127.0.0.1:8000/invariants/check ^
 | `system_prompt` | строка | системное сообщение агента без блоков памяти текущего запроса |
 | `instructions` | [строка] | произвольные инструкции профиля (пусто, если их нет) |
 
-### Состояние задачи (день 13)
+### Состояние задачи
 
 `TaskCreateIn` — тело `POST /agents/{agent_id}/tasks`: `task_id` (1–64 символа,
 уникален; повторный — `409`) и `initial_stage` (`planning` / `execution` /
@@ -2782,46 +2771,6 @@ curl.exe -X POST http://127.0.0.1:8000/invariants/check ^
 
 ## Примечания
 
-- **Что появилось в дне 14.** Инварианты проекта: таблица `invariants` (ORM-класс
-  `Invariant` в `backend/models/invariant.py`, без FK — правила описывают проект,
-  а не агента); модули `backend/domain/invariant_values.py` (категории, важность,
-  вердикты), `backend/domain/invariant_rules.py` (детерминированные правила),
-  `backend/domain/invariant_prompt.py` (блок промпта, отказ, предупреждение),
-  `backend/domain/demo_invariants.py` (четыре демо-правила),
-  `backend/storage/invariant_store.py` (`InvariantManager`),
-  `backend/services/invariant_checker.py` (`InvariantChecker`: правила → LLM),
-  `backend/agents/manager_invariants.py` (миксин `InvariantOpsMixin`),
-  `backend/schemas/invariant.py` (схемы), `backend/api/invariants.py` (шесть
-  эндпоинтов `/invariants...`); блок инвариантов в системном промпте сразу после
-  роли агента (виден в `system_prompt`); проверка запроса детерминированными
-  правилами до вызова DeepSeek и пост-проверка ответа; поле `invariants` в
-  `GenerateResponse`; ключ `invariants` в ответе `GET /`; раздел «📏 Инварианты»
-  в Streamlit; скрипты `scripts/seed_invariants.py` и
-  `scripts/invariants_demo.py` (отчёт `invariants_demo.md`).
-- **Что появилось в дне 13.** Состояние задачи как конечный автомат: таблицы
-  `task_states` и `task_transitions` (ORM-классы `TaskState`/`TaskTransition` в
-  `backend/models/task_state.py`); модули `backend/domain/task_fsm.py` (этапы, шаги, события,
-  таблица переходов), `backend/domain/task_prompt.py` (ожидаемые действия и сборка
-  блока промпта), `backend/domain/task_intent.py` (распознавание намерения в реплике),
-  `backend/storage/task_store.py` (доступ к таблицам), `backend/services/task_state.py`
-  (`TaskStateMachine` — валидация и переходы), `backend/agents/manager_tasks.py`
-  (миксин `TaskOpsMixin`), `backend/schemas/task.py` (схемы),
-  `backend/api/tasks.py` (девять эндпоинтов `/tasks...`); блок состояния
-  последним элементом системного промпта (учитывается и в `system_prompt` ответа
-  генерации); авто-обновление состояния по реплике пользователя до сборки
-  контекста; поле `task_state` в `GenerateResponse`; ключ `tasks` в ответе
-  `GET /`; панель «🧭 Состояние задачи» в Streamlit и скрипт
-  `scripts/task_state_demo.py` (отчёт `reports/task_state_demo.md`).
-- **Что появилось в дне 12.** Персонализация: таблица `user_profiles` (ORM-класс
-  `UserProfile`) и колонка `agents.user_id`; модули `backend/domain/profiles.py`
-  (правила и сборка блока промпта), `backend/agents/profile_store.py` (доступ к
-  таблице), `backend/domain/demo_profiles.py` (данные демонстрации); эндпоинты
-  `/users`, `/users/{user_id}/profile` (`GET`/`POST`/`PUT`/`DELETE`),
-  `/agents/{agent_id}/profile`; схемы `UserProfileIn`, `UserProfileOut`,
-  `UserProfileDeleteOut`, `ProfileElementOut`, `AppliedProfileOut`; поля
-  `profile`/`system_prompt` в `GenerateResponse`; поле `personalization` в
-  ответе `GET /`; `user_id` в `AgentConfig`/`AgentPatch`/`AgentSummary`
-  (а значит, и в `AgentInfo`).
 - **Профиль — не слой памяти.** Он не хранит диалог и не отбирается по
   релевантности, а целиком подставляется первым блоком в системное сообщение
   каждого запроса; токены блока входят в `prompt_tokens`/`sent_context_tokens`,
@@ -2833,31 +2782,6 @@ curl.exe -X POST http://127.0.0.1:8000/invariants/check ^
   `applied_to_agents`. Внешнего ключа `agents.user_id → user_profiles.user_id`
   нет намеренно: удаление профиля не уносит агентов — они остаются с пустым
   профилем.
-- **Что появилось в дне 11.** Три слоя памяти: таблицы `short_term_messages`,
-  `working_memory`, `long_term_memory`; поля `session_id`/`task_id` в
-  `AgentSummary`/`AgentInfo`; десять эндпоинтов `/agents/{id}/memory/...`;
-  схемы `ShortTermMessageIn`/`ShortTermMessageOut`/`ShortTermOut`/
-  `ShortTermClearOut`, `WorkingEntryIn`/`WorkingEntryOut`/`WorkingMemoryOut`,
-  `LongTermEntryIn`/`LongTermEntryOut`/`LongTermMemoryOut`/`LongTermDeleteOut`,
-  `SessionOut`, `TaskSetRequest`/`TaskOut`, `MemoryInfo`/`MemoryLayerInfo`;
-  поле `memory` в `GenerateResponse`; поля `short_term_tokens`,
-  `working_tokens`, `long_term_tokens` в `TokenMetrics`/`UsageOut`/
-  `UsageSummary`. Поле времени реплики переименовано: `timestamp` →
-  `created_at` в `MessageOut`.
-- **Что появилось раньше (стратегии, ветки, факты).** Поля `strategy` и
-  `window_size` в `AgentConfig`/`AgentInfo`/`AgentSummary`; поле `strategy` в
-  `ContextInfo`; эндпоинты `/strategy`, `/strategies`, `/branches`,
-  `/branches/{branch_id}/switch`, `/facts`; схемы `StrategiesOut`,
-  `BranchCreateRequest`/`BranchOut`/`BranchListOut`, `FactOut`/`FactsOut`;
-  таблицы `facts` и `checkpoints`.
-- **Что появилось в дне 9.** Настройки сжатия в `AgentConfig`/`AgentInfo`/
-  `AgentSummary` (`summary_enabled`, `keep_last_messages`, `summarize_every`,
-  `summary_count`); поле `summarized` у `MessageOut`; блок метрик
-  `token_metrics` и `context.compression` в ответе генерации; эндпоинты
-  `/summarize`, `/summary`, `/compare`; поля `mode`, `full_context_tokens`,
-  `sent_context_tokens`, `saved_tokens`, `summary_tokens`,
-  `summarized_messages`, `summary_used` в записях `token_usage` и
-  агрегаты экономии в `UsageSummary`.
 - **Токены по слоям и конспект.** `memory.total_tokens` — сумма трёх слоёв;
   конспект в неё не входит, потому что это сжатие того же краткосрочного слоя
   (он виден отдельно как `token_metrics.summary_tokens`). Токены нового промпта
@@ -2876,7 +2800,7 @@ curl.exe -X POST http://127.0.0.1:8000/invariants/check ^
   конспект оказывается дороже заменяемых реплик. Это ожидаемо: пороги
   `summarize_every` и `keep_last_messages` подбираются под длину сообщений.
 - **Лимиты контекста 8000/32000.** `deepseek-chat` — 8000 токенов,
-  `deepseek-reasoner` — 32000. Это демонстрационные лимиты (как в задании дня 8),
+  `deepseek-reasoner` — 32000. Это демонстрационные лимиты,
   реальный контекст DeepSeek шире; при необходимости они правятся в
   `MODEL_TOKEN_LIMITS` (`backend/core/config.py`). По ним считается
   `context.remaining_tokens` и срабатывает аварийный предохранитель

@@ -671,10 +671,11 @@ uv run python scripts/personalization_comparison.py --no-api   # офлайн-з
   агента, потому что состояние подключается к промпту только у активной задачи.
   `clear_history()` и `new_session()` состояние задачи не трогают: это не
   диалог; строки задач удаляются вместе с агентом.
-* Проверки из задания (какие данные попадают в каждый слой и как слои влияют на
-  ответы, два A/B-опыта) — в [docs/usage.md](docs/usage.md); персонализация
-  проверяется отчётом [`docs/reports/personalization_comparison.md`](docs/reports/personalization_comparison.md),
-  состояние задачи — [`docs/reports/task_state_demo.md`](docs/reports/task_state_demo.md).
+* Проверки наследованных возможностей описаны в самом README и в
+  [`STRUCTURE.md`](STRUCTURE.md); персонализация проверяется отчётом
+  [`docs/reports/personalization_comparison.md`](docs/reports/personalization_comparison.md),
+  состояние задачи — [`docs/reports/task_state_demo.md`](docs/reports/task_state_demo.md),
+  инварианты — [`invariants_demo.md`](invariants_demo.md).
 
 ## Архитектура
 
@@ -790,7 +791,7 @@ day14/
 ├── docs/
 │   ├── architecture.md  # компоненты и модульная структура, схема БД, слои памяти, персонализация, FSM задачи, инварианты
 │   ├── api.md           # 51 эндпоинт с примерами и кодами ошибок
-│   ├── usage.md         # установка, запуск, слои памяти, профиль, состояние задачи, инварианты, проверки, FAQ
+│   ├── usage.md         # установка и запуск, раздел «Инварианты», проверка текста, три сценария, разбор отказа
 │   └── reports/         # унаследованные отчёты дня 13: task_state_demo.md, personalization_comparison.md
 ├── invariants_demo.md   # отчёт дня 14: три сценария инвариантов (в корне дня — по заданию дня)
 ├── pytest.ini           # конфигурация pytest: testpaths = tests, pythonpath = . tests
@@ -832,9 +833,9 @@ uv run uvicorn backend.api.main:app --reload --port 8000
 uv run streamlit run app.py
 ```
 
-Полная инструкция (ключ, запуск, три вкладки слоёв памяти, раздел «👤 Профиль
-пользователя», состояние задачи, инварианты, проверки из задания, просмотр SQLite,
-FAQ) — в [docs/usage.md](docs/usage.md); эндпоинты с примерами — в
+Инструкция по инвариантам (установка и запуск, раздел «📏 Инварианты», проверка
+текста, три сценария, разбор отказа агента) — в [docs/usage.md](docs/usage.md);
+эндпоинты с примерами — в
 [docs/api.md](docs/api.md); как всё устроено внутри — в
 [docs/architecture.md](docs/architecture.md); Swagger — на
 `http://127.0.0.1:8000/docs`. Доказательства: инварианты —

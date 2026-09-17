@@ -1,16 +1,17 @@
-# Архитектура дня 14 — «Инварианты агента (на копии дня 13)»
+# Архитектура дня 14 — «Инварианты агента»
 
-День 14 — это копия дня 13 (`day13/` **не изменяется**: дни 1–13 остались
-снимками, все правки внутри `day14/`) плюс **система инвариантов**: правила
+Приложение дня 14 — агент DeepSeek (FastAPI-бэкенд + Streamlit-интерфейс,
+SQLite, tiktoken) с тремя слоями памяти, профилем пользователя и состоянием задачи
+как конечным автоматом; к нему добавлена **система инвариантов** — правила
 проекта, которые агент не имеет права нарушать. Правила лежат в отдельной таблице
 `invariants` (не в истории сообщений), блоком подставляются в системный промпт
-каждого запроса, а предложение проверяется перед выдачей — сначала
+каждого запроса, а предложение проверяется перед выдачей: сначала
 детерминированными правилами, при неоднозначности одним вызовом LLM. Нарушение
-hard-инварианта превращается в отказ, soft — в предупреждение.
+`hard`-инварианта превращается в отказ, `soft` — в предупреждение.
 
-Новое в дне 14:
+Что даёт день 14:
 
-- таблица `invariants` (12 таблиц вместо 11) и её ORM — `backend/models/invariant.py`;
+- таблица `invariants` и её ORM — `backend/models/invariant.py`;
 - значения инварианта `backend/domain/invariant_values.py`: перечисления
   `InvariantCategory`/`InvariantSeverity` (значения — строки для БД/API/UI),
   три вердикта проверки, подписи для интерфейса и функции-валидаторы;
@@ -23,44 +24,18 @@ hard-инварианта превращается в отказ, soft — в п
   проверки (правила → LLM), `InvariantCheckResult`/`InvariantViolation` и
   объединение вердиктов запроса и ответа (`merged_with`);
 - `InvariantManager` (`backend/storage/invariant_store.py`) — CRUD правил;
-  это та же граница слоёв «сервис / доступ к данным», что у `TaskStateMachine`
-  и `TaskStateStore`;
 - проверка запроса **до** вызова DeepSeek и ответа — после, с отказом
   (`Agent.check_invariants`, `Agent._refuse_by_invariants`);
-- шесть эндпоинтов `/invariants...` — всего 51 эндпоинт вместо 45;
+- шесть эндпоинтов `/invariants...` (всего 51);
 - четвёртый раздел основной области UI «📏 Инварианты»
   (`frontend/invariant_panel.py`) и отчёт [`invariants_demo.md`](../invariants_demo.md)
   от `scripts/invariants_demo.py` (три сценария, офлайн).
 
-Подробно — в разделе [«Инварианты (день 14)»](#инварианты-день-14).
+Подробно — в разделе [«Инварианты»](#инварианты).
 
-Наследованное из дня 13 (перенесено в `day14/` без изменений): **состояние
-задачи как конечный автомат** — таблицы `task_states` и `task_transitions`, FSM
-`backend/domain/task_fsm.py` (этапы `planning`/`execution`/`validation`/`done`/
-`paused`, шаги внутри этапа, события `advance`/`rollback`/`pause`/`resume` и
-паттерн State с явной ошибкой на неизвестное событие), `TaskStateMachine`
-(`backend/services/task_state.py`) как поведение и `TaskStateStore`
-(`backend/storage/task_store.py`) как хранение, блок состояния последним блоком
-системного сообщения, авто-обновление состояния по реплике и девять эндпоинтов
-`/agents/{agent_id}/tasks`, `/tasks/{task_id}/...`.
-
-Наследованное из дней 10–12 (перенесено в `day14/` без изменений): единая
-история диалога заменена **тремя явными слоями памяти** — краткосрочным (диалог
-сессии), рабочим (данные задачи) и долговременным (категории `profile`,
-`preference`, `decision`, `knowledge`). Хранилищем слоёв заведует `MemoryManager`
-(`backend/agents/memory.py`), а `Agent` при сборке контекста решает, что взять из
-каждого слоя, и возвращает разбивку токенов по слоям. Четыре стратегии сборки
-контекста (`sliding_window`, `sticky_facts`, `branching`, `summary`) сохранены и
-управляют **краткосрочным** слоем; стратегия агента — значение `Enum`
-(`backend/domain/strategies.py`), сборка контекста — `Agent.prepare_context()`,
-диспетчеризация по стратегии — его `_prepare_*`-ветки.
-
-Наследованный из дня 12 **профиль пользователя** — таблица `user_profiles`
-(настройки стиля, жёсткие ограничения и произвольные инструкции), колонка
-`agents.user_id` и блок персонализации первым блоком системного сообщения.
-Профиль — не четвёртый слой памяти: он не хранит диалог и не отбирается по
-релевантности, а подставляется целиком в каждый запрос (подробно — в разделе
-[«Профиль пользователя (персонализация; наследовано из дня 12)»](#профиль-пользователя-персонализация-наследовано-из-дня-12)).
+Остальные подсистемы приложения — три слоя памяти, четыре стратегии сборки
+контекста, профиль пользователя и состояние задачи как конечный автомат —
+описаны ниже как его текущие части.
 
 Стек: Python 3.14, FastAPI + uvicorn (порт 8000), Streamlit (порт 8501),
 SQLite + SQLAlchemy 2.0, tiktoken, OpenAI SDK → DeepSeek
@@ -75,8 +50,8 @@ flowchart LR
     M --> AG["Agent<br/>session_id + task_id"]
     AG --> MM["MemoryManager<br/>три слоя памяти"]
     AG --> PS["ProfileStore<br/>user_profiles (профиль)"]
-    AG --> TS["TaskStateMachine<br/>состояние задачи (день 13)"]
-    AG --> IC["InvariantChecker<br/>правила → LLM (день 14)"]
+    AG --> TS["TaskStateMachine<br/>состояние задачи"]
+    AG --> IC["InvariantChecker<br/>правила → LLM"]
     IC --> IM["InvariantManager<br/>invariants (правила проекта)"]
     IC -->|OpenAI SDK| D
     AG -->|"prepare_context()"| S["Краткосрочный слой:<br/>sliding_window / sticky_facts /<br/>branching / summary"]
@@ -102,12 +77,12 @@ flowchart LR
 поэтому блок состояния в промпте и «продолжение с того же места» переживают
 перезапуск процесса.
 
-## Стратегии управления контекстом (наследовано из дней 10–12)
+## Стратегии управления контекстом
 
 Стратегия определяет сборку **краткосрочного** слоя: сколько последних реплик
 сессии уходит в запрос и в каком виде. Рабочая и долговременная память
 подставляются блоками системного сообщения независимо от неё, и состояние задачи
-(день 13) от стратегии тоже не зависит — его блок добавляется последним при любой
+от стратегии тоже не зависит — его блок добавляется последним при любой
 стратегии.
 
 `Strategy` — перечисление (`backend/domain/strategies.py`) со строковыми значениями;
@@ -121,16 +96,9 @@ Enum. Каждая стратегия формирует список сообщ
 | `branching` | system + вся история активной ветки + промпт | Ничего не теряет; позволяет ветвить диалог (таблица `checkpoints`) | Контекст растёт линейно; UI с деревом веток сложнее |
 | `summary` | system (+конспект) + последние `keep_last_messages` непокрытых реплик + промпт | Хороший баланс «память/токены», работает автоматически | Качество зависит от суммаризации; точные значения могут «сплющиться» |
 
-Сводка метрик по стратегиям дня 10 — в
-[`../../day10/comparison.md`](../../day10/comparison.md); отчёт по слоям памяти —
-артефакт дня 11:
-[`../../day11/memory_layers_comparison.md`](../../day11/memory_layers_comparison.md).
-Опции управления памятью в дне 13 сохранены полностью (наследовано из дня 11),
-но сценария в интерфейсе нет — диалог ведётся вручную в чате. Доказательства
-дают два прогона вне pytest: персонализацию — `scripts/personalization_comparison.py`
-(отчёт [`reports/personalization_comparison.md`](reports/personalization_comparison.md)),
-состояние задачи — `scripts/task_state_demo.py`
-(отчёт [`reports/task_state_demo.md`](reports/task_state_demo.md)).
+Сценария в интерфейсе нет — диалог ведётся вручную в чате, а доказательства
+инвариантов даёт `scripts/invariants_demo.py` (отчёт
+[`../invariants_demo.md`](../invariants_demo.md)).
 
 ## Структура проекта
 
@@ -202,11 +170,8 @@ day14/
 | Файл | Зона ответственности |
 | --- | --- |
 | `day14/app.py` | Streamlit, точка входа (50 строк): `st.set_page_config` («Инварианты · День 14», «📏»), `common.init_state()` → `sidebar.render_sidebar()` → `chat_section.render_main_area()`; переключатель четырёх разделов основной области — `st.radio` («💬 Чат и память» / «👤 Профиль пользователя» / «🧭 Состояние задачи» / «📏 Инварианты») |
-| `scripts/invariants_demo.py` | Доказательство инвариантов (вне pytest, день 14): три сценария офлайн (разрешено / предупреждение / отказ) на своей БД `invariants_demo.db`, заглушка DeepSeek, LLM-слой проверки выключен; запись отчёта [`invariants_demo.md`](../invariants_demo.md). Ключ и сеть не нужны |
+| `scripts/invariants_demo.py` | Доказательство инвариантов (вне pytest): три сценария офлайн (разрешено / предупреждение / отказ) на своей БД `invariants_demo.db`, заглушка DeepSeek, LLM-слой проверки выключен; запись отчёта [`invariants_demo.md`](../invariants_demo.md). Ключ и сеть не нужны |
 | `scripts/seed_invariants.py` | Посев демо-правил (`DEMO_INVARIANTS`) в БД дня: `--db PATH`, `--reset`; идемпотентен, без сети |
-| `scripts/personalization_comparison.py` | Доказательство персонализации (вне pytest, наследовано из дня 12): два противоположных профиля на одном вопросе, запись отчёта [`reports/personalization_comparison.md`](reports/personalization_comparison.md); нужен `DEEPSEEK_API_KEY`, режим `--no-api` — офлайн-заглушка |
-| `scripts/task_state_demo.py` | Доказательство состояния задачи (вне pytest, день 13): пять фаз полного цикла, каждая — **отдельный процесс** (`--all`, `--phase N`, `--reset`, `--no-api`), запись отчёта [`reports/task_state_demo.md`](reports/task_state_demo.md) |
-| `scripts/task_demo_report.py` | Сборка markdown-фрагментов отчёта демонстрации: таблица переходов, раздел про ход агента (реплика, ответ, блок состояния), строка-доказательство «какой процесс и откуда прочитал состояние» |
 | `backend/agents/memory.py` | `MemoryManager` (сессии/задачи/категории), `Enum MemoryCategory`, чистые `query_keywords`, `render_working_block`, `render_long_term_block` |
 | `backend/domain/profiles.py` | Чистые правила персонализации (без БД, сети и UI): `ProfileValueError`, Enum `Tone`/`Verbosity`/`Language`/`ResponseFormat`, `PREFERENCE_ENUMS`/`PREFERENCE_OPTIONS`/`DEFAULT_PREFERENCES`/`DEFAULT_CONSTRAINTS`/`PROFILE_FIELD_LABELS`/`PROFILE_HEADER`, `normalize_preferences`/`normalize_constraints`/`normalize_instructions`/`instructions_text`, `PromptElement`/`ProfilePrompt`, `build_profile_prompt`, `describe_profile`, `preference_options` |
 | `backend/agents/profile_store.py` | Доступ к таблице `user_profiles` через переданную фабрику сессий: `ProfileData` (frozen dataclass: поля БД + `instructions`, `prompt`, `summary`, `personalized`), `empty_profile`, `ProfileStore` (`load`/`get`/`list_all`/`create`/`update`/`delete`), исключения `ProfileNotFoundError`/`ProfileExistsError` |
@@ -239,22 +204,17 @@ day14/
 | `backend/core/dependencies.py` | `get_manager()` (менеджер резолвится в момент вызова — тесты подменяют `main.get_manager`), `agent_or_404()`, `task_or_404()` и `invariant_or_404()` |
 | `frontend/` | Streamlit-интерфейс по секциям (11 модулей): `sidebar`, `chat_section` (переключатель четырёх разделов `st.radio` с ключом `main_section`, карточка агента, диалог, сводка после хода, блок предупреждения/отказа по инвариантам над вводом), `context_panels`, `memory_panels`, `profile_section`, `profile_comparison`, `task_panel` (раздел «🧭 Состояние задачи»), `invariant_panel` (раздел «📏 Инварианты»), `common` (состояние сессии, `active_agent`, `TASK_STAGE_LABELS`, `INVARIANT_*_LABELS`, `invariant_notice`, `fmt_time`, `flash`), `api_client` (`BACKEND_URL` из `DAY14_BACKEND_URL`, `_request` и обёртки эндпоинтов, включая девять функций состояния задачи и шесть — инвариантов), `__init__`; `app.py` — только точка входа (50 строк), модули `frontend/` не вызывают `st.*` на импорте |
 | `backend/services/compressor.py` | `ContextCompressor`: план сжатия, суммаризация, запись в `summaries` (только `summary`) |
-| `backend/agents/agent.py` | `Agent`: `session_id`/`task_id`, слои памяти (`new_session`, `set_task`, `build_memory_context`, `memory_state`), токены, `prepare_context` + `_prepare_*`, факты, ветки, `generate`, `compare_modes`, `summary_state`; персонализация (наследовано) — `user_id`, `profile`, `profile_store`, `reload_profile`, `apply_profile`, `profile_report`, `profile_state`, `_system_text`, блок профиля в `_system_message`; состояние задачи (день 13) — `task_state_machine`, `task_state()`, `task_state_block()`, `apply_task_intent()`, блок состояния в `_system_message`, поле `record["task_state"]`; инварианты (день 14) — `invariants` (`InvariantManager`), `invariant_rows()`, `invariants_block()`, свойство `invariant_checker`, `check_invariants()`, `_refuse_by_invariants()`, блок инвариантов в `_system_message`, поле `record["invariants"]` |
-| `backend/agents/agent_manager.py` | `AgentManager` (синглтон), собранный из миксинов `backend/agents/manager_agents.py`, `manager_context.py`, `manager_invariants.py`, `manager_memory.py`, `manager_profiles.py`, `manager_tasks.py`, `manager_usage.py`: пул, `restore_from_db`, стратегии, ветки, факты, обёртки слоёв памяти, агрегаты `token_usage`; персонализация (наследовано) — `get_user_profile`, `create_user_profile`, `update_user_profile`, `delete_user_profile`, `list_user_profiles`, `get_agent_profile`, `profile_store`, применение профиля к живым агентам; состояние задачи (день 13) — `create_task`, `get_task_state`, `get_task_history`, `pause_task`, `resume_task`, `advance_task_step`, `rollback_task`, `transition_task`, `list_active_tasks`; инварианты (день 14) — `get_invariant`, `list_invariants`, `active_invariants`, `create_invariant`, `update_invariant`, `delete_invariant`, `check_text` (необязательная `client_factory` в конструкторе — фабрика клиента для проверки вне агента) |
-| `backend/api/main.py` | Сборка FastAPI-приложения (79 строк, версия `8.0.0`): заголовок и описание, CORS, `lifespan` (создание таблиц + восстановление агентов), `include_router` шести роутеров; сами 51 эндпоинт (наследованные из дня 11 память/стратегии/ветки/факты/метрики, из дня 12 профили, из дня 13 состояние задачи и корневой `GET /`, из дня 14 инварианты) и обработка 404/409/422/502 — в `backend/api/` |
-| `tests/` | Офлайн-тесты (фейковый клиент DeepSeek + временная SQLite) по всем слоям, персонализации (наследовано: `test_profiles`, `test_profile_store`, `test_profile_agent`, `test_profile_api`), состоянию задачи (день 13: `test_task_fsm`, `test_task_prompt`, `test_task_intent`, `test_task_store`, `test_task_state`, `test_task_manager`, `test_task_agent`, `test_task_api`) и инвариантам (день 14: `test_invariant_values`, `test_invariant_rules`, `test_invariant_prompt`, `test_invariant_manager`, `test_invariant_checker`, `test_invariant_agent`, `test_invariant_api`) |
+| `backend/agents/agent.py` | `Agent`: `session_id`/`task_id`, слои памяти (`new_session`, `set_task`, `build_memory_context`, `memory_state`), токены, `prepare_context` + `_prepare_*`, факты, ветки, `generate`, `compare_modes`, `summary_state`; персонализация — `user_id`, `profile`, `profile_store`, `reload_profile`, `apply_profile`, `profile_report`, `profile_state`, `_system_text`, блок профиля в `_system_message`; состояние задачи — `task_state_machine`, `task_state()`, `task_state_block()`, `apply_task_intent()`, блок состояния в `_system_message`, поле `record["task_state"]`; инварианты — `invariants` (`InvariantManager`), `invariant_rows()`, `invariants_block()`, свойство `invariant_checker`, `check_invariants()`, `_refuse_by_invariants()`, блок инвариантов в `_system_message`, поле `record["invariants"]` |
+| `backend/agents/agent_manager.py` | `AgentManager` (синглтон), собранный из миксинов `backend/agents/manager_agents.py`, `manager_context.py`, `manager_invariants.py`, `manager_memory.py`, `manager_profiles.py`, `manager_tasks.py`, `manager_usage.py`: пул, `restore_from_db`, стратегии, ветки, факты, обёртки слоёв памяти, агрегаты `token_usage`; персонализация — `get_user_profile`, `create_user_profile`, `update_user_profile`, `delete_user_profile`, `list_user_profiles`, `get_agent_profile`, `profile_store`, применение профиля к живым агентам; состояние задачи — `create_task`, `get_task_state`, `get_task_history`, `pause_task`, `resume_task`, `advance_task_step`, `rollback_task`, `transition_task`, `list_active_tasks`; инварианты — `get_invariant`, `list_invariants`, `active_invariants`, `create_invariant`, `update_invariant`, `delete_invariant`, `check_text` (необязательная `client_factory` в конструкторе — фабрика клиента для проверки вне агента) |
+| `backend/api/main.py` | Сборка FastAPI-приложения (79 строк, версия `8.0.0`): заголовок и описание, CORS, `lifespan` (создание таблиц + восстановление агентов), `include_router` шести роутеров; сами 51 эндпоинт (память, стратегии, ветки, факты и метрики, профили, состояние задачи, корневой `GET /` и инварианты) и обработка 404/409/422/502 — в `backend/api/` |
+| `tests/` | Офлайн-тесты (фейковый клиент DeepSeek + временная SQLite) по всем слоям, персонализации (`test_profiles`, `test_profile_store`, `test_profile_agent`, `test_profile_api`), состоянию задачи (`test_task_fsm`, `test_task_prompt`, `test_task_intent`, `test_task_store`, `test_task_state`, `test_task_manager`, `test_task_agent`, `test_task_api`) и инвариантам (`test_invariant_values`, `test_invariant_rules`, `test_invariant_prompt`, `test_invariant_manager`, `test_invariant_checker`, `test_invariant_agent`, `test_invariant_api`) |
 
-### Модульная структура (после рефакторинга)
+### Модульная структура
 
-До рефакторинга (коммит `9c7021c`) день был набором крупных файлов: `app.py` —
-1852 строки, `backend/main.py` — 660, `backend/agent_manager.py` — 637,
-`backend/models.py` — 845, `backend/database.py` — 425, `backend/profiles.py` —
-343. Теперь **архитектура модульная**: у каждого слоя своя папка и свой домен,
-а общий код вынесен в пакет `shared/` в корне репозитория. Рефакторинг раскладки
-дня 13 (коммит с разложением по слоям) довёл это до конца: схемы API — в
-`backend/schemas/`, ORM — в `backend/models/*.py`, чистые правила — в
-`backend/domain/`, доступ к БД — в `backend/storage/`, прикладные сервисы — в
-`backend/services/`.
+Архитектура модульная: у каждого слоя своя папка и свой домен — схемы API в
+`backend/schemas/`, ORM в `backend/models/*.py`, чистые правила в
+`backend/domain/`, доступ к БД в `backend/storage/`, прикладные сервисы в
+`backend/services/`; общий код вынесен в пакет `shared/` в корне репозитория.
 
 | Слой | Модули | Что даёт |
 |---|---|---|
@@ -282,14 +242,12 @@ day14/
 | `backend/api/main.py` | `logging_utils.get_logger` | Логгер бэкенда; вывод включается только явным `configure_logging()` |
 
 Ограничение размера: любой `.py` ≤ 400 строк (`app.py` ≤ 100,
-`backend/api/main.py` ≤ 80). В дне 13 ради этого `TaskStateMachine` и
-`TaskStateStore` разведены по слоям `services/` и `storage/`, а
-отчёт-демонстрация отделён от прогона фаз (`scripts/task_demo_report.py`);
-в дне 14 по той же границе разведены `InvariantChecker` (сервис) и
-`InvariantManager` (хранилище), а правила и тексты инвариантов ушли в домен.
-Единственное осознанное расхождение — `backend/agents/agent.py` (1727 строк): это
-унаследованный из дня 12 класс `Agent`, его рефакторинг не входил ни в день 13,
-ни в день 14 (в день 14 он вырос на 124 строки интеграции инвариантов).
+`backend/api/main.py` ≤ 80). По этой границе разведены
+`TaskStateMachine`/`TaskStateStore` и `InvariantChecker`/`InvariantManager`,
+а правила и тексты инвариантов живут в домене.
+Единственное осознанное расхождение — `backend/agents/agent.py` (1727 строк):
+декомпозиция этого класса не выполнялась, +124 строки дала интеграция
+инвариантов.
 Полная карта модулей с числом строк — в [`../STRUCTURE.md`](../STRUCTURE.md).
 
 Схема потоков одного хода:
@@ -298,13 +256,13 @@ day14/
 Streamlit app.py ──HTTP──▶ FastAPI main.py ──▶ AgentManager ──▶ Agent
                                                                 │
                                            apply_task_intent() ─┤ состояние задачи по реплике
-                                                                │ (день 13, ДО prepare_context)
-                                           check_invariants() ──┤ проверка ЗАПРОСА (день 14,
+                                                                │ (ДО prepare_context)
+                                           check_invariants() ──┤ проверка ЗАПРОСА (
                                                                 │ только правила, ДО сети)
                                      self.profile.prompt.text ──┤ персонализация: блок профиля
                                                                 │ (первый блок system message)
                                        self.config.system_prompt ┤ роль агента
-                                       self.invariants_block() ─┤ блок инвариантов (день 14)
+                                       self.invariants_block() ─┤ блок инвариантов
                                           build_memory_context()┤ рабочая + долговременная
                                                                 │ (blocks → system message)
                                                prepare_context()┤ краткосрочный слой по стратегии
@@ -317,7 +275,7 @@ Streamlit app.py ──HTTP──▶ FastAPI main.py ──▶ AgentManager ─�
                                          summary       ── ContextCompressor ──▶ DeepSeek
                                                                 │
                                                                 ▼
-                                ответ модели ──▶ check_invariants(answer) (день 14)
+                                ответ модели ──▶ check_invariants(answer)
                                                                 │ hard → отказ вместо ответа
                                                                 │ soft → предупреждение перед текстом
                                                                 ▼
@@ -375,14 +333,14 @@ Streamlit app.py ──HTTP──▶ FastAPI main.py ──▶ AgentManager ─�
   длиной ≥ 3 без стоп-слов) или чья категория упомянута в запросе, затем добор
   самыми уверенными. Записи категории `profile` этой таблицы попадают в контекст
   даже без совпадений, а отбор детерминирован (одинаковый вход → одинаковый
-  результат). Это **не** то же самое, что профиль пользователя (наследовано из
-  дня 12): категория `profile` — запись долговременной памяти агента, профиль —
+  результат). Это **не** то же самое, что профиль пользователя: категория
+  `profile` — запись долговременной памяти агента, профиль —
   отдельная таблица `user_profiles` по `user_id` (см. ниже).
 
 
-## Профиль пользователя (персонализация; наследовано из дня 12)
+## Профиль пользователя (персонализация)
 
-Персонализация — наследованная из дня 12 часть `day14/`. Профиль — это
+Профиль — это
 **инструкции о том, как отвечать** (обращение, стиль, формат, длина, язык,
 жёсткие ограничения, произвольные инструкции); они подключаются к системному
 промпту **каждого** запроса агента. Профиль не хранит диалог, не отбирается по
@@ -602,28 +560,10 @@ system-сообщений подряд, и `_system_text(payload)` однозн�
 профиля, 409 — профиль уже есть, 422 — невалидные поля (в том числе
 `ProfileValueError`), 502 — сбой генерации.
 
-### Отчёт `reports/personalization_comparison.md`
+## Состояние задачи
 
-Доказательство персонализации — прогон `uv run python scripts/personalization_comparison.py`
-(нужен `DEEPSEEK_API_KEY` в `day14/.env`) либо офлайн-прогон
-`uv run python scripts/personalization_comparison.py --no-api`. Скрипт работает на отдельной
-БД `day14/personalization_demo.db` (пересоздаётся при каждом прогоне),
-использует профили из `demo_profiles.py` и пишет
-[`reports/personalization_comparison.md`](reports/personalization_comparison.md): таблицу
-«Профиль | Настройки | Ответ агента | Какие элементы профиля повлияли», полные
-ответы вместе с системными промптами запросов, раздел про профиль с инструкцией
-о порядке ролей и таблицу наблюдений (ограничение длины, отсутствие markdown у
-`plain text`, наличие markdown у `markdown`, длина подробного ответа против
-краткого, порядок ролей аналитик → разработчик → тестировщик). Прогон делает
-реальные запросы к `deepseek-chat`; проверки стиля и формата — наблюдения
-(модель соблюдает ограничение приблизительно), обязательные проверки —
-подстановка профиля в промпт и следование инструкции о порядке ролей.
-
-
-## Состояние задачи (день 13)
-
-Состояние задачи — то, что день 13 добавляет к копии дня 12. У задачи есть
-**этап** (`planning` → `execution` → `validation` → `done`), **шаг** внутри этапа,
+Состояние задачи — конечный автомат: у задачи есть **этап**
+(`planning` → `execution` → `validation` → `done`), **шаг** внутри этапа,
 **ожидаемое действие** и **журнал переходов**. Состояние лежит в SQLite (таблицы
 `task_states` и `task_transitions`), поэтому оно переживает перезапуск процесса:
 после рестарта агент читает строку по `task_id` и продолжает с того же места, без
@@ -645,7 +585,7 @@ ORM — `backend/models/task_state.py`, отдельный модуль от `mo
 | `stage` | String(32), index, NOT NULL | Текущий этап — значение `TaskStage` |
 | `current_step` | String(32), NOT NULL | Текущий шаг — значение `TaskStep` |
 | `expected_action` | String(500), NOT NULL | Ожидаемое действие (текст из `backend/domain/task_prompt.py`), уходит в промпт |
-| `context` | JSON, NOT NULL | Снимок данных задачи: `task_id`, `working_memory` (рабочая память дня 11 по паре `(agent_id, task_id)`) и метка паузы `paused_from_stage`/`paused_from_step` |
+| `context` | JSON, NOT NULL | Снимок данных задачи: `task_id`, `working_memory` (рабочая память по паре `(agent_id, task_id)`) и метка паузы `paused_from_stage`/`paused_from_step` |
 | `history` | JSON, NOT NULL | Журнал переходов внутри самой строки (те же записи, что уходят в `task_transitions`) |
 | `created_at` / `updated_at` | DateTime (UTC) | Создание состояния / время последнего перехода |
 
@@ -723,8 +663,8 @@ HTTP 400.
 «следующий шаг», «пауза», «продолжение после паузы», «откат на предыдущий этап»,
 «задача завершена», «переход по запросу», а откат по реплике пользователя —
 «откат по реплике пользователя». Журнал отдаётся целиком:
-`GET /tasks/{task_id}/history` (`TaskHistoryOut.entries`); по нему же построена
-таблица переходов в отчёте [`reports/task_state_demo.md`](reports/task_state_demo.md).
+`GET /tasks/{task_id}/history` (`TaskHistoryOut.entries`); по нему же
+построена таблица переходов в интерфейсе.
 
 ### Блок состояния в системном промпте
 
@@ -742,13 +682,13 @@ HTTP 400.
 собирает `Agent._system_message`, — независимо от стратегии агента:
 
 ```
-1. блок профиля пользователя (персонализация, наследовано из дня 12)  (если профиль не пуст)
+1. блок профиля пользователя (персонализация)  (если профиль не пуст)
 2. config.system_prompt                                              (если задан)
 3. «Рабочая память (данные текущей задачи…)»                         — все записи активной задачи
 4. «Долговременная память (профиль, …)»                              — релевантные записи (до LONG_TERM_LIMIT)
 5. «Конспект предыдущей части диалога …»                             (только summary)
 6. «Известные факты диалога …»                                       (только sticky_facts)
-7. блок состояния задачи (день 13)                                   (если задача заведена)
+7. блок состояния задачи                                   (если задача заведена)
 ```
 
 Состояние идёт последним, потому что это **конкретная** точка, с которой надо
@@ -810,7 +750,7 @@ HTTP 400.
 Управление состоянием — девять эндпоинтов `/agents/{agent_id}/tasks` и
 `/tasks/{task_id}/...` (полные тела и коды — в [`api.md`](api.md)).
 
-## Инварианты (день 14)
+## Инварианты
 
 Инвариант — правило проекта, которое агент не имеет права нарушать. Три
 проектных решения определяют весь механизм.
@@ -910,7 +850,7 @@ flowchart TD
 ```
 generate(prompt):
   1. реплика пользователя → self.short_term_messages
-  2. apply_task_intent(prompt)                  # состояние задачи (день 13)
+  2. apply_task_intent(prompt)                  # состояние задачи
   3. check_invariants(prompt, use_llm=False)    # ЗАПРОС: только правила, без сети
        ├─ verdict = refusal → _refuse_by_invariants(): отказ-объяснение в диалог,
        │                      DeepSeek НЕ вызывается, токенов не потрачено
@@ -950,11 +890,12 @@ generate(prompt):
 
 ## Схема БД (`day14/agents.db`)
 
-Двенадцать таблиц: девять из дня 12 (восемь из дня 11 — от агента семь связей
-один-ко-многим с каскадным удалением, плюс `user_profiles`, связанная с агентом
-**не** FK, а значением `agents.user_id`), две таблицы состояния задачи —
-`task_states` и `task_transitions` — и таблица инвариантов `invariants`
-(день 14), не связанная ни с чем по FK. ORM разложен по доменам в
+Двенадцать таблиц: семь таблиц агента с каскадным удалением
+(`short_term_messages`, `working_memory`, `long_term_memory`, `summaries`,
+`token_usage`, `facts`, `checkpoints`), `user_profiles` (связана с агентом
+**не** FK, а значением `agents.user_id`), две таблицы состояния задачи
+(`task_states`, `task_transitions`) и таблица инвариантов `invariants` — она
+не связана ни с чем по FK. ORM разложен по доменам в
 `backend/models/` (`agent`, `message`, `memory`, `context`, `user_profile`,
 `task_state`, `invariant`); реэкспорт — через `backend/storage/database.py`.
 
@@ -966,15 +907,15 @@ agents (1) ──< short_term_messages (N)  краткосрочная памя�
     │        ──< token_usage          (N)  метрики хода + токены по слоям
     │        ──< facts                (N)  факты «ключ → значение» (sticky_facts)
     │        ──< checkpoints          (N)  снимки истории/ветки (branching)
-    └────────< task_states            (N)  состояние задачи (день 13)
+    └────────< task_states            (N)  состояние задачи
              (agent_id FK → agents.agent_id, ondelete CASCADE, index)
 
-task_states (1) ──< task_transitions (N)  журнал переходов задачи (день 13)
+task_states (1) ──< task_transitions (N)  журнал переходов задачи
              (task_id FK → task_states.task_id, ondelete CASCADE, index)
 
 agents.user_id ─ ─▶ user_profiles.user_id   персонализация (логическая связь, НЕ FK)
 
-invariants                                  правила проекта (день 14)
+invariants                                  правила проекта
              (без FK: таблица глобальная, правила описывают проект, а не агента)
 ```
 
@@ -1025,13 +966,13 @@ watermark), `covered_messages`, `source_tokens`, `summary_tokens`,
 **текущий конспект = последняя строка** (`ORDER BY id DESC`).
 
 **`token_usage`** — одна запись на успешный ход.
-Базовые поля дня 8: `id` (PK), `agent_id` (FK, CASCADE, index), `timestamp`,
+Базовые поля: `id` (PK), `agent_id` (FK, CASCADE, index), `timestamp`,
 `prompt_tokens`, `completion_tokens`, `total_tokens`, `history_tokens`,
 `response_tokens` (Integer), `cost` (Float).
-Поля дня 9: `mode` (String(16): `"full"`/`"compressed"` для summary, иначе имя
+Поля сжатия: `mode` (String(16): `"full"`/`"compressed"` для summary, иначе имя
 стратегии), `full_context_tokens`, `sent_context_tokens`, `saved_tokens`,
 `summary_tokens`, `summarized_messages` (Integer), `summary_used` (Boolean).
-Поля дня 11 (наследованы) — расход по слоям: `short_term_tokens`,
+Поля расхода по слоям: `short_term_tokens`,
 `working_tokens`, `long_term_tokens` (Integer, оценки tiktoken блоков, ушедших в
 запрос); токены блока профиля в них не входят.
 
@@ -1050,16 +991,16 @@ nullable — от какого чекпоинта создана ветка, `NU
 и обновляется после каждого успешного хода (`_snapshot_branch_tip`); переключение
 (`switch_branch`) перезаписывает краткосрочный слой агента снимком ветки.
 
-**`user_profiles`** — профиль пользователя (персонализация, наследовано из дня 12).
+**`user_profiles`** — профиль пользователя (персонализация).
 `id` (Integer PK, autoincrement), `user_id` (String(64), unique, index, NOT
 NULL), `name` (String(100), NOT NULL), `preferences` (JSON, NOT NULL),
 `constraints` (JSON, NOT NULL), `custom_instructions` (Text, NOT NULL),
 `created_at` / `updated_at` (DateTime с таймзоной, UTC). Строка — **один профиль
 на пользователя**, а не на агента: на неё ссылаются все агенты с этим
 `user_id`. Полное описание полей — в разделе
-[«Профиль пользователя (персонализация; наследовано из дня 12)»](#профиль-пользователя-персонализация-наследовано-из-дня-12).
+[«Профиль пользователя (персонализация)»](#профиль-пользователя-персонализация).
 
-**`task_states`** — состояние задачи (день 13).
+**`task_states`** — состояние задачи.
 `id` (Integer PK, autoincrement), `task_id` (String(64), unique, index, NOT NULL),
 `agent_id` (FK→`agents.agent_id`, CASCADE, index, NOT NULL),
 `stage` (String(32), index), `current_step` (String(32)),
@@ -1068,9 +1009,9 @@ NULL), `name` (String(100), NOT NULL), `preferences` (JSON, NOT NULL),
 переходов внутри строки), `created_at` / `updated_at` (DateTime, UTC). Строка —
 **одна задача**; `task_id` уникален глобально. ORM — `backend/models/task_state.py`,
 модель `TaskState`; полное описание — в разделе
-[«Состояние задачи (день 13)»](#состояние-задачи-день-13).
+[«Состояние задачи»](#состояние-задачи).
 
-**`task_transitions`** — журнал переходов задачи (день 13).
+**`task_transitions`** — журнал переходов задачи.
 `id` (Integer PK, autoincrement), `task_id` (String(64), FK→`task_states.task_id`,
 CASCADE, index, NOT NULL), `from_stage` / `from_step` (String, nullable — пусты
 только у строки создания), `to_stage` / `to_step` (String, NOT NULL),
@@ -1079,7 +1020,7 @@ CASCADE, index, NOT NULL), `from_stage` / `from_step` (String, nullable — пу
 «откат на предыдущий этап», «задача завершена», «переход по запросу», «откат по
 реплике пользователя». ORM — `TaskTransition` в `backend/models/task_state.py`.
 
-**`invariants`** — правила проекта (день 14).
+**`invariants`** — правила проекта.
 `id` (Integer PK, autoincrement), `name` (String(100), unique, index, NOT NULL),
 `description` (Text, NOT NULL), `category` (String(32), index, NOT NULL),
 `severity` (String(16), NOT NULL), `is_active` (Boolean, default `True`),
@@ -1089,7 +1030,7 @@ CASCADE, index, NOT NULL), `from_stage` / `from_step` (String, nullable — пу
 диалогу, ни к задачам — они описывают проект целиком. Строки таблицы не
 затрагиваются ни `DELETE /agents/{id}`, ни `POST /agents/{id}/memory/session`, ни
 `DELETE /agents/{id}/history`. ORM — `Invariant` в `backend/models/invariant.py`;
-полное описание — в разделе [«Инварианты (день 14)»](#инварианты-день-14).
+полное описание — в разделе [«Инварианты»](#инварианты).
 
 Каскады включены и на уровне ORM (`cascade="all, delete-orphan"`), и на уровне
 БД (`PRAGMA foreign_keys=ON` в `make_engine`). `DELETE /agents/{id}` удаляет
@@ -1113,22 +1054,21 @@ CASCADE, index, NOT NULL), `from_stage` / `from_step` (String, nullable — пу
 блоков системного сообщения фиксирован (`_system_message`):
 
 ```
-1. блок профиля пользователя (персонализация, наследовано из дня 12)   (если профиль не пуст)
+1. блок профиля пользователя (персонализация)   (если профиль не пуст)
 2. config.system_prompt                                  (если задан)
 3. «Рабочая память (данные текущей задачи…)»             — все записи активной задачи
 4. «Долговременная память (профиль, …)»                  — релевантные записи (до LONG_TERM_LIMIT)
 5. «Конспект предыдущей части диалога …»                 (если конспект есть)
 6. «Известные факты диалога …»                           (только sticky_facts)
-7. «Состояние задачи (текущий этап и шаг…)»              (день 13, если задача заведена)
+7. «Состояние задачи (текущий этап и шаг…)»              (если задача заведена)
 ```
 
 Все блоки вкладываются в **одно** system-сообщение; если ни один блок не
 заполнен, системного сообщения в payload нет вовсе. Далее идёт краткосрочный
 слой по стратегии и новое сообщение пользователя. Блок профиля (пункт 1)
-описан в разделе [«Профиль пользователя (персонализация; наследовано из дня
-12)»](#профиль-пользователя-персонализация-наследовано-из-дня-12), блок
+описан в разделе [«Профиль пользователя (персонализация)»](#профиль-пользователя-персонализация), блок
 состояния задачи (пункт 7) — в разделе
-[«Состояние задачи (день 13)»](#состояние-задачи-день-13). Блок состояния
+[«Состояние задачи»](#состояние-задачи). Блок состояния
 добавляется **последним** на любом этапе — независимо от стратегии и от того,
 что попало в блоки 1–6.
 
@@ -1174,7 +1114,7 @@ full_context_tokens, mode, summary_used, kept_messages, new_facts, …}`:
 | `sliding_window` | `_prepare_sliding_window` | `_system_message(memory=…)` + последние `window_size` реплик + промпт |
 | `sticky_facts` | `_prepare_sticky_facts` | `_system_message(facts=merged, memory=…)` + последние `window_size` + промпт |
 | `branching` | `_prepare_branching` | `_system_message(memory=…)` + вся история активной ветки + промпт |
-| `summary` | `_prepare_summary` | `build_payloads(prompt, memory=…)` (день 9: конспект + последние непокрытые) |
+| `summary` | `_prepare_summary` | `build_payloads(prompt, memory=…)` (конспект + последние непокрытые) |
 
 Пост-ходовые действия в `generate` по стратегии: `summary` → `compress_now()`;
 `sticky_facts` → `_upsert_facts(new_facts + extract_facts(answer))`;
@@ -1182,7 +1122,7 @@ full_context_tokens, mode, summary_used, kept_messages, new_facts, …}`:
 применяется к любому собранному payload одинаково (реплики из БД не удаляются).
 Во **всех** четырёх ветках системное сообщение собирает один и тот же
 `_system_message(...)`, поэтому блок профиля пользователя (первым) и блок
-состояния задачи (последним, день 13) есть при любой стратегии — от стратегии
+состояния задачи (последним) есть при любой стратегии — от стратегии
 зависит только краткосрочный слой.
 `_prepare_summary` идёт через `build_payloads(prompt, memory=…)`, который тоже
 кладёт в system-сообщение `_system_message(...)` с профилем.
@@ -1233,7 +1173,7 @@ keep_count = 6           → 6 последних уходят в запрос �
 вторым: так поведение не зависит от того, как провайдер обрабатывает несколько
 system-сообщений подряд. Если нет ни конспекта, ни `system_prompt`, отдельного
 system-сообщения в payload нет вовсе. Без конспекта и с выключенным сжатием
-payload равен «системный промпт + вся история + промпт» — поведение дня 8.
+payload равен «системный промпт + вся история + промпт» — поведение без сжатия.
 
 ## Стейт-машина сжатия
 
@@ -1280,7 +1220,7 @@ payload равен «системный промпт + вся история + �
 
 1. **Реплика пользователя** добавляется в `self.short_term_messages` (зеркало
    краткосрочного слоя в памяти; в БД — не раньше успеха).
-2. **Авто-обновление состояния задачи** (день 13):
+2. **Авто-обновление состояния задачи**:
    `self.apply_task_intent(prompt)` — первое действие после записи реплики и
    **до** `prepare_context`. Намерение распознаёт `backend/domain/task_intent.py`
    («пауза», «продолжи», «вернись на предыдущий этап», «подтверждаю» и т. п.), а
@@ -1316,7 +1256,7 @@ payload равен «системный промпт + вся история + �
    Ошибка сжатия **не отменяет** ответ — она видна в `context.compression.error`.
    Состояние задачи от стратегии не зависит и после ответа не меняется.
 
-Инварианты (день 14) встраиваются в этот же поток в двух точках:
+Инварианты встраиваются в этот же поток в двух точках:
 
 - **Шаг 3.5** — сразу после отчёта по слоям памяти и ДО контроля лимита:
   `check_invariants(prompt, use_llm=False)`. Проверяется только ЗАПРОС и только
@@ -1333,7 +1273,7 @@ payload равен «системный промпт + вся история + �
   в `short_term_messages` и в `_save_turn` попадает именно показанный текст.
 
 При пустой таблице `invariants` обе проверки выходят сразу: `checked = []`,
-лишних вызовов клиента нет, промпт не отличается от дня 13.
+лишних вызовов клиента нет, промпт не отличается от обычного.
 
 ## Экономика токенов
 
@@ -1386,10 +1326,10 @@ Streamlit-приложение (`app.py`) ходит в бэкенд по
 | Раздел «👤 Профиль пользователя» | Селектор профиля, форма создания нового профиля (`user_id` + «➕ Создать профиль»), три кнопки готовых профилей из `demo_profiles.py`, форма редактирования (имя, tone, verbosity, language, format, предел длины, запрещённые темы, дисклеймеры, произвольные инструкции) с кнопкой «💾 Сохранить профиль», предпросмотр блока промпта и «🗑 Удалить профиль» |
 | Блок «🔀 Профиль активного агента» | Быстрое переключение профиля живого агента (`PATCH /agents/{id}` с `user_id`), таблица элементов применённого профиля и expander «Итоговый системный промпт (без блоков памяти задачи)» |
 | Панель «📊 Сравнение двух профилей на одном вопросе» | Два временных агента с разными профилями → два ответа рядом, «что повлияло на ответ» (элементы профиля) и системный промпт; агенты удаляются после прогона |
-| Раздел «🧭 Состояние задачи» (день 13) | Состояние **активной** задачи агента (`frontend/task_panel.py`): текущий этап с подписью из `common.TASK_STAGE_LABELS`, шаг, ожидаемое действие, при паузе — строка «⏸ Пауза с этапа …: “Продолжить” вернёт в него на шаг …», ASCII-схема FSM и пять кнопок — «⏸ Пауза», «▶️ Продолжить», «⏭ Следующий шаг», «↩️ Откат на предыдущий этап» (неактивна, когда откатываться некуда), «✅ Завершить задачу»; две вкладки — «📜 Журнал переходов» (таблица «# / из / в / причина / время») и «🧩 Блок в системном промпте» (готовый `prompt_block`); если состояния у активной задачи нет — форма заведения (`task_id` + начальный этап `planning`/`execution`/`validation`) |
+| Раздел «🧭 Состояние задачи» | Состояние **активной** задачи агента (`frontend/task_panel.py`): текущий этап с подписью из `common.TASK_STAGE_LABELS`, шаг, ожидаемое действие, при паузе — строка «⏸ Пауза с этапа …: “Продолжить” вернёт в него на шаг …», ASCII-схема FSM и пять кнопок — «⏸ Пауза», «▶️ Продолжить», «⏭ Следующий шаг», «↩️ Откат на предыдущий этап» (неактивна, когда откатываться некуда), «✅ Завершить задачу»; две вкладки — «📜 Журнал переходов» (таблица «# / из / в / причина / время») и «🧩 Блок в системном промпте» (готовый `prompt_block`); если состояния у активной задачи нет — форма заведения (`task_id` + начальный этап `planning`/`execution`/`validation`) |
 | Панель «🗜 Сжатие контекста» | (summary) состояние процесса, конспект, экономика, кнопки «Сжать сейчас» и переключатель сжатия |
 | Панель «📊 Токены диалога» | 4 метрики, прогресс контекста, график роста и экономии, таблица `token_usage` |
-| «⚖️ Сравнить режимы» (expander) | Сравнение «без сжатия / со сжатием» (из дня 9) |
+| «⚖️ Сравнить режимы» (expander) | Сравнение «без сжатия / со сжатием» |
 | Диалог | Чат + маркер сжатия на границе конспекта (для summary) |
 | Сводка после хода | Одна плашка: время, токены, стоимость, `finish_reason`, слои памяти (короткая/рабочая/долговременная в токенах), применённый профиль («👤 профиль strict_tech: 6 элементов» или «👤 профиль: без персонализации»), предупреждения |
 
@@ -1401,14 +1341,14 @@ Streamlit-приложение (`app.py`) ходит в бэкенд по
 
 Все тесты офлайн: фейковый клиент DeepSeek (`tests/support.py`), временная
 SQLite-БД (фикстуры `session_factory` и `make_agent`). Всего **725** тестов
-(584 наследованных из дня 13 + 141 новый по инвариантам), зелёные.
+(584 теста по остальным подсистемам + 141 новый по инвариантам), зелёные.
 Файлы разложены по подпапкам по фикстурам: без БД и агента — `tests/unit/`,
 с временной БД и `Agent` — `tests/integration/`, через `TestClient` —
 `tests/e2e/`; общие фикстуры и фейки (`conftest.py`, `support.py`) остаются в
 корне `tests/`, поэтому `pythonpath = . tests` из `pytest.ini` не меняется.
 Фейк различает роли вызовов по системному промпту: генерация, конспектёр и
 контролёр инвариантов (`FakeClient.invariant_calls` отдельно от
-`generate_calls`), поэтому счётчики ходов в унаследованных тестах не сломались.
+`generate_calls`), поэтому счётчики ходов в прежних тестах не сломались.
 Запуск из папки `day14`:
 
 ```
@@ -1425,7 +1365,7 @@ uv run pytest -q
 | `tests/integration/test_invariant_agent.py` | Блок в системном промпте и его исчезновение при выключении правила; сценарий «разрешено» (один вызов генерации); soft → предупреждение и ответ модели сохранён в диалог; hard в запросе → отказ без вызовов DeepSeek; hard в ответе → ответ заменён; сбой LLM-слоя не роняет ход |
 | `tests/e2e/test_invariant_api.py` | Шесть эндпоинтов: 201/404/409/422, фильтры `category`/`active_only`, правка только переданных полей, удаление и повторный 404, проверка текста с `use_llm=false` и с LLM (фейк), поле `invariants` в ответе генерации, корневой ответ и пути OpenAPI |
 
-Наследованные наборы (дни 9–13):
+Наборы по остальным подсистемам:
 
 | Файл | Что проверяет |
 | --- | --- |
@@ -1436,7 +1376,7 @@ uv run pytest -q
 | `tests/unit/test_context_policy.py` | Границы порога, инварианты плана, `ValueError` на некорректных входах |
 | `tests/unit/test_fact_extractor.py` | Эвристика `extract_facts`: форматы, нормализация ключей, кавычки, `merge_facts` |
 | `tests/integration/test_strategies.py` | `prepare_context` для всех четырёх стратегий, факты (извлечение/обновление/персистентность), ветки (снимок/форк/переключение), методы `AgentManager` |
-| `tests/e2e/test_strategy_api.py` | Эндпоинты дня 10 (наследованы): `/strategy`, `/strategies`, `/branches`, `/branches/{id}/switch`, `/facts`, 404/422 |
+| `tests/e2e/test_strategy_api.py` | Эндпоинты стратегий и веток: `/strategy`, `/strategies`, `/branches`, `/branches/{id}/switch`, `/facts`, 404/422 |
 | `tests/integration/test_storage.py` | Таблица `summaries`, watermark, каскадное удаление, метрики |
 | `tests/integration/test_compressor.py` | План сжатия, вызов суммаризации, деградация при сбое |
 | `tests/integration/test_agent_compression.py` | Сборка payload, экономия, FSM, аварийный предохранитель |
@@ -1444,7 +1384,7 @@ uv run pytest -q
 | `tests/integration/test_profile_store.py` | Таблица `user_profiles`: уникальность `user_id`, `created_at`/`updated_at`, замена при `update`, случай «профиля нет» |
 | `tests/integration/test_profile_agent.py` | Профиль в system-сообщении агента, отчёт генерации (`record["profile"]`, `record["system_prompt"]`), смена профиля живого агента на лету, удаление профиля (агент остаётся работоспособным), методы `AgentManager` |
 | `tests/e2e/test_profile_api.py` | Эндпоинты `/users`, `/users/{user_id}/profile`, `/agents/{agent_id}/profile`: тела и коды 404/409/422, поля `profile` и `system_prompt` в ответе генерации, `applied_to_agents` при `PUT`, переключение профиля через `PATCH` |
-| `tests/unit/test_task_fsm.py` | Чистый автомат состояния задачи (восемь файлов `test_task_*` — 270 тестов дня 13): все пары «этап × событие» из `STAGE_TRANSITIONS`, негативные случаи (`resume` вне `paused` → `UnknownTaskEvent`, `advance` из `done` и `rollback` из `planning` → `InvalidTaskTransition`), `first_step`/`next_step`/`rollback_target`/`stage_from_value`/`step_from_value` |
+| `tests/unit/test_task_fsm.py` | Чистый автомат состояния задачи (восемь файлов `test_task_*` — 270 тестов): все пары «этап × событие» из `STAGE_TRANSITIONS`, негативные случаи (`resume` вне `paused` → `UnknownTaskEvent`, `advance` из `done` и `rollback` из `planning` → `InvalidTaskTransition`), `first_step`/`next_step`/`rollback_target`/`stage_from_value`/`step_from_value` |
 | `tests/unit/test_task_prompt.py` | Тексты блока состояния: ожидаемое действие по всем парам «этап, шаг», дословная строка для `execution/implement`, перечень завершённых этапов, `done`/`paused`, заголовок `render_task_state_block` |
 | `tests/unit/test_task_intent.py` | Распознавание намерения: все фразы `INTENT_PHRASES`, приоритет `resume` над `advance`, границы слов («продолжительность сессии» → `None`) |
 | `tests/integration/test_task_store.py` | Хранение состояния: снимок рабочей памяти в `context`, журнал в `task_transitions`, проекция строки в словарь, состояние переживает новый объект машины |
@@ -1452,43 +1392,20 @@ uv run pytest -q
 | `tests/integration/test_task_manager.py` | `TaskOpsMixin`: умолчания шага и ожидаемого действия, `list_active_tasks` без завершённых задач, причины переходов в журнале |
 | `tests/integration/test_task_agent.py` | Блок состояния в системном промпте и авто-обновление по реплике (пауза / продолжение / следующий шаг / откат), недопустимое намерение не роняет диалог, состояние переживает пересборку агента |
 | `tests/e2e/test_task_api.py` | Девять эндпоинтов состояния задачи: коды 201/400/404/409/422, полный цикл через API, журнал переходов, поле `task_state` в ответе генерации |
-| `tests/e2e/test_api.py` | Контракты эндпоинтов дня 9 через `TestClient` |
+| `tests/e2e/test_api.py` | Контракты эндпоинтов агентов и контекста через `TestClient` |
 
-Вне pytest доказательства дают два прогона. Персонализация (наследовано):
-`scripts/personalization_comparison.py` — два противоположных профиля на одном вопросе и
-отчёт [`reports/personalization_comparison.md`](reports/personalization_comparison.md).
-Состояние задачи (день 13): `scripts/task_state_demo.py` — пять фаз полного цикла,
-каждая в **отдельном процессе** (`uv run python scripts/task_state_demo.py --all`,
-`--phase N`, `--reset`, `--no-api`), и отчёт
-[`reports/task_state_demo.md`](reports/task_state_demo.md) с таблицами переходов, ответами
-агента, блоком состояния из системного промпта и строкой-доказательством «новый
-процесс (pid …), состояние прочитано из `…db`». Проверки
-самих слоёв памяти остались артефактом дня 11:
-[`../../day11/memory_layers_comparison.md`](../../day11/memory_layers_comparison.md)
-(в `day14/` файлов `memory_layers_demo.py` и `memory_layers_comparison.md` нет).
-
-## Сценарий демонстрации (видео)
-
-Демонстрация дня 13 — состояние задачи как конечный автомат (наследованные слои
-памяти и профиль показываются как работающая основа). Покадровый сценарий живёт
-в одной точке — инструкции [`usage.md`](usage.md) (§12). Кадры: заведение задачи в
-разделе «🧭 Состояние задачи» (`planning/gather_requirements` и дословный блок во
-вкладке «🧩 Блок в системном промпте»); три нажатия «⏭ Следующий шаг» до
-`execution/implement`; «⏸ Пауза» (`paused/implement` со строкой «⏸ Пауза с этапа
-execution»); **остановка и повторный запуск бэкенда** на той же `day14/agents.db`
-— `GET /tasks/{task_id}/state` возвращает тот же этап и шаг; реплика «продолжи»
-(или «▶️ Продолжить») возвращает задачу на `execution/implement` уже с новым
-блоком состояния в промпте того же запроса; откат с `validation/run_tests` на
-`execution/implement` и `400` при `{"to_stage": "validation"}`; «✅ Завершить
-задачу» → `done/finalize`, после чего «⏭ Следующий шаг» даёт `400`, а задача уходит
-из `GET /agents/{id}/tasks`. Готовые числа, журнал переходов и ответы для
-сверки — в [`reports/task_state_demo.md`](reports/task_state_demo.md)
-(`uv run python scripts/task_state_demo.py --all`). Отчёт по персонализации (наследовано из дня
-12) — [`reports/personalization_comparison.md`](reports/personalization_comparison.md)
-(`uv run python scripts/personalization_comparison.py`).
+Вне pytest доказательство инвариантов даёт `scripts/invariants_demo.py`: три
+сценария офлайн (разрешено / предупреждение / отказ) на своей БД
+`invariants_demo.db`, с заглушкой DeepSeek и выключенным LLM-слоем проверки;
+отчёт — [`../invariants_demo.md`](../invariants_demo.md)
+(`uv run python scripts/invariants_demo.py`).
 
 ## Ограничения
 
+- **Проверка ответа может стоить один вызов DeepSeek** — и только на том ходу,
+  где детерминированные правила нарушений не нашли; отказ по `hard`-инварианту в
+  запросе вызовов не делает. Отключить LLM-слой — `INVARIANT_LLM_CHECK = False` в
+  `backend/core/config.py`.
 - **Один процесс бэкенда и один файл `day14/agents.db`.** Несколько процессов
   на одну базу не рассчитаны (менеджер — синглтон в памяти).
 - **`PUT /users/{user_id}/profile` — замена, а не частичное обновление.** Поля,
@@ -1534,7 +1451,7 @@ execution»); **остановка и повторный запуск бэкен
 - **Долговременная память заполняется вручную.** LLM-извлечения записей из
   диалога нет; автоматического переноса `facts` в `long_term_memory` тоже нет
   (при необходимости факты пишут в категорию `knowledge`). Профиль пользователя
-  (наследовано из дня 12) заполняется вручную — через форму в UI или API.
+  заполняется вручную — через форму в UI или API.
 - **Отбор долговременных записей — эвристика.** Подстроки ключевых слов и
   уверенность, без эмбеддингов и семантического поиска.
 - **Активная ветка не переживает рестарт.** `Agent.active_branch_id` хранится в
