@@ -5,6 +5,212 @@
 структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
 `chore` (прочее: инфраструктура, скиллы, служебные изменения).
 
+## 2026-09-18 — feat — day15: автоматический проход кадров в настоящем браузере (Playwright, человеческий темп)
+
+Кадры 0–9 сценария теперь может пройти не человек и не AppTest, а настоящий
+Chromium: `uv run python scripts/video_scenario.py --auto` поднимает тот же
+изолированный бэкенд прогона и живой `streamlit run app.py`, открывает окно и
+сам кликает кадры в темпе демонстрации — пауза между действиями (`--pace`, по
+умолчанию 2 с), набор текста по символам (`--typing`, 120 мс), наведение и
+прокрутка перед каждым кликом, поэтому **весь прогон занимает 3–4 минуты**
+(замерено: 3 мин 37 с в видимом окне, 3 мин 34 с без окна) и записывается целиком;
+`--pace 6` замедляет показ, `--pace 0.15 --typing 1` ускоряет до минуты,
+`--headless` убирает окно. В терминале рядом идут
+строки «▸ …» о текущем действии и проверки (`✓`/`✗` с доказательством), поэтому
+запись показывает и работу интерфейса, и то, что кадры сошлись с описанием: прогон
+выходит с кодом 0 и «Все кадры пройдены: 11, проверок: 70». Кадры сверяются тем,
+что видно в DOM (карточка задачи, подписи и блокировка кнопок, три причины отказа,
+уведомление о неприменённой реплике, отказ на предложение модели), а содержимое
+журнала — по HTTP: он рисуется `st.dataframe` (canvas) и из DOM не читается.
+Кадр 5 (пауза) проходит и доказывается как раньше: перезапуск бэкенда на той же БД
+и два разных pid. Нужен один раз `uv run playwright install chromium`
+(`playwright` — dev-зависимость дня).
+
+Попутно исправлено два настоящих дефекта. Первый: общие части прогона вынесены из
+точки входа в `scripts/video_scenario_checks.py` (печать проверок, `ScenarioFailed`)
+и `scripts/video_scenario_client.py` (HTTP-клиент, путь БД) — точка входа
+запускается как `__main__`, и её импорт по имени создавал вторую копию модуля,
+поэтому брошенное из браузерного прохода исключение не ловилось и падение
+печаталось трассировкой вместо строки «✗ прогон остановлен». Второй: явный
+`browser.close()` в `finally` падал после выхода контекста Playwright и прерывал
+остановку бэкенда и Streamlit — те оставались жить и держали `video_scenario.db`;
+теперь браузер закрывает сам контекст, а занятая БД объясняется строкой, а не
+`PermissionError`. Заодно отказ теперь печатается и для невыполненного действия
+кадра, а повтор браузерных действий делается только для идемпотентных шагов
+(наведение, установка флага): повтор клика по кнопке шага сдвинул бы задачу дважды.
+
+**Затронуто:** `day15/scripts/video_scenario_browser.py` (НОВЫЙ),
+`day15/scripts/video_scenario_browser_frames.py` (НОВЫЙ),
+`day15/scripts/video_scenario_checks.py` (НОВЫЙ),
+`day15/scripts/video_scenario_client.py` (НОВЫЙ),
+`day15/scripts/video_scenario.py`, `day15/scripts/video_scenario_frames.py`,
+`day15/scripts/video_scenario_stand.py`, `day15/pyproject.toml`, `day15/uv.lock`,
+`day15/STRUCTURE.md`, `day15/README.md`, `day15/docs/usage.md`, `CHANGELOG.md`.
+
+## 2026-09-18 — fix — day15: занятая БД прогона объясняется строкой, а не трассировкой
+
+Второй прогон (или стенд) при работающем первом падал на Windows сырым
+`PermissionError: [WinError 32]` прямо в `reset()`: SQLite держит файл
+`video_scenario.db` открытым, а удалить занятый файл система не даёт. Теперь всё,
+что мешает старту — занятая БД, неготовый бэкенд, не поднявшийся Streamlit, —
+печатается одной строкой «✗ прогон остановлен: …» с указанием, что остановить и
+повторить (код возврата 1), а шаги `reset` и прогон идут через один контур отказа
+`_guarded`. Ограничение «один запуск за раз на одну БД прогона» описано в
+докстринге скрипта: приложение пользователя это не касается — у него своя БД.
+
+**Затронуто:** `day15/scripts/video_scenario.py`, `CHANGELOG.md`.
+
+## 2026-09-18 — feat — day15: автопроверка кадров сценария видео (HTTP + Streamlit AppTest, перезапуск бэкенда)
+
+Кадры 0–9 из `day15/docs/usage.md` §8 теперь можно не только показывать, но и
+прогонять: `uv run python scripts/video_scenario.py --all` проходит их и печатает
+доказательство каждой проверки (`✓`), а расхождение кода и кадра — `✗` и код
+возврата 1, поэтому запись видео не покажет «прошло молча». Проверки идут двумя
+путями: запросами к бэкенду по HTTP и реальным рендером интерфейса
+(`streamlit.testing.v1.AppTest` нажимает те же кнопки и читает карточку задачи,
+подписи и блокировку кнопок, причины отказа, вкладки журнала). Пауза кадра 5
+доказывается вторым процессом бэкенда на той же БД: pid бэкенда сообщает сам
+процесс (обёртка venv запускает интерпретатор отдельным процессом, поэтому
+`Popen.pid` не равен pid приложения) — прогон печатает два разных pid и
+проверяет их неравенство. Для самой записи добавлен стенд
+`uv run python scripts/video_scenario.py --ui`: живой `streamlit run app.py` на
+том же изолированном бэкенде (своя БД и порт, `DAY15_BACKEND_URL`), адрес
+открывается в браузере, печатается чек-лист кадров §8, а кадр 5 доказывается по
+Enter — стенд перезапускает бэкенд на той же БД и печатает состояние из SQLite.
+Прогон офлайн: uvicorn поднимается на своей БД `day15/video_scenario.db` с
+офлайн-заглушкой DeepSeek, `agents.db` и tracked-отчёт
+`docs/reports/controlled_transitions_demo.md` не трогаются; ключ API и сеть не
+нужны. Модулей пять, а не один: HTTP с печатью проверок, кадры, UI-кадры, стенд
+для съёмки и бэкенд прогона вместе дали 1475 строк при лимите 400, а дочернему
+процессу бэкенда Streamlit не нужен вовсе.
+
+**Затронуто:** `day15/scripts/video_scenario.py` (НОВЫЙ),
+`day15/scripts/video_scenario_frames.py` (НОВЫЙ),
+`day15/scripts/video_scenario_ui.py` (НОВЫЙ),
+`day15/scripts/video_scenario_stand.py` (НОВЫЙ),
+`day15/scripts/video_scenario_server.py` (НОВЫЙ), `day15/STRUCTURE.md`,
+`day15/README.md`, `day15/docs/usage.md`, `CHANGELOG.md`.
+
+## 2026-09-18 — fix — day15: «▶️ Продолжить» возвращает тот же шаг (эндпоинт /resume)
+
+Кнопка продолжения из паузы шла прямым переходом `POST /tasks/{id}/transition` и
+теряла сохранённый шаг: после паузы на `execution/test_locally` задача
+возвращалась в `execution/implement`, хотя подпись над кнопкой обещала
+«продолжение вернёт это место», а §8 инструкции показывал
+`execution/test_locally`. Теперь продолжение в СВОЙ этап идёт эндпоинтом
+`/tasks/{id}/resume` (шаг сохраняется), а выбор другого этапа по-прежнему
+делает прямой переход — для него семантика «начать этап с первого шага»
+документирована в `manager_tasks.transition_task`. Расхождение нашла
+автопроверка сценария (`scripts/video_scenario.py`, кадр 5).
+
+**Затронуто:** `day15/frontend/task_transitions.py`, `day15/STRUCTURE.md`,
+`CHANGELOG.md`.
+
+## 2026-09-18 — docs — сценарий видео для дня 15
+
+Покадровый сценарий демонстрации дня 15 добавлен в `day15/docs/usage.md` (§8,
+между «Сценарии тестирования» и «Ссылки»; бывший §8 «Ссылки» стал §9): 10 кадров
+от графа `ALLOWED_TRANSITIONS` и отказа «план не утверждён» до терминального
+`done`, паузы, переживающей перезапуск бэкенда, и замены предложения модели
+отказом. Обзорный раздел со ссылками на доказательства —
+`day15/docs/architecture.md`. Нумерация разделов `usage.md` и упоминание
+сценария в `README.md` приведены в соответствие.
+
+**Затронуто:** `day15/docs/usage.md`, `day15/docs/architecture.md`,
+`day15/README.md`, `CHANGELOG.md`.
+
+## 2026-09-18 — feat — day15: контролируемые переходы состояний (ALLOWED_TRANSITIONS, guards, журнал отказов)
+
+День 15 — рабочая копия дня 14 плюс **контролируемые переходы** состояния
+задачи: переходы этапов описаны явным графом, переход вперёд требует
+согласования этапа (флаги `plan_approved`, `implementation_complete`,
+`validation_passed`), а недопустимая попытка — в интерфейсе, в API или в ответе
+агента — отклоняется с причиной и подсказкой, попадает в журнал
+(`task_transitions.accepted = false`) и НЕ меняет состояние задачи. Реплика
+пользователя («подтверждаю», «продолжи») выполняется только если переход
+разрешён; предложение модели перейти в другой этап распознаётся таблицей фраз и
+при недопустимости заменяется отказом (`detect_stage_proposal`); блок состояния в
+системном промпте называет допустимые следующие этапы и запрещает пробовать
+недопустимые. Этап `done` стал терминальным: из него переходов нет вовсе, пауза
+из завершённой задачи тоже отклоняется. Код дней 1–14 не изменялся.
+
+* `day15/` — новый день целиком (копия `day14/` с заменой токенов
+  `day14`→`day15`): `pyproject.toml` (`name = "day15"`), `uv.lock`,
+  `.python-version`, `app.py`, `frontend/`, `backend/`, `tests/`, `scripts/`,
+  `docs/`, `README.md`, `STRUCTURE.md`, `.agents/skills/` (симлинки,
+  `uvx library-skills`);
+* `day15/backend/domain/task_state_machine.py` — НОВЫЙ модуль: граф
+  `ALLOWED_TRANSITIONS`, guard-условия `GUARDS`, флаги (`TASK_FLAGS`,
+  `STAGE_FLAG`), тексты отказа и подсказок (`transition_explanation`,
+  `transition_error_message`, `transition_hint`, `intent_refusal_notice`),
+  функции допуска (`can_transition`, `is_transition_allowed`,
+  `get_allowed_next_stages`, `get_blocked_stages`, `guard_context`) и сброс
+  согласований при движении назад (`cleared_flags`);
+* `day15/backend/domain/task_proposal.py` — НОВЫЙ модуль: распознавание
+  предложения модели перейти в этап (`STAGE_PROPOSAL_PHRASES`,
+  `detect_stage_proposal`);
+* `day15/backend/domain/task_fsm.py` — `InvalidTaskTransition` →
+  `InvalidTransitionError`, удалены `STAGE_TRANSITIONS` и `is_valid_transition`,
+  `done` отклоняет и паузу; `task_prompt.py` — блок промпта с допустимыми
+  следующими этапами и запретом недопустимого перехода;
+* `day15/backend/models/task_state.py`, `day15/backend/storage/task_store.py` —
+  колонка `task_states.paused_from_stage` (метка паузы вне `context`), колонка
+  `task_transitions.accepted` и nullable `to_stage`/`to_step`, методы
+  `log_rejection` и `set_flags`, производные `allowed_next`/`blocked` и
+  `prompt_block` в проекции состояния, `clear_flags` в записи перехода;
+* `day15/backend/services/task_state.py` — единая точка отказа `_reject`
+  (журнал попытки, затем исключение), проверка перехода по графу и guards в
+  `transition_to`/`pause`/`resume`/`advance`/`rollback`, новый `set_flags`,
+  удалён статический `is_valid_transition`;
+* `day15/backend/agents/agent.py`, `day15/backend/agents/manager_tasks.py` —
+  отчёты `record["task_intent"]`/`record["task_proposal"]`, уведомление
+  «⚠️ Переход по реплике …» и отказ «🚧 Ответ предлагает переход …», миксин
+  `set_task_flags` (умолчания шага разрешает сервис);
+* `day15/backend/schemas/task.py`, `day15/backend/schemas/agent.py`,
+  `day15/backend/api/tasks.py`, `agents.py`, `main.py` — схемы
+  `TaskAllowedNextOut`/`TaskBlockedOut`/`TaskFlagsIn`, поля
+  `allowed_next`/`blocked`/`accepted`, эндпоинты
+  `GET /tasks/{task_id}/allowed-next` и `PATCH /tasks/{task_id}/context`
+  (11 эндпоинтов домена задачи, 53 операции приложения, версия `9.0.0`);
+* `day15/frontend/task_transitions.py` — НОВЫЙ модуль: кнопки-этапы с `disabled`
+  и причиной отказа, пауза/продолжение с выбором этапа, чекбоксы флагов и
+  сохранение; `task_panel.py` — две вкладки журнала («📜 Журнал переходов»,
+  «🚫 Попытки недопустимых переходов») и новый `FSM_DIAGRAM`; `common.py` —
+  `run_task_action`, подписи флагов и `blocked_reason`; `api_client.py` —
+  `api_task_allowed_next` и `api_set_task_flags`;
+* `day15/tests/unit/test_task_state_machine.py`, `test_task_transition_texts.py`,
+  `test_task_proposal.py`, `day15/tests/integration/test_task_transitions.py`,
+  `day15/tests/e2e/test_task_transitions_api.py` — 5 новых файлов тестов;
+  `test_task_fsm.py`, `test_task_prompt.py`, `test_task_state.py`,
+  `test_task_store.py`, `test_task_manager.py`, `test_task_agent.py`,
+  `test_task_api.py` — обновлены под новые правила допуска;
+* `day15/scripts/controlled_transitions_demo.py`, `day15/scripts/transitions_report.py`
+  — НОВЫЕ: офлайн-прогон сценариев и сборка отчёта
+  `day15/docs/reports/controlled_transitions_demo.md` (таблица «попытка перехода
+  → допуск → причина отказа → предложение модели → продолжение после паузы»,
+  журнал отклонённых попыток, продолжение после паузы в новом процессе);
+* `day15/scripts/task_state_demo.py`, `day15/scripts/invariants_demo.py` —
+  идентичность дня 15 и выставление флагов на границах этапов; отчёты
+  `docs/reports/task_state_demo.md` и `invariants_demo.md` перегенерированы;
+* `day15/README.md`, `day15/STRUCTURE.md`, `day15/docs/architecture.md`,
+  `day15/docs/api.md`, `day15/docs/usage.md` — документация дня;
+* `AGENTS.md` — правило «перед действием проверить допустимость перехода» и
+  абзац про `day15/` в известных расхождениях;
+* `.omp/config.yml` — `skills.customDirectories: day15/.agents/skills`;
+* `CHANGELOG.md` — эта запись.
+
+Проверка: `uv run pytest -q` — **1013 passed** (в дне 14 было 725: +288 дали
+параметризованные таблицы допуска, текстов отказа и предложений модели); `uv sync`
+и `uv lock --check` — код 0; `uvx library-skills --check --tool-skill` — код 0 (скиллы библиотек положены в `day15/.agents/skills/` КОПИЯМИ, а не симлинками: на этом хосте нет режима разработчика, `uvx library-skills` вернул `WinError 1314`, повторено с `--copy`; в днях 13–14 те же скиллы — симлинки, там авто-обновление работает);
+`python -m py_compile` по изменённым файлам — без ошибок; лимит строк — превышает
+только унаследованный `backend/agents/agent.py` (1825; `app.py` 58 ≤ 100,
+`backend/api/main.py` 80 ≤ 80) — проверка по коду дня, без `.venv` и вендорного
+`.agents/skills/`; прогон `scripts/controlled_transitions_demo.py
+--all` — 12 сценариев в таблице отчёта, 6 отклонённых попыток в журнале, пауза
+продолжена в новом процессе; `scripts/task_state_demo.py --all --no-api` и
+`scripts/invariants_demo.py` — код 0, отчёты перезаписаны. Дни 1–14 не
+изменялись.
+
 ## 2026-09-17 — feat — day14: инварианты агента (таблица invariants, InvariantChecker, отказ при нарушении hard)
 
 День 14 — рабочая копия дня 13 плюс **система инвариантов**: правила проекта,

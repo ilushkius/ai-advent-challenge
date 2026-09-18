@@ -19,7 +19,7 @@ modelRoles:
   smol: deepseek/deepseek-flash:low
   tiny: deepseek/deepseek-flash:low
 
-# Скиллы библиотек дней 13–14 (`dayN/.agents/skills/` — относительные симлинки на
+# Скиллы библиотек дней 13–15 (`dayN/.agents/skills/` — относительные симлинки на
 # скиллы внутри пакетов FastAPI и Streamlit, создаёт `uvx library-skills`).
 # Провайдер `agents` ищет `<проект>/.agents/skills` от cwd вверх, поэтому из
 # корня репозитория скиллы дня не видны — путь задан явно, от корня.
@@ -28,3 +28,4 @@ skills:
   customDirectories:
     - day13/.agents/skills
     - day14/.agents/skills
+    - day15/.agents/skills
