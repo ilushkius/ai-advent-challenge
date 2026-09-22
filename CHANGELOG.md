@@ -5,6 +5,66 @@
 структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
 `chore` (прочее: инфраструктура, скиллы, служебные изменения).
 
+## 2026-09-22 — feat — day16: MCP-клиент — подключение к внешнему серверу и список инструментов
+
+Новый день `day16/` — копия `day15/` (снимок не изменялся) плюс **MCP-клиент**:
+приложение подключается к общедоступному MCP-серверу и получает каталог его
+инструментов (`get_tools`). Вызова инструментов в дне нет — задача была
+установить соединение и прочитать список.
+
+Что добавлено:
+
+- `backend/services/mcp_client.py` — `MCPClient`: транспорты `stdio`
+  (сервер запускается дочерним процессом: `uvx mcp-server-fetch`,
+  `npx -y @modelcontextprotocol/server-filesystem .`), Streamable HTTP и SSE;
+  `connect` → `list_tools(refresh)` → `disconnect`/`close`, постраничный
+  `tools/list`. Клиент синхронный и потокобезопасный: MCP SDK асинхронный, а его
+  контексты обязаны входить и выходить в одной задаче anyio, поэтому клиент держит
+  свой поток с циклом событий и долгоживущую задачу сессии `_serve`;
+- `backend/services/mcp_registry.py` — `MCPRegistry`: одно активное подключение на
+  процесс, смена соединения закрывает прежнее, `close()` в `lifespan`;
+- `backend/services/mcp_errors.py` — `MCPError` и подклассы плюс `error_message`:
+  одна понятная строка «что делали → что случилось → что проверить» (разворачивает
+  `ExceptionGroup` транспорта, подсказывает про PATH, таймаут и URL);
+- `backend/domain/mcp_connection_fsm.py` — стейт-машина подключения
+  (`Enum`-состояния и события, паттерн State, `ALLOWED_TRANSITIONS`,
+  `UnknownMCPConnectionEvent`);
+- `backend/domain/mcp_target.py` — разбор цели (`MCPTransport`, `parse_target`,
+  `split_command` с сохранением кавычек и Windows-путей), `backend/domain/mcp_tools.py` —
+  структура инструмента (`name`, `description`, `input_schema`);
+- `backend/api/mcp.py` — эндпоинты `POST /mcp/connect`, `POST /mcp/disconnect`,
+  `GET /mcp/status`, `GET /mcp/tools` (400 — цель не разобрана, 409 — нет
+  соединения, 502 — сервер недоступен), схемы — `backend/schemas/mcp.py`;
+- раздел «🔌 MCP» в интерфейсе (`frontend/mcp_section.py`, запросы
+  `frontend/mcp_api.py`, переключатель разделов — в `frontend/chat_section.py`):
+  цель, транспорт, кнопки подключения и отключения, статус, таблица инструментов,
+  кнопка «🔄 Обновить список инструментов» и разбор полной схемы аргументов;
+- `scripts/mcp_demo.py` — минимальный скрипт для видео: четыре строки
+  `connect`/`list_tools`/`disconnect` и читаемый вывод (`--json`, `--target`,
+  `--transport`, `--timeout`), ошибка подключения — одной строкой, код выхода 1;
+- `tests/` — 84 новых теста: таблица FSM, разбор цели, структура инструмента,
+  реестр и эндпоинты (фейковый клиент с настоящей FSM) плюс настоящий stdio-сервер
+  `tests/mcp_echo_server.py` для сквозной проверки соединения; всего 1097 тестов;
+- зависимость `mcp` (MCP Python SDK 2.x) добавлена через `uv add mcp`.
+
+Живой прогон (два общедоступных сервера, ошибки и их решения) —
+`day16/docs/reports/mcp_demo.md`: fetch-сервер отдал 1 инструмент (`fetch`),
+filesystem — 14; неверный URL и отсутствующая команда дают понятный текст вместо
+traceback, после `disconnect` запрос инструментов отвечает 409.
+
+Попутно разделены два файла, упёршиеся в лимит 400 строк:
+`backend/services/mcp_errors.py` (ошибки и тексты) и `frontend/mcp_api.py`
+(MCP-запросы поверх общего транспорта `request_json` из `frontend/api_client.py`).
+Документация дня: `docs/usage.md` переписан как инструкция только по дню 16,
+в `docs/architecture.md` добавлен раздел «MCP-интеграция», в `docs/api.md` —
+описание эндпоинтов `/mcp`, в `README.md` — раздел «MCP».
+
+**Затронуто:** `day16/` (НОВЫЙ: `app.py`, `frontend/`, `backend/`, `scripts/`,
+`tests/`, `docs/`, `STRUCTURE.md`, `README.md`, `pyproject.toml`, `uv.lock`,
+`.python-version`, `.env.example`), `.omp/config.yml` (каталог скиллов дня 16),
+`AGENTS.md` (правило про MCP-клиент), `CHANGELOG.md`. Код `day1/`–`day15/` не
+изменялся.
+
 ## 2026-09-18 — feat — day15: автоматический проход кадров в настоящем браузере (Playwright, человеческий темп)
 
 Кадры 0–9 сценария теперь может пройти не человек и не AppTest, а настоящий
