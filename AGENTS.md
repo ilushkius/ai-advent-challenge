@@ -89,6 +89,29 @@ MCP-клиент. Все MCP-соединения логировать и кор
 - в работе агента инструменты не вызываются, пока это не оговорено отдельным
   заданием дня: `day16/` только читает каталог (`tools/list`).
 
+**При реализации MCP-инструментов всегда указывать типизированные параметры и docstring,
+чтобы input_schema генерировалась корректно. Инструменты должны выполнять реальные
+действия (HTTP-запросы, работу с файлами, вызовы API) и возвращать структурированный
+результат.**
+
+Правило о вызове инструментов (эталон — `day17/`, свой MCP-сервер в
+`day17/mcp_server/`):
+
+- инструмент описывается типизированно: из аннотаций параметров SDK собирает
+  `inputSchema`, из докстринга — описание для модели, из `TypedDict`-возврата —
+  `outputSchema`, а `structuredContent` ответа равен самому словарю; поэтому
+  возвращать нужно структуру, а не строку, склеенную руками;
+- ошибка инструмента — это данные (`is_error`), а не исключение: текст причины
+  («пользователя с id=999 нет») обязан доехать до модели понятной строкой;
+- вызов идёт через правила допуска (`admission_reason`: соединение, каталог,
+  обязательные/лишние аргументы, типы), а не «сырым» `tools/call` по месту;
+- состояние вызова — стейт-машина (`day17/backend/domain/mcp_tool_call.py`), как
+  требует скилл `python-fsm-agent`: `Enum`-состояния и события, паттерн State,
+  недопустимый шаг — явная ошибка;
+- результат, ушедший в промпт агента, добавляется системным блоком
+  (`render_mcp_tool_block`) и входит в контроль лимита контекста; данные
+  неудачного вызова в промпт не добавляются.
+
 ## Структура файлов
 
 Полные правила раскладки файлов и модулей — в скилле
@@ -246,6 +269,33 @@ MCP-серверу (stdio / SSE / Streamable HTTP) и список его инс
 унаследованный `backend/agents/agent.py` (1825 строк, как в `day15/`).
 Лимиты `app.py` (62 ≤ 100) и `backend/api/main.py` (78 ≤ 80) соблюдены; других
 превышений нет.
+
+`day17/` — копия `day16/` плюс **свой MCP-сервер и вызов инструмента из агента**:
+собственный сервер дня по stdio (`day17/mcp_server/`: `config.py`, `schemas.py`,
+`api_client.py`, `server.py`) с тремя инструментами поверх
+jsonplaceholder.typicode.com — `get_user`, `get_post`, `list_user_posts`;
+`MCPClient.call_tool` (вызов `tools/call`), `MCPToolRunner`
+(`backend/services/mcp_tool_runner.py`) и правила допуска со стейт-машиной вызова
+(`backend/domain/mcp_tool_call.py`, коды `not_connected`/`unknown_tool`/
+`bad_arguments`/`transport`/`tool_error`), распознавание запроса по реплике
+(`backend/domain/mcp_intent.py`), блок данных инструмента в системном промпте
+(`backend/domain/mcp_prompt.py`), каталог известных серверов
+(`backend/domain/mcp_servers.py`), шаг `Agent.apply_mcp_tool` в `generate()`
+(после проверки инвариантов и до контроля лимита, отчёт в `record["mcp"]`),
+эндпоинты `POST /mcp/call` и `GET /mcp/servers` (`backend/api/mcp.py`; всего их
+шесть), формы вызова и «🤖 Спросить агента» в интерфейсе
+(`frontend/mcp_call.py`, `frontend/mcp_ask.py`), скрипты
+`scripts/mcp_tool_demo.py`/`mcp_tool_report.py` и отчёт
+`day17/docs/reports/mcp_tool_demo.md`. Раскладка та же, что в `day13/`–`day16/`:
+девять папок-слоёв, ORM — в `backend/models/*.py`, схемы API — в
+`backend/schemas/` (+ `mcp.py`), интерфейс — в `frontend/`, тесты — в
+`tests/{unit,integration,e2e}/` (+ `tests/mcp_fakes.py`, `tests/stub_api.py`),
+`STRUCTURE.md` есть. Эндпоинтов у приложения 59 (6 — MCP), тестов 1222 (135 —
+MCP). Единственное превышение лимита — тот же унаследованный
+`backend/agents/agent.py` (1898 строк; было 1825 в `day16/`: +73 дала интеграция
+шага MCP). Лимиты `app.py` (71 ≤ 100) и `backend/api/main.py` (80 ≤ 80) соблюдены;
+других превышений нет — упёршиеся в лимит файлы разделены (`mcp_transport.py` в
+`backend/services/`, `mcp_fakes.py` в `tests/`).
 
 ## Целевой стек и запуск
 

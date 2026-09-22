@@ -5,6 +5,91 @@
 структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
 `chore` (прочее: инфраструктура, скиллы, служебные изменения).
 
+## 2026-09-22 — feat — day17: свой MCP-сервер и вызов инструмента из агента
+
+Новый день `day17/` — копия `day16/` (снимок не изменялся) плюс **свой
+MCP-сервер** и **вызов инструмента**: агент сам решает по ключевым словам реплики,
+нужен ли вызов, вызывает инструмент подключённого сервера и использует полученные
+данные в ответе.
+
+Что добавлено:
+
+- `mcp_server/` — собственный MCP-сервер дня (транспорт stdio, `MCPServer` из MCP
+  Python SDK 2.x): `server.py` (три инструмента `get_user`, `get_post`,
+  `list_user_posts` через `@server.tool()`; `_run` переводит ошибку внешнего API в
+  `ToolError`, поэтому её текст доезжает до модели), `api_client.py`
+  (`JsonPlaceholderClient` поверх `https://jsonplaceholder.typicode.com`, понятные
+  тексты ошибок вместо трассировок `httpx`), `schemas.py` (`TypedDict`-структуры —
+  из них SDK собирает `outputSchema`, а `structuredContent` ответа равен самому
+  словарю), `config.py`, `__init__.py`;
+- `backend/services/mcp_client.py` — `MCPClient.call_tool` (`tools/call`):
+  результат — данными (`MCPToolResult`: структура, текст, `is_error`), отказами —
+  только сбои транспорта (`MCPNotConnectedError`, новый `MCPCallError`);
+- `backend/services/mcp_loop.py` — вынесенный из клиента `MCPEventLoop`: цикл
+  событий в daemon-потоке (`submit`/`spawn`/`call_soon`/`stop`);
+- `backend/services/mcp_transport.py` — адаптеры MCP SDK (транспорт по цели,
+  разбор `InitializeResult` и `CallToolResult`) — единственное место, знающее
+  классы SDK;
+- `backend/services/mcp_tool_runner.py` — `MCPToolRunner`: правила допуска,
+  `tools/call` и отчёт одним исходом (`call`, `call_for_prompt`);
+- `backend/domain/mcp_tool_call.py` — правила допуска (`admission_reason`: нет
+  соединения, нет инструмента в каталоге, нет обязательного/лишний/не тот тип
+  аргумента; коды `not_connected`, `unknown_tool`, `bad_arguments`) и жизненный
+  цикл вызова как FSM (`MCPToolCallState`/`MCPToolCallEvent`, паттерн State,
+  `UnknownMCPToolCallEvent`, исход `MCPToolCallOutcome`);
+- `backend/domain/mcp_intent.py` — распознавание запроса по реплике
+  (`classify_tool_call`, таблица правил с приоритетом и морфологией: «посты
+  пользователя 2» → `list_user_posts`, «пользователь 1» → `get_user`);
+- `backend/domain/mcp_prompt.py` — блок «## Данные MCP-инструмента» для системного
+  промпта (`render_mcp_tool_block`), `backend/domain/mcp_servers.py` — каталог
+  известных серверов (`KNOWN_SERVERS`, `server_records`), `backend/domain/mcp_tools.py`
+  — `output_schema` в структуре инструмента и `MCPToolResult`;
+- агент (`backend/agents/agent.py`, `agent_manager.py`, `manager_agents.py`) —
+  шаг `Agent.apply_mcp_tool` в `generate()`: вызов инструмента идёт ПОСЛЕ проверки
+  запроса инвариантами (отказ по правилам не должен уходить наружу HTTP-запросом)
+  и ДО контроля лимита (добавленный блок входит в лимит контекста); отчёт хода —
+  `record["mcp"]`, реестр MCP передаётся агенту через `mcp_registry`;
+- API (`backend/api/mcp.py`, `backend/schemas/mcp.py`) — `POST /mcp/call`
+  (409 без соединения, 400 — неизвестный инструмент или аргументы не по схеме,
+  502 — обрыв связи, 200 + `is_error: true` — ошибка инструмента) и
+  `GET /mcp/servers` (каталог целей и подключённая из них); `output_schema` в
+  `GET /mcp/tools`; поле `mcp` (`MCPCallReportOut`) в ответе генерации; всего у
+  приложения 59 эндпоинтов, версия `11.0.0`;
+- интерфейс (`frontend/`) — `mcp_call.py` (каталог серверов, форма аргументов по
+  `input_schema`, кнопка «▶ Вызвать инструмент» и результат) и `mcp_ask.py`
+  («🤖 Спросить агента»: агент вызывает инструмент сам), обновлённые
+  `mcp_section.py` (цель по умолчанию — свой сервер, показ `input`/`output` схем) и
+  `common.py` (подписи состояний и причин вызова);
+- `scripts/mcp_tool_demo.py` и `scripts/mcp_tool_report.py` — сквозной прогон
+  (каталог → три успешных вызова → три отказных → шаг агента) и сборка отчёта;
+- тесты: `tests/stub_api.py` + фикстура `stub_api_base` (локальный стенд внешнего
+  API вместо сети), `tests/mcp_fakes.py` (MCP-фейки с журналом вызовов), новые
+  файлы `unit/test_mcp_tool_call.py`, `unit/test_mcp_intent.py`,
+  `unit/test_mcp_prompt.py`, `unit/test_mcp_servers.py`,
+  `integration/test_mcp_server_stdio.py` (настоящий stdio-сервер),
+  `integration/test_mcp_tool_runner.py`, `integration/test_mcp_agent.py`,
+  `e2e/test_mcp_call_api.py` — 135 новых кейсов, всего 1222 теста.
+
+Живой прогон и отчёт — `day17/docs/reports/mcp_tool_demo.md`: сервер отдал три
+инструмента с `inputSchema`/`outputSchema`, `get_user({"user_id": 1})` вернул
+данные Leanne Graham, отказы пришли кодами `unknown_tool`/`bad_arguments`/
+`tool_error`, а шаг агента положил данные инструмента в системный промпт
+(`+149` токенов) — второй вопрос без ключевых слов вызова не сделал.
+
+Попутно дожаты файлы, упёршиеся в лимит строк: из `backend/services/mcp_client.py`
+вынесены адаптеры SDK (`mcp_transport.py`), из `tests/support.py` — MCP-фейки
+(`tests/mcp_fakes.py`), сжат `backend/api/main.py` (80 строк). Документация дня:
+`docs/usage.md` переписан как инструкция только по дню 17, в `docs/architecture.md`
+добавлен раздел «MCP-сервер и инструменты», в `docs/api.md` — `POST /mcp/call` и
+`GET /mcp/servers`, в `README.md` — раздел «MCP-инструменты», обновлён
+`STRUCTURE.md` дня.
+
+**Затронуто:** `day17/` (НОВЫЙ: `app.py`, `mcp_server/`, `frontend/`, `backend/`,
+`scripts/`, `tests/`, `docs/`, `STRUCTURE.md`, `README.md`, `pyproject.toml`,
+`uv.lock`, `.python-version`, `.env.example`), `.omp/config.yml` (каталог скиллов
+дня 17), `AGENTS.md` (правило про типизированные MCP-инструменты), `CHANGELOG.md`.
+Код `day1/`–`day16/` не изменялся.
+
 ## 2026-09-22 — feat — day16: MCP-клиент — подключение к внешнему серверу и список инструментов
 
 Новый день `day16/` — копия `day15/` (снимок не изменялся) плюс **MCP-клиент**:
