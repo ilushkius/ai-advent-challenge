@@ -5,6 +5,119 @@
 структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
 `chore` (прочее: инфраструктура, скиллы, служебные изменения).
 
+## 2026-09-23 — feat — day18: планировщик фоновых задач и MCP-инструменты с периодическим выполнением
+
+Новый день `day18/` — копия `day17/` (снимок не изменялся) плюс **планировщик
+фоновых задач** (APScheduler) и **три MCP-инструмента с отложенным и периодическим
+выполнением**: разовое напоминание, периодический сбор данных из внешнего API и
+регулярная сводка по накопленным данным. Фон живёт в процессе бэкенда, метаданные
+задач лежат в SQLite, поэтому задачи переживают перезапуск приложения; тик —
+синхронная функция (APScheduler выполняет её в пуле потоков), поэтому фон не
+блокирует цикл событий FastAPI.
+
+Что добавлено:
+
+- `backend/domain/` — чистые правила планировщика: `scheduler_values.py`
+  (`Enum`-значения `ScheduleType`/`ScheduledTaskState`/`ReminderState`/`RunStatus`
+  и подписи), `scheduler_fsm.py` (стейт-машина задачи и напоминания,
+  `UnknownSchedulerEvent`), `schedule_spec.py` (`TOOL_SPECS`,
+  `validate_arguments`, `schedule_for`, `default_task_name`, `ScheduleRejected` с
+  кодами `unknown_tool`/`bad_arguments`/`bad_url`/`bad_schedule`/`not_found`/
+  `not_active`), `schedule_timing.py` (`normalize_schedule`, `next_run_at`,
+  `schedule_label`), `aggregation.py` (`aggregate_records`: число записей,
+  среднее/минимум/максимум числовых полей, уникальные значения строковых,
+  `render_summary_text`), `schedule_intent.py` (`classify_schedule_intent`: «напомни
+  через 5 минут», «собирай данные с <URL> каждые 10 секунд», «покажи сводку за
+  последний час») и `scheduler_prompt.py` (блок «## Данные планировщика» в
+  системном промпте);
+- `backend/models/scheduler.py` — шесть таблиц: `scheduled_tasks` (источник правды:
+  имя, тип и значение расписания, инструмент, аргументы, статус, последний и
+  следующий запуск), `task_runs` (журнал запусков: фаза `prepare`/`tick`, статус,
+  длительность, ошибка), `reminders`, `notifications` (очередь уведомлений с
+  отметкой прочтения), `collected_data` (накопленные ответы источника) и
+  `periodic_summaries` (имя `summaries` занято конспектами сжатия истории дня 9);
+- `backend/storage/` — `scheduler_store.py` (`SchedulerStore`: задачи, запуски,
+  `due_tasks`, `set_next_run`), `scheduler_data_store.py` (`SchedulerDataStore`:
+  напоминания, собранные записи, сводки, уведомления) и `scheduler_rows.py`
+  (ORM-строка → словарь для API и интерфейса);
+- `backend/services/` — `scheduler.py` (`TaskScheduler` на `AsyncIOScheduler`:
+  `start`/`shutdown`, сверка БД ↔ APScheduler `sync_from_db` при старте и раз в
+  5 с, `register`/`pause`/`resume`, единственная точка исполнения тика
+  `run_tick`), `apscheduler_bridge.py` (единственное место, знающее классы
+  APScheduler), `scheduled_jobs.py` (`prepare` — немедленное действие, `tick` —
+  запуск по расписанию), `schedule_service.py` (`ScheduleService` — операции
+  уровня инструментов) и `source_fetch.py` (`fetch_json`: таймаут и предел тела
+  ответа, тексты ошибок для модели и человека);
+- `backend/schemas/scheduler.py` + `backend/api/scheduler.py` — 14 эндпоинтов
+  `/scheduler/...` (`GET`/`POST /scheduler/tasks`, `DELETE /scheduler/tasks/{id}`,
+  `pause`, `resume`, `run`, `history`, `GET /scheduler/tools`, `reminders`,
+  `collected`, `summaries`, `notifications`, `POST /scheduler/notifications/{id}/read`,
+  `GET /scheduler/status`): `POST /scheduler/tasks` — общий код-путь инструментов и
+  ручного создания, отказ — по кодам `ScheduleRejected` (400/404/409);
+  `backend/api/lifespan.py` — вынесенный из `main.py` старт (таблицы → агенты →
+  планировщик; на выходе `shutdown()` планировщика и закрытие MCP); версия API
+  `12.0.0` (всего у приложения 73 эндпоинта, 14 — планировщик);
+- `mcp_server/` — `backend_api.py` (`ScheduleBackendClient`: постановка задачи
+  вызовом `POST /scheduler/tasks` бэкенда дня) и три инструмента в `server.py`:
+  `schedule_reminder(text, delay_seconds)`, `collect_data(source_url,
+  interval_seconds, name)` и `generate_summary(name, interval_seconds)` с
+  типизированными параметрами, докстрингами и `TypedDict`-ответами
+  (`ReminderScheduled`, `CollectionStarted`, `SummaryReady`); аргумент
+  `--backend-url`, `SERVER_NAME = "day18-jsonplaceholder"`, версия сервера `1.1.0`
+  — всего инструментов шесть;
+- интерфейс (`frontend/`) — `scheduler_api.py` (запросы `/scheduler/...`),
+  `scheduler_section.py` (раздел «🗓 Планировщик»: таблица задач с паузой,
+  возобновлением, запуском сейчас и удалением, форма создания задачи по её
+  инструменту, напоминания, сводки с текстом, история запусков) и
+  `notifications.py` (уведомления планировщика в основной области, обновление
+  раз в 5 с); в сводке хода появилась строка «🗓 Планировщик: …»;
+- агент (`backend/agents/agent.py`) — шаг планировщика внутри
+  `Agent.apply_mcp_tool`: блок данных планировщика добавляется в системный промпт
+  и входит в контроль лимита контекста, отчёт хода — `record["schedule"]`
+  (в отчёте видно, была ли запланирована фоновая задача);
+- `scripts/scheduler_stand.py` (изолированный бэкенд прогона, источник данных —
+  детерминированный JSON вместо сети), `scripts/scheduler_scenarios.py` (четыре
+  сценария), `scripts/scheduler_demo.py` (оркестрация прогона) и
+  `scripts/scheduler_report.py` (сборка отчёта);
+- тесты: `tests/scheduler_fakes.py` (фейки планировщика) и `tests/backend_stub.py`
+  (стенд бэкенда дня), новые файлы `unit/test_scheduler_fsm.py`,
+  `unit/test_schedule_spec.py`, `unit/test_aggregation.py`,
+  `unit/test_schedule_intent.py`, `unit/test_scheduler_prompt.py`,
+  `integration/test_scheduler_service.py`, `integration/test_scheduler_ticks.py`,
+  `integration/test_scheduler_restore.py`,
+  `integration/test_scheduler_apscheduler.py` (настоящий APScheduler),
+  `integration/test_scheduler_agent.py`,
+  `integration/test_mcp_scheduler_tools.py` (настоящий stdio-сервер дня) и
+  `e2e/test_scheduler_api.py` — 152 новых кейса в этих двенадцати файлах, всего
+  1374 теста;
+- зависимость `apscheduler>=3.11.3,<4.0` добавлена через `uv add apscheduler`
+  (APScheduler 3.x: `AsyncIOScheduler`).
+
+Живой прогон и отчёт — `day18/docs/reports/scheduler_demo.md`
+(`uv run python scripts/scheduler_demo.py --report docs/reports/scheduler_demo.md`):
+четыре сценария, 14 проверок — все пройдены. Напоминание с задержкой 30 с
+сохраняется, доезжает до статуса `done` и кладёт в очередь уведомление
+«Напоминание: проверить почту»; сбор с интервалом 10 с отдаёт первую запись при
+регистрации и дальше накапливает `collected_data` по расписанию; сводка с
+интервалом 20 с считается первой сразу и повторяется, а её `key_metrics` содержат
+среднее/минимум/максимум числовых полей (`id`, `userId`) и уникальные значения
+строковых (`title`, `body`); после остановки и повторного старта стенда
+`GET /scheduler/tasks` отдаёт те же три задачи (активные — с непустым
+`next_run_at`), и сбор продолжается. Инструменты вызваны через свой MCP-сервер по
+stdio, источник данных подменён, поэтому сеть прогону не нужна; автотесты дня в том
+же прогоне — `uv run pytest -q`: 1374 passed, падений нет.
+
+Документация дня: `docs/usage.md` переписан как инструкция только по дню 18, в
+`docs/architecture.md` добавлен раздел «Планировщик и фоновые задачи», в
+`docs/api.md` — раздел «Планировщик» с 14 эндпоинтами `/scheduler`, в `README.md` —
+раздел «Фоновые задачи», обновлён `STRUCTURE.md` дня.
+
+**Затронуто:** `day18/` (НОВЫЙ: `app.py`, `mcp_server/`, `frontend/`, `backend/`,
+`scripts/`, `tests/`, `docs/`, `STRUCTURE.md`, `README.md`, `pyproject.toml`,
+`uv.lock`, `.python-version`, `.env.example`), `.omp/config.yml` (каталог скиллов
+дня 18), `AGENTS.md` (правило про планировщик и расхождения снимка `day18/`),
+`CHANGELOG.md`. Код `day1/`–`day17/` не изменялся.
+
 ## 2026-09-22 — feat — day17: свой MCP-сервер и вызов инструмента из агента
 
 Новый день `day17/` — копия `day16/` (снимок не изменялся) плюс **свой
