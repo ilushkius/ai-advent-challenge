@@ -5,6 +5,98 @@
 структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
 `chore` (прочее: инфраструктура, скиллы, служебные изменения).
 
+## 2026-09-25 — feat — day20: оркестрация нескольких MCP-серверов
+
+Новый день `day20/` — копия `day19/` (снимки `day1/`–`day19/` не изменялись) плюс
+**оркестрация ФЛОТА MCP-серверов**: в дне работают три независимых сервера по stdio
+(`search_server`, `data_server`, `storage_server`), их состав описан данными в
+`mcp_servers.json`, реестр держит по соединению на сервер и маршрутизирует вызов по
+имени инструмента, а оркестратор строит план шагов (моделью, а без ключа —
+эвристикой) и логирует каждый шаг вместе с сервером в SQLite. Реплика «найди данные
+про RAG и сохрани в базу» проходит цепочкой по трём серверам, а результат уходит
+модели системным блоком того же запроса.
+
+Что добавлено:
+
+- `mcp_servers/` — три сервера как отдельные пакеты: `search_server/` (`search_web`
+  — лента jsonplaceholder или Википедия, `search_local` — блоки файла внутри папки
+  дня, `fetch_url` — страница → текст), `data_server/` (`summarize` — сводка и
+  ключевые пункты, без ключа агрегацией; `extract_keywords`, `filter_by_date`,
+  `aggregate`), `storage_server/` (`save_to_file` в `output/`, `save_to_db` в
+  `storage.db`, `list_saved`, `load_from_file`); всего 11 инструментов; каждый сервер
+  объявляет типизированные параметры, `TypedDict`-возврат и ошибки данными
+  (`ToolError`), а `mcp_servers.json` хранит их команды запуска, описания и кэш
+  `tools_cache`;
+- `backend/services/mcp_fleet_state.py` и переписанный
+  `backend/services/mcp_registry.py` — активное соединение дня 17 (`call_tool`
+  стал `call_active_tool`) плюс флот: `connect_all`/`disconnect_all` (файл
+  перечитывается, исчезнувшие серверы закрываются, упавшие не мешают остальным),
+  `refresh_tools` (каталоги в память и в `tools_cache` файла), `servers`/
+  `tools_of`/`list_all_tools`/`find_tool_by_name` (маршрутизация по имени
+  инструмента, дубли — первый сервер в порядке файла), `ensure_connected`
+  (динамическое подключение сервера при первом вызове), `call_tool_on`/`call_tool`,
+  `fleet_status`;
+- `backend/domain/` — `mcp_server_spec.py` (конфигурация флота как данные:
+  `load_server_specs`/`validate_specs`/`dump_specs`, `MCPServerSpecError`),
+  `orchestration_spec.py` (`DEMO_PLAN` — пять шагов по трём серверам,
+  `validate_plan`, `launch_arguments`, коды отказа), `orchestration_fsm.py`
+  (стейт-машина прогона), `orchestration_plan.py` (каталог флота для модели, промпт
+  с требованием «определи, какие инструменты с каких серверов нужно вызвать и в
+  каком порядке», разбор ответа и `heuristic_plan`), `orchestration_prompt.py`
+  (блок «## Результат оркестрации») и `orchestration_intent.py` (узкое правило
+  распознавания: сохранение в базу/БД/sqlite или явное упоминание флота);
+- `backend/services/orchestrator.py`, `orchestration_service.py`,
+  `orchestration_planner.py` — план шагов (`given`/`llm`/`heuristic`), прогон
+  (маппинг → условие → маршрутизация → подключение сервера при нужде → вызов через
+  `MCPToolRunner(server_name=…)` → строка журнала → событие FSM), служба запусков
+  (синхронно и фоном, отчёт, история со статистикой, удаление) и планировщик плана
+  на DeepSeek (любая неудача — `None`, план соберёт эвристика);
+- `backend/api/mcp_servers.py` и `backend/api/orchestration.py` (+ схемы
+  `backend/schemas/mcp_servers.py`, `orchestration.py`) — девять эндпоинтов:
+  состав флота, инструменты сервера, обновление кэша и шесть эндпоинтов оркестрации
+  (`/orchestration/run`, `/demo`, `/runs`, `/runs/{id}`, `/runs/{id}/steps`,
+  `DELETE`); у приложения теперь 85 записей эндпоинтов (67 уникальных путей OpenAPI);
+  каталог известных серверов дня 16 удалён;
+- `backend/models/orchestration.py` + `backend/storage/orchestration_store.py`,
+  `orchestration_rows.py` — таблицы `orchestration_runs` (реплика, план, статус,
+  метки времени, длительность, серверы) и `orchestration_steps` (номер, сервер,
+  инструмент, вход, выход, время, статус, текст ошибки) с каскадным удалением и
+  статистикой по серверам и инструментам;
+- `backend/agents/agent.py` — шаг `apply_orchestration` идёт до шага пайплайна; при
+  распознанной оркестрации пайплайн и одиночный вызов MCP пропускаются (один ход —
+  один автоматизм), отчёт лежит в `record["orchestration"]`;
+- `frontend/orchestration_api.py`, `orchestration_section.py`,
+  `orchestration_steps.py` — вкладка «🌐 Оркестрация»: таблица флота и инструментов
+  сервера, кнопка «🚀 Запустить демо-сценарий», прогресс по шагам раз в секунду,
+  диаграмма флоу плюс текстовая схема потока, таблица шагов (шаг, сервер,
+  инструмент, входные данные, выходные данные, время, статус), история со
+  статистикой и удалением; также обновлены раздел «🔌 MCP» (серверы флота) и сводка
+  хода в чате;
+- `scripts/orchestration_scenarios.py`, `orchestration_fleet.py`,
+  `orchestration_demo.py`, `orchestration_report.py`,
+  `orchestration_report_flow.py` — пять сценариев (демо-кнопка на настоящем флоте,
+  запрос через агента, ошибка на шаге, перезапуск приложения, четвёртый сервер
+  правкой файла) и отчёт `docs/reports/orchestration_demo.md` (со снимком
+  интерфейса в разделе сценария 1).
+
+Проверки: `uv run pytest -q` — 2144 теста зелёные (новые и обновлённые файлы дня
+20: пятнадцать unit, девять integration, два e2e, плюс `tests/orchestration_fakes.py`;
+файл `tests/unit/test_mcp_servers.py` удалён вместе с каталогом дня 16);
+`uv run python scripts/orchestration_demo.py --report docs/reports/orchestration_demo.md
+--tests` — 47/47 проверок пяти сценариев на реальном флоте из трёх stdio-серверов
+(офлайн: сводка агрегацией, план эвристикой, без ключа DeepSeek); `uv run uvicorn
+backend.api.main:app --port 8000` — `/mcp/servers` отдаёт 3 сервера и 11
+инструментов, демо-сценарий завершается за пять шагов, перезапуск бэкенда сохраняет
+историю; `uv run streamlit run app.py` — демо-сценарий проверен в браузере
+(прогресс 5 из 5, три сервера, файл `output/demo-scenario.md` и строка в базе);
+лимиты строк соблюдены везде, кроме унаследованного `backend/agents/agent.py`
+(2094 строки); `uvx library-skills --check --tool-skill` — код 0.
+
+**Затронуто:** `day20/` (новый: `app.py`, `mcp_servers/`, `mcp_servers.json`,
+`mcp_server/`, `frontend/`, `backend/`, `scripts/`, `tests/`, `docs/`, `output/`),
+`.omp/config.yml` (каталог скиллов дня 20), `AGENTS.md` (правило оркестрации и
+расхождения дня 20), `CHANGELOG.md`.
+
 ## 2026-09-24 — feat — day19: MCP-инструменты композиции и декларативный пайплайн
 
 Новый день `day19/` — копия `day18/` (снимки не изменялись) плюс **три
