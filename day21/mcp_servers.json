@@ -1,0 +1,923 @@
+{
+  "servers": [
+    {
+      "name": "search_server",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "mcp_servers/search_server/server.py"
+      ],
+      "description": "Поиск данных: search_web (jsonplaceholder/wikipedia), search_local (файл дня), fetch_url",
+      "tools_cache": [
+        {
+          "name": "search_web",
+          "description": "Ищет данные в ленте внешнего API или в Википедии.\n\nПараметры: query — что искать (подстрока без учёта регистра; пустая строка —\nпервые записи источника); source — где искать: ``posts`` (посты\njsonplaceholder, по умолчанию), ``users`` (пользователи jsonplaceholder) или\n``wikipedia`` (статьи русской Википедии по названию); limit — сколько\nэлементов вернуть (1..20, по умолчанию 5).\n\nВозвращает объект с полями query, source, source_kind (``api`` для ленты,\n``wiki`` для Википедии), count и items — массив найденного (id, title,\ncontent, url, metadata). Пример: search_web(query=\"RAG\", source=\"posts\",\nlimit=5).\n\nЕсли источник не поддержан или внешний API не ответил, инструмент сообщает об\nошибке с причиной.",
+          "input_schema": {
+            "properties": {
+              "query": {
+                "title": "Query",
+                "type": "string"
+              },
+              "source": {
+                "default": "posts",
+                "title": "Source",
+                "type": "string"
+              },
+              "limit": {
+                "default": 5,
+                "title": "Limit",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "type": "object",
+            "title": "search_webArguments"
+          },
+          "output_schema": {
+            "properties": {
+              "query": {
+                "title": "Query",
+                "type": "string"
+              },
+              "source": {
+                "title": "Source",
+                "type": "string"
+              },
+              "source_kind": {
+                "title": "Source Kind",
+                "type": "string"
+              },
+              "count": {
+                "title": "Count",
+                "type": "integer"
+              },
+              "items": {
+                "items": {
+                  "$ref": "#/$defs/SearchItem"
+                },
+                "title": "Items",
+                "type": "array"
+              }
+            },
+            "required": [
+              "query",
+              "source",
+              "source_kind",
+              "count",
+              "items"
+            ],
+            "type": "object",
+            "$defs": {
+              "SearchItem": {
+                "description": "Найденный элемент: id, заголовок, содержимое, адрес и метаданные источника.\n\n``metadata`` — плоский словарь строк (источник, автор, путь, номер блока):\nмодель читает его как подпись к элементу, поэтому значения приводятся к ``str``.",
+                "properties": {
+                  "id": {
+                    "title": "Id",
+                    "type": "string"
+                  },
+                  "title": {
+                    "title": "Title",
+                    "type": "string"
+                  },
+                  "content": {
+                    "title": "Content",
+                    "type": "string"
+                  },
+                  "url": {
+                    "title": "Url",
+                    "type": "string"
+                  },
+                  "metadata": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "title": "Metadata",
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "id",
+                  "title",
+                  "content",
+                  "url",
+                  "metadata"
+                ],
+                "title": "SearchItem",
+                "type": "object"
+              }
+            },
+            "description": "Результат поиска в сети: запрос, источник, вид источника, число и элементы.",
+            "title": "WebSearchResult"
+          }
+        },
+        {
+          "name": "search_local",
+          "description": "Ищет блоки текста в файле внутри папки дня.\n\nПараметры: query — что искать (подстрока без учёта регистра в блоке; пустая\nстрока — первые блоки файла); path — путь к файлу: относительный (от корня\nпапки дня, по умолчанию ``mcp_server/data/notes.md``) или абсолютный ВНУТРИ\nпапки дня; limit — сколько блоков вернуть (1..20, по умолчанию 5).\n\nВозвращает объект с полями query, path, count и items — массивом найденного\n(id, title — первая строка блока, content — блок целиком, url пуст,\nmetadata с путём и номером блока). Номер блока считается с единицы по всему\nфайлу, поэтому одинаковые запросы дают те же id. Пример:\nsearch_local(query=\"RAG\", path=\"mcp_server/data/notes.md\", limit=3).\n\nЕсли путь выходит за папку дня или файла нет, инструмент сообщает об ошибке.",
+          "input_schema": {
+            "properties": {
+              "query": {
+                "title": "Query",
+                "type": "string"
+              },
+              "path": {
+                "default": "mcp_server/data/notes.md",
+                "title": "Path",
+                "type": "string"
+              },
+              "limit": {
+                "default": 5,
+                "title": "Limit",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "type": "object",
+            "title": "search_localArguments"
+          },
+          "output_schema": {
+            "properties": {
+              "query": {
+                "title": "Query",
+                "type": "string"
+              },
+              "path": {
+                "title": "Path",
+                "type": "string"
+              },
+              "count": {
+                "title": "Count",
+                "type": "integer"
+              },
+              "items": {
+                "items": {
+                  "$ref": "#/$defs/SearchItem"
+                },
+                "title": "Items",
+                "type": "array"
+              }
+            },
+            "required": [
+              "query",
+              "path",
+              "count",
+              "items"
+            ],
+            "type": "object",
+            "$defs": {
+              "SearchItem": {
+                "description": "Найденный элемент: id, заголовок, содержимое, адрес и метаданные источника.\n\n``metadata`` — плоский словарь строк (источник, автор, путь, номер блока):\nмодель читает его как подпись к элементу, поэтому значения приводятся к ``str``.",
+                "properties": {
+                  "id": {
+                    "title": "Id",
+                    "type": "string"
+                  },
+                  "title": {
+                    "title": "Title",
+                    "type": "string"
+                  },
+                  "content": {
+                    "title": "Content",
+                    "type": "string"
+                  },
+                  "url": {
+                    "title": "Url",
+                    "type": "string"
+                  },
+                  "metadata": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "title": "Metadata",
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "id",
+                  "title",
+                  "content",
+                  "url",
+                  "metadata"
+                ],
+                "title": "SearchItem",
+                "type": "object"
+              }
+            },
+            "description": "Результат поиска по файлу дня: запрос, путь, число и найденные блоки.",
+            "title": "LocalSearchResult"
+          }
+        },
+        {
+          "name": "fetch_url",
+          "description": "Читает страницу по адресу http:// или https:// и возвращает её текст.\n\nПараметры: url — адрес страницы, начинающийся с ``http://`` или ``https://``;\nmax_chars — до скольких символов обрезать текст (200..20000, по умолчанию\n4000; флаг ``truncated`` в ответе говорит, что текст был длиннее).\n\nВозвращает объект с полями url, status (код ответа), content_type, chars\n(длина текста после обрезки), truncated и text — текстом страницы без тегов.\nПример: fetch_url(url=\"https://example.com\", max_chars=2000).\n\nЕсли схема не http(s), сервер ответил не-2xx или запрос не прошёл, инструмент\nсообщает об ошибке с причиной.",
+          "input_schema": {
+            "properties": {
+              "url": {
+                "title": "Url",
+                "type": "string"
+              },
+              "max_chars": {
+                "default": 4000,
+                "title": "Max Chars",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "url"
+            ],
+            "type": "object",
+            "title": "fetch_urlArguments"
+          },
+          "output_schema": {
+            "properties": {
+              "url": {
+                "title": "Url",
+                "type": "string"
+              },
+              "status": {
+                "title": "Status",
+                "type": "integer"
+              },
+              "content_type": {
+                "title": "Content Type",
+                "type": "string"
+              },
+              "chars": {
+                "title": "Chars",
+                "type": "integer"
+              },
+              "truncated": {
+                "title": "Truncated",
+                "type": "boolean"
+              },
+              "text": {
+                "title": "Text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "url",
+              "status",
+              "content_type",
+              "chars",
+              "truncated",
+              "text"
+            ],
+            "type": "object",
+            "description": "Прочитанная страница: адрес, код ответа, тип содержимого и текст.\n\n``chars`` — длина текста ПОСЛЕ обрезки, ``truncated`` — признак того, что\nисходный текст был длиннее ``max_chars``.",
+            "title": "FetchUrlResult"
+          }
+        }
+      ]
+    },
+    {
+      "name": "data_server",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "mcp_servers/data_server/server.py"
+      ],
+      "description": "Обработка данных: summarize, extract_keywords, filter_by_date, aggregate",
+      "tools_cache": [
+        {
+          "name": "summarize",
+          "description": "Собирает сводку по списку элементов и выделяет ключевые пункты.\n\nПараметры: items — список элементов (как их отдаёт сервер поиска: у каждого\nэлемента поля title и content); style — вид сводки: ``short`` (одна строка, по\nумолчанию), ``detailed`` (нумерованный список), ``bullets`` (список пунктов);\nmax_length — предел длины текста сводки (50..4000 символов, по умолчанию 600).\n\nВозвращает объект с полями summary_text, key_points (заголовки элементов),\ntotal_items, style_used и engine: ``llm`` — сводку собрала модель DeepSeek,\n``aggregation`` — сводка собрана из заголовков (так работает прогон без ключа и\nс ``--llm off``). Пример: summarize(items=[{\"title\": \"RAG\"},\n{\"title\": \"Чанкинг\"}], style=\"bullets\", max_length=400).\n\nЕсли список пуст, аргумент items не массив или стиль не поддержан, инструмент\nсообщает об ошибке.",
+          "input_schema": {
+            "properties": {
+              "items": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "title": "Items",
+                "type": "array"
+              },
+              "style": {
+                "default": "short",
+                "title": "Style",
+                "type": "string"
+              },
+              "max_length": {
+                "default": 600,
+                "title": "Max Length",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "items"
+            ],
+            "type": "object",
+            "title": "summarizeArguments"
+          },
+          "output_schema": {
+            "properties": {
+              "summary_text": {
+                "title": "Summary Text",
+                "type": "string"
+              },
+              "key_points": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Key Points",
+                "type": "array"
+              },
+              "total_items": {
+                "title": "Total Items",
+                "type": "integer"
+              },
+              "style_used": {
+                "title": "Style Used",
+                "type": "string"
+              },
+              "engine": {
+                "title": "Engine",
+                "type": "string"
+              }
+            },
+            "required": [
+              "summary_text",
+              "key_points",
+              "total_items",
+              "style_used",
+              "engine"
+            ],
+            "type": "object",
+            "description": "Сводка списка элементов: текст, ключевые пункты, объём и способ сборки.",
+            "title": "SummaryResult"
+          }
+        },
+        {
+          "name": "extract_keywords",
+          "description": "Возвращает ключевые слова текста по частоте употребления.\n\nПараметры: text — текст для разбора (заголовки и тела найденных элементов,\nсклеенные в одну строку); limit — сколько слов вернуть (от 1 до 20, по\nумолчанию 7).\n\nВозвращает объект с полями keywords (слова в нижнем регистре: сначала самые\nчастые, при равной частоте — по алфавиту), count (сколько слов вернулось),\njoined (те же слова одной строкой через запятую) и engine (``frequency``).\nПример: extract_keywords(text=\"RAG — поиск, RAG — генерация\", limit=5).\n\nЕсли текст пуст или состоит из пробелов, инструмент сообщает об ошибке: без\nтекста выделять нечего.",
+          "input_schema": {
+            "properties": {
+              "text": {
+                "title": "Text",
+                "type": "string"
+              },
+              "limit": {
+                "default": 7,
+                "title": "Limit",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "text"
+            ],
+            "type": "object",
+            "title": "extract_keywordsArguments"
+          },
+          "output_schema": {
+            "properties": {
+              "keywords": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Keywords",
+                "type": "array"
+              },
+              "count": {
+                "title": "Count",
+                "type": "integer"
+              },
+              "joined": {
+                "title": "Joined",
+                "type": "string"
+              },
+              "engine": {
+                "title": "Engine",
+                "type": "string"
+              }
+            },
+            "required": [
+              "keywords",
+              "count",
+              "joined",
+              "engine"
+            ],
+            "type": "object",
+            "description": "Ключевые слова текста: список, их число и та же строка через запятую.",
+            "title": "KeywordsResult"
+          }
+        },
+        {
+          "name": "filter_by_date",
+          "description": "Отбирает записи, дата которых попадает в границы.\n\nПараметры: items — список записей (словарей); field — имя поля с датой (по\nумолчанию ``created_at``); since — нижняя граница включительно (пустая строка\n— без ограничения); until — верхняя граница включительно (пустая строка — без\nограничения); limit — сколько записей вернуть (1..200, по умолчанию 20).\nГраницы принимаются в ISO-8601 (``2026-01-02``, ``2026-01-02T03:04:05``) или\nкак ``ДД.ММ.ГГГГ`` (``02.01.2026``). Пример: filter_by_date(items=items,\nfield=\"created_at\", since=\"2026-01-01\", until=\"31.01.2026\", limit=10).\n\nВозвращает объект с полями items (оставленные записи в исходном порядке),\ncount (их число), skipped (сколько записей пропущено из-за отсутствующей или\nнеразобранной даты), field, since и until (границы как переданы). Пропущенные\nзаписи — не ошибка; ошибкой инструмент отвечает только на неразобранную\nнепустую границу.",
+          "input_schema": {
+            "properties": {
+              "items": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "title": "Items",
+                "type": "array"
+              },
+              "field": {
+                "default": "created_at",
+                "title": "Field",
+                "type": "string"
+              },
+              "since": {
+                "default": "",
+                "title": "Since",
+                "type": "string"
+              },
+              "until": {
+                "default": "",
+                "title": "Until",
+                "type": "string"
+              },
+              "limit": {
+                "default": 20,
+                "title": "Limit",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "items"
+            ],
+            "type": "object",
+            "title": "filter_by_dateArguments"
+          },
+          "output_schema": {
+            "properties": {
+              "items": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "title": "Items",
+                "type": "array"
+              },
+              "count": {
+                "title": "Count",
+                "type": "integer"
+              },
+              "skipped": {
+                "title": "Skipped",
+                "type": "integer"
+              },
+              "field": {
+                "title": "Field",
+                "type": "string"
+              },
+              "since": {
+                "title": "Since",
+                "type": "string"
+              },
+              "until": {
+                "title": "Until",
+                "type": "string"
+              }
+            },
+            "required": [
+              "items",
+              "count",
+              "skipped",
+              "field",
+              "since",
+              "until"
+            ],
+            "type": "object",
+            "description": "Отбор по дате: оставленные записи, счётчики и границы отбора.",
+            "title": "FilterResult"
+          }
+        },
+        {
+          "name": "aggregate",
+          "description": "Группирует записи и считает метрику по каждой группе.\n\nПараметры: items — список записей (словарей); group_by — имя поля группировки\n(пустая строка — одна группа с ключом ``все``); metric — ``count`` (число\nзаписей, по умолчанию), ``sum``, ``avg``, ``min`` или ``max``; value_field —\nимя числового поля для всех метрик кроме ``count`` (для ``count`` не нужен);\nlimit — сколько групп вернуть (1..200, по умолчанию 20). Пример:\naggregate(items=items, group_by=\"status\", metric=\"avg\", value_field=\"amount\",\nlimit=5).\n\nВозвращает объект с полями groups (ключ и значение, по убыванию значения, при\nравенстве — по алфавиту ключа; значения округлены до двух знаков), count\n(сколько групп вернулось), metric и group_by (как переданы). Нечисловые\nзначения поля пропускаются, а группа без чисел в ответ не попадает.\n\nНеизвестная метрика и отсутствие ``value_field`` для ``sum``/``avg``/``min``/\n``max`` — ошибка инструмента с перечнем допустимого.",
+          "input_schema": {
+            "properties": {
+              "items": {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "title": "Items",
+                "type": "array"
+              },
+              "group_by": {
+                "default": "",
+                "title": "Group By",
+                "type": "string"
+              },
+              "metric": {
+                "default": "count",
+                "title": "Metric",
+                "type": "string"
+              },
+              "value_field": {
+                "default": "",
+                "title": "Value Field",
+                "type": "string"
+              },
+              "limit": {
+                "default": 20,
+                "title": "Limit",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "items"
+            ],
+            "type": "object",
+            "title": "aggregateArguments"
+          },
+          "output_schema": {
+            "properties": {
+              "groups": {
+                "items": {
+                  "$ref": "#/$defs/AggregateGroup"
+                },
+                "title": "Groups",
+                "type": "array"
+              },
+              "count": {
+                "title": "Count",
+                "type": "integer"
+              },
+              "metric": {
+                "title": "Metric",
+                "type": "string"
+              },
+              "group_by": {
+                "title": "Group By",
+                "type": "string"
+              }
+            },
+            "required": [
+              "groups",
+              "count",
+              "metric",
+              "group_by"
+            ],
+            "type": "object",
+            "$defs": {
+              "AggregateGroup": {
+                "description": "Одна группа агрегации: ключ группировки и значение метрики.",
+                "properties": {
+                  "key": {
+                    "title": "Key",
+                    "type": "string"
+                  },
+                  "value": {
+                    "title": "Value",
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "key",
+                  "value"
+                ],
+                "title": "AggregateGroup",
+                "type": "object"
+              }
+            },
+            "description": "Группировка записей: группы, их число, метрика и поле группировки.",
+            "title": "AggregateResult"
+          }
+        }
+      ]
+    },
+    {
+      "name": "storage_server",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "mcp_servers/storage_server/server.py"
+      ],
+      "description": "Сохранение и выдача: save_to_file (output/), save_to_db (storage.db), list_saved, load_from_file",
+      "tools_cache": [
+        {
+          "name": "save_to_file",
+          "description": "Сохраняет текст файлом в каталог дня ``output/``.\n\nПараметры: content — текст для записи (до 20000 символов, обычно сводка шага\nоркестрации); filename — имя файла без пути и «..» (по умолчанию\n``orchestration_result.md``; расширение заменяется на запрошенный формат);\nformat — ``md`` (по умолчанию), ``txt`` или ``json``.\n\nВозвращает объект с полями filename, filepath (абсолютный путь — по нему файл\nоткрывают), size_bytes, format и saved_at (ISO-8601 UTC). Пример:\nsave_to_file(content=\"# Сводка\\nRAG — это …\", filename=\"rag-summary.md\").\n\nСлишком длинный текст, чужой формат и опасное имя — ошибка с причиной.",
+          "input_schema": {
+            "properties": {
+              "content": {
+                "title": "Content",
+                "type": "string"
+              },
+              "filename": {
+                "default": "orchestration_result.md",
+                "title": "Filename",
+                "type": "string"
+              },
+              "format": {
+                "default": "md",
+                "title": "Format",
+                "type": "string"
+              }
+            },
+            "required": [
+              "content"
+            ],
+            "type": "object",
+            "title": "save_to_fileArguments"
+          },
+          "output_schema": {
+            "properties": {
+              "filename": {
+                "title": "Filename",
+                "type": "string"
+              },
+              "filepath": {
+                "title": "Filepath",
+                "type": "string"
+              },
+              "size_bytes": {
+                "title": "Size Bytes",
+                "type": "integer"
+              },
+              "format": {
+                "title": "Format",
+                "type": "string"
+              },
+              "saved_at": {
+                "title": "Saved At",
+                "type": "string"
+              }
+            },
+            "required": [
+              "filename",
+              "filepath",
+              "size_bytes",
+              "format",
+              "saved_at"
+            ],
+            "type": "object",
+            "description": "Файл записан: имя, путь, размер, формат и момент записи.",
+            "title": "SavedFile"
+          }
+        },
+        {
+          "name": "save_to_db",
+          "description": "Записывает строку в базу ``storage.db`` и возвращает сведения о ней.\n\nПараметры: kind — вид записи (например ``orchestration``; до 64 символов);\ntitle — заголовок (до 200 символов); content — текст (до 20000 символов);\nsource — источник записи (например ``search_web``; до 200 символов);\nmetadata — необязательный объект с дополнительными полями (сохраняется\nJSON-строкой).\n\nВозвращает объект с полями row_id (id строки в базе), kind, title, source,\nsize_bytes и created_at (ISO-8601 UTC). Пример: save_to_db(kind=\"orchestration\",\ntitle=\"Сводка по RAG\", content=\"…\", source=\"search_web\",\nmetadata={\"file\": \"output/rag.md\"}).\n\nПустой вид или заголовок и слишком длинный текст — ошибка с причиной.",
+          "input_schema": {
+            "properties": {
+              "kind": {
+                "title": "Kind",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "content": {
+                "title": "Content",
+                "type": "string"
+              },
+              "source": {
+                "default": "",
+                "title": "Source",
+                "type": "string"
+              },
+              "metadata": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Metadata"
+              }
+            },
+            "required": [
+              "kind",
+              "title",
+              "content"
+            ],
+            "type": "object",
+            "title": "save_to_dbArguments"
+          },
+          "output_schema": {
+            "properties": {
+              "row_id": {
+                "title": "Row Id",
+                "type": "integer"
+              },
+              "kind": {
+                "title": "Kind",
+                "type": "string"
+              },
+              "title": {
+                "title": "Title",
+                "type": "string"
+              },
+              "source": {
+                "title": "Source",
+                "type": "string"
+              },
+              "size_bytes": {
+                "title": "Size Bytes",
+                "type": "integer"
+              },
+              "created_at": {
+                "title": "Created At",
+                "type": "string"
+              }
+            },
+            "required": [
+              "row_id",
+              "kind",
+              "title",
+              "source",
+              "size_bytes",
+              "created_at"
+            ],
+            "type": "object",
+            "description": "Строка записана в базу: id, вид, заголовок, источник, размер и момент.",
+            "title": "SavedRecord"
+          }
+        },
+        {
+          "name": "list_saved",
+          "description": "Возвращает список сохранённого: файлы каталога ``output/`` и строки базы.\n\nПараметры: kind — что показать: ``all`` (по умолчанию, и файлы, и строки),\n``file`` (только файлы) или ``row`` (только строки базы); limit — сколько\nзаписей каждого вида вернуть (1..50, по умолчанию 10, значения вне границ\nподтягиваются к ним).\n\nВозвращает объект с полями files (свежие сверху), rows (свежие сверху), count\n(общее число записей обоих видов) и kind (вид выборки). Пример:\nlist_saved(kind=\"row\", limit=5).\n\nЧужой вид выборки — ошибка с перечнем допустимых.",
+          "input_schema": {
+            "properties": {
+              "kind": {
+                "default": "all",
+                "title": "Kind",
+                "type": "string"
+              },
+              "limit": {
+                "default": 10,
+                "title": "Limit",
+                "type": "integer"
+              }
+            },
+            "type": "object",
+            "title": "list_savedArguments"
+          },
+          "output_schema": {
+            "properties": {
+              "files": {
+                "items": {
+                  "$ref": "#/$defs/SavedFileInfo"
+                },
+                "title": "Files",
+                "type": "array"
+              },
+              "rows": {
+                "items": {
+                  "$ref": "#/$defs/SavedRecordInfo"
+                },
+                "title": "Rows",
+                "type": "array"
+              },
+              "count": {
+                "title": "Count",
+                "type": "integer"
+              },
+              "kind": {
+                "title": "Kind",
+                "type": "string"
+              }
+            },
+            "required": [
+              "files",
+              "rows",
+              "count",
+              "kind"
+            ],
+            "type": "object",
+            "$defs": {
+              "SavedFileInfo": {
+                "description": "Сведения о файле каталога вывода для списка ``list_saved``.",
+                "properties": {
+                  "filename": {
+                    "title": "Filename",
+                    "type": "string"
+                  },
+                  "filepath": {
+                    "title": "Filepath",
+                    "type": "string"
+                  },
+                  "size_bytes": {
+                    "title": "Size Bytes",
+                    "type": "integer"
+                  },
+                  "format": {
+                    "title": "Format",
+                    "type": "string"
+                  },
+                  "saved_at": {
+                    "title": "Saved At",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "filename",
+                  "filepath",
+                  "size_bytes",
+                  "format",
+                  "saved_at"
+                ],
+                "title": "SavedFileInfo",
+                "type": "object"
+              },
+              "SavedRecordInfo": {
+                "description": "Сведения о строке базы для списка ``list_saved``.",
+                "properties": {
+                  "row_id": {
+                    "title": "Row Id",
+                    "type": "integer"
+                  },
+                  "kind": {
+                    "title": "Kind",
+                    "type": "string"
+                  },
+                  "title": {
+                    "title": "Title",
+                    "type": "string"
+                  },
+                  "source": {
+                    "title": "Source",
+                    "type": "string"
+                  },
+                  "created_at": {
+                    "title": "Created At",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "row_id",
+                  "kind",
+                  "title",
+                  "source",
+                  "created_at"
+                ],
+                "title": "SavedRecordInfo",
+                "type": "object"
+              }
+            },
+            "description": "Результат ``list_saved``: файлы, строки базы, их общее число и вид выборки.",
+            "title": "SavedList"
+          }
+        },
+        {
+          "name": "load_from_file",
+          "description": "Читает сохранённый файл каталога ``output/`` по имени.\n\nПараметр: filename — имя файла без пути и «..» (например\n``rag-summary.md``; имя чистится теми же правилами, что у ``save_to_file``).\n\nВозвращает объект с полями filename, filepath, chars (число символов), format\nи text (содержимое как есть). Пример: load_from_file(filename=\"rag-summary.md\").\n\nОпасное имя, файл вне каталога вывода и отсутствие файла — ошибка с причиной.",
+          "input_schema": {
+            "properties": {
+              "filename": {
+                "title": "Filename",
+                "type": "string"
+              }
+            },
+            "required": [
+              "filename"
+            ],
+            "type": "object",
+            "title": "load_from_fileArguments"
+          },
+          "output_schema": {
+            "properties": {
+              "filename": {
+                "title": "Filename",
+                "type": "string"
+              },
+              "filepath": {
+                "title": "Filepath",
+                "type": "string"
+              },
+              "chars": {
+                "title": "Chars",
+                "type": "integer"
+              },
+              "format": {
+                "title": "Format",
+                "type": "string"
+              },
+              "text": {
+                "title": "Text",
+                "type": "string"
+              }
+            },
+            "required": [
+              "filename",
+              "filepath",
+              "chars",
+              "format",
+              "text"
+            ],
+            "type": "object",
+            "description": "Прочитанный файл: имя, путь, число символов, формат и сам текст.",
+            "title": "LoadedFile"
+          }
+        }
+      ]
+    }
+  ]
+}

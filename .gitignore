@@ -118,6 +118,12 @@ coverage.xml
 *.weaviate
 *.pinecone
 
+# Индекс эмбеддингов дня 21: собирается кодом из index/fixed.index и
+# index/structural.index (правило *.index ниже), в Git не нужен. Кэш весов
+# модели лежит внутри каталога (index/models/) и покрыт правилом models/.
+day21/index/
+*.index
+
 # Эмбеддинги и кэш моделей
 embeddings/
 vectors/

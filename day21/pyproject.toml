@@ -1,0 +1,28 @@
+[project]
+name = "day21"
+version = "0.1.0"
+description = "День 21: индексация документов (две стратегии чанкинга, FAISS, SQLite) поверх агента дня 20 (FastAPI + Streamlit)"
+requires-python = ">=3.14"
+dependencies = [
+    "apscheduler>=3.11.3,<4.0",
+    "faiss-cpu>=1.15.1",
+    "fastapi>=0.141,<0.142",
+    "httpx>=0.28,<0.29",
+    "mcp>=2.2.0",
+    "numpy>=2.5.3",
+    "openai>=3.14,<4.0",
+    "pandas>=3.0,<4.0",
+    "pytest>=9.1,<10.0",
+    "requests>=2.34,<3.0",
+    "sentence-transformers>=6.1.0",
+    "sentencepiece>=0.2.2",
+    "sqlalchemy>=2.0.54,<3.0",
+    "streamlit>=1.64,<2.0",
+    "tiktoken>=0.14,<0.15",
+    "uvicorn[standard]>=0.53,<0.54",
+]
+
+[dependency-groups]
+dev = [
+    "playwright>=1.63.0",
+]

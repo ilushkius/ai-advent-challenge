@@ -5,6 +5,118 @@
 структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
 `chore` (прочее: инфраструктура, скиллы, служебные изменения).
 
+## 2026-09-28 — feat — day21: индексация документов (две стратегии чанкинга, FAISS + SQLite, демо одной кнопкой)
+
+Новый день `day21/` — копия `day20/` (снимки `day1/`–`day20/` не изменялись) плюс
+**индексация документов**: набор из 25 документов репозитория собирается в
+`documents/`, режется на чанки двумя стратегиями (фиксированное окно по токенам и
+структурная — по секциям документа), эмбеддинги `sentence-transformers` кладутся в
+**FAISS**, метаданные чанков — в SQLite, а демо-сценарий одной кнопкой считает
+метрики сравнения стратегий и уходит в отчёт. Шаг поиска по индексу добавлен и в
+ход агента: найденные фрагменты документов попадают в системный промпт.
+
+Что добавлено:
+
+- **домен** (`backend/domain/`): `document_sources.py` (источники документов
+  данными, `DOCUMENT_SOURCES` из 25 записей с пределом символов, метаданные и
+  усечение), `chunking.py` (`BlockKind`, `ChunkStrategy`, `iter_blocks` — блоки
+  делят текст **без пропусков и перекрытий**: секции markdown, секции кода через
+  `ast` с запасной эвристикой, абзацы plain text), `index_metrics.py` (`size_stats`,
+  `histogram`, `coverage_ratio` по объединению интервалов, `structure_ratio`,
+  `precision_recall`, `ascii_histogram`, `comparison_rows`), `index_scenarios.py`
+  (пять тестовых запросов с ожидаемыми источниками + `validate_queries`),
+  `indexing_fsm.py` (`IndexingState`/`IndexingEvent`, граф переходов, `IndexingFSM`),
+  `indexing_prompt.py` (блок «## Контекст из индекса документов»);
+- **сервисы** (`backend/services/`): `chunker.py` (`FixedSizeChunker` — окно 512
+  токенов с перекрытием 50 целыми блоками; `StructuralChunker` — секция, мелкие
+  сливаются, длинные режутся с сохранением заголовка; токены считает общий
+  `shared.token_counter`), `embedding_service.py` (`EmbeddingService`: ленивая
+  загрузка модели, `max_seq_length = 512`, батчи, нормализованные векторы,
+  `EmbeddingError`, `warmup` без исключений), `index_service.py` (`IndexService`:
+  `faiss.IndexIDMap2(IndexFlatIP)`, id вектора = `document_chunks.id`, `index_chunks`,
+  `search`, `save/load_index`, `save_all`/`load_all`, `clear_index`, `get_stats`,
+  `IndexNotBuiltError`), `document_loader.py` (`DocumentLoader`: сборка `documents/`
+  и манифеста, `ensure_documents` для свежего клона), `index_runner.py` (этапы
+  прогона по FSM с журналом прогресса и терминальным статусом),
+  `index_comparison.py` (сборка метрик сравнения), `indexing_service.py`
+  (`IndexingService`: запуск фоном или синхронно, прогресс, поиск, очистка,
+  `IndexingRejected` с кодами причин);
+- **хранилище и модели**: `backend/models/indexing.py` (`document_chunks`,
+  `index_runs`), `backend/storage/chunk_store.py` (`ChunkStore`),
+  `backend/storage/index_run_store.py` (`IndexRunStore`),
+  `backend/storage/index_rows.py` (проекции), реэкспорт в `storage/__init__.py`,
+  `models/__init__.py`, `storage/database.py`;
+- **API**: `backend/api/indexing.py` — девять эндпоинтов (`POST /indexing/run`,
+  `POST /indexing/demo`, `GET /indexing/status`, `GET /indexing/stats`,
+  `GET /indexing/search`, `GET /indexing/chunks`, `GET /indexing/runs`,
+  `GET /indexing/runs/{run_id}`, `POST /indexing/clear`), схемы в
+  `backend/schemas/indexing.py`, поле `indexing` в `GenerateResponse`,
+  подстановка служб в `core/dependencies.py`, чтение индексов и прогрев модели в
+  `api/lifespan.py`;
+- **агент**: `Agent.apply_index_context` и `record["indexing"]` — шаг поиска по
+  индексу в `generate()` (после пайплайна, до контроля лимита; реплика, занятая
+  пайплайном или оркестрацией, поиск не делает), `indexing_service` в
+  `AgentManager` и обоих местах создания агента;
+- **интерфейс** (`frontend/`): `indexing_api.py`, `indexing_section.py` (раздел
+  «📦 Индексация»: кнопка «🚀 Запустить демо-индексацию», прогресс этапов фрагментом
+  раз в секунду, история запусков, очистка), `indexing_compare.py` (таблица метрик,
+  гистограммы, примеры чанков, результаты запросов), `indexing_search.py` (ручной
+  поиск); девятый раздел в `chat_section.py` и строка `indexing_note` в сводке хода;
+- **скрипты**: `prepare_documents.py` (`--force`/`--list`), `indexing_scenarios.py`
+  (пять сценариев + стенд `DemoStand` и `HashEmbedder` для офлайн-прогона),
+  `indexing_demo.py` (`--stub-embedder`, `--report`, `--screenshot`,
+  `--skip-scenarios`), `indexing_report.py` (сборка
+  `docs/reports/indexing_demo.md`), `indexing_ui_shot.py` (снимок раздела через
+  Playwright с отказом-заглушкой, если браузера нет);
+- **тесты**: 12 новых файлов плюс фейки `tests/indexing_fakes.py` (эмбеддер на
+  хешах слов и три тестовых документа) и фикстуры `documents_dir`, `documents`,
+  `document_loader`, `fake_embedder`, `chunk_store`, `index_run_store`,
+  `index_service`, `indexing_service`; autouse-фикстура `isolated_indexing` уводит
+  индексы в `tmp_path` и запрещает загрузку настоящей модели;
+- **документация**: раздел «Индексация документов» в `docs/architecture.md`
+  (блоки, стратегии, эмбеддинги, индекс, поток данных, метрики, место шага в
+  `generate`), две таблицы в «Схеме БД», раздел «Индексация документов» и коды
+  ошибок в `docs/api.md`, полностью переписанный `docs/usage.md` (инструкция дня 21:
+  запуск, демо одной кнопкой, чтение метрик, ручной поиск, пять сценариев,
+  переиндексация, частые ошибки), обновлённые `README.md` и `STRUCTURE.md` дня,
+  новая запись в `AGENTS.md` (правило про индексацию и описание дня).
+
+Зависимости: `sentence-transformers` (эмбеддинги; тянет `torch`), `sentencepiece`
+(токенизатор мультиязычной модели — без него загрузка падает с «Unrecognized
+processing class … Can't instantiate a tokenizer»), `faiss-cpu` (векторный индекс),
+`numpy` (прямо импортируется) — добавлены `uv add`, точные версии в `uv.lock`.
+Модель эмбеддингов скачивается в `index/models/` (в Git не попадает).
+
+Инфраструктура: `.gitignore` — `day21/index/` и `*.index` (индекс генерируется);
+`.omp/config.yml` — `day21/.agents/skills` в `customDirectories`;
+`day21/.agents/skills/` — скиллы библиотек (`uvx library-skills --copy`: fastapi,
+developing-with-streamlit, typer, library-skills).
+
+Расхождения с планом дня (обоснованы в `STRUCTURE.md`, раздел «Известные
+расхождения»): блоки документа образуют разбиение текста (секция markdown — до
+следующего заголовка любого уровня; секция кода — до начала следующей; абзац
+забирает пустую строку-разделитель), чтобы чанк был срезом исходника, а покрытие —
+честной метрикой; `chunk_id` в `document_chunks` не уникален, потому что повторный
+прогон дописывает индекс, а не перестраивает его; логика прогона разделена на
+`index_runner.py` и `index_comparison.py` (в одном файле было 487 строк — за
+лимитом 400).
+
+Найдено и исправлено при проверке (шаг 6–7 верификации):
+
+- **стенд прогона работает на БД дня, а не на отдельной `index_demo.db`**: векторы
+  лежат в общих файлах `index/*.index`, поэтому метаданные в другой БД делали поиск
+  запущенного бэкенда пустым при непустом индексе (`chunks 0` против 127 векторов);
+  теперь скрипт и приложение пишут в `agents.db`, а `GET /indexing/stats` отдаёт
+  `index_vectors` рядом с `chunks`, чтобы такое расхождение не было молчаливым;
+- **добавлена зависимость `sentencepiece`**: без неё токенизатор мультиязычной модели
+  не собирается («Unrecognized processing class … Can't instantiate a tokenizer»), и
+  каждый прогон падал через ~7 минут ожидания; подсказка в `EmbeddingError` теперь
+  говорит и про битый кэш (`index/models` лечится удалением), а размерность
+  запрашивается новым методом `get_embedding_dimension`;
+- **autouse-фикстура `offline_planner`**: унаследованные тесты дня 20 звали настоящую
+  модель планировщика оркестрации (ключ в `.env` живой) и падали, когда план приходил
+  от модели; теперь тесты детерминированы, а набор перестал ждать сетевых таймаутов.
+
 ## 2026-09-25 — feat — day20: оркестрация нескольких MCP-серверов
 
 Новый день `day20/` — копия `day19/` (снимки `day1/`–`day19/` не изменялись) плюс
