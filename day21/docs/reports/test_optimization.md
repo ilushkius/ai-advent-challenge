@@ -80,7 +80,8 @@ cd day21
 uv run pytest -q                                  # быстрый прогон: 2446 тестов, ~31 с (без slow)
 uv run pytest -q -m ""                            # полный прогон: 2521 тест, ~68 с
 uv run pytest -q --run-slow                       # то же флагом
-uv run pytest -q -m "" --cov=backend --cov-report=term-missing   # полный прогон с покрытием
+uv run pytest -q -m "" --cov=backend --cov-report=term-missing   # полный прогон с покрытием (TOTAL в терминале)
+uv run pytest -m "" --cov=backend --cov-report=html              # то же, отчёт в htmlcov/index.html
 uv run pytest -q --durations=25                   # где время (setup/call/teardown)
 ```
 
