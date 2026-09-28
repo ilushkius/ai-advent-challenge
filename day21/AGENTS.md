@@ -3,6 +3,9 @@
 Правила работы в этом каталоге. Устройство дня — [`STRUCTURE.md`](STRUCTURE.md),
 инструкция — [`docs/usage.md`](docs/usage.md), sticky-правила —
 [`.omp/RULES.md`](.omp/RULES.md), скиллы проекта — в `.agents/skills/`.
+**Правила проекта — в корневых [`../AGENTS.md`](../AGENTS.md),
+[`../RULES.md`](../RULES.md) и [`../docs/project-rules.md`](../docs/project-rules.md);
+здесь только специфика дня.**
 
 ## Границы
 

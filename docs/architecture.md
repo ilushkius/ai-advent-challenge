@@ -1,17 +1,23 @@
 # Архитектура проекта
 
 Документ описывает **междневные** слои репозитория: общий пакет
-[`shared/`](../shared/), политику папок `dayN/` и модульную раскладку активного
-дня 13. Устройство конкретного дня — в `docs/` внутри его папки (день 13:
+[`shared/`](../shared/), политику папок `dayN/` и модульную раскладку дня 13.
+Устройство конкретного дня — в `docs/` внутри его папки (активный день 13:
 [`../day13/docs/architecture.md`](../day13/docs/architecture.md)); карта модулей
 дня — [`../day13/STRUCTURE.md`](../day13/STRUCTURE.md).
+
+> **Актуальность.** Это исторический документ эпохи дня 13 (снимок): «активной»
+> тогда была папка `day13/`, сейчас разработка идёт в `day21/`. Актуальная
+> архитектура — [`../day21/docs/architecture.md`](../day21/docs/architecture.md),
+> правила проекта и лимиты — [`project-rules.md`](project-rules.md), рабочий
+> процесс — [`../WORKFLOW.md`](../WORKFLOW.md).
 
 ## Политика папок: снимки и активная разработка
 
 | Папка | Статус | Что это значит |
 |---|---|---|
-| `day1/`–`day12/` | **снимки** | код сдан и не изменяется; правка — только по прямому запросу пользователя |
-| `day13/` | **активная разработка** | здесь применяются правила структуры из [`AGENTS.md`](../AGENTS.md) |
+| `day1/`–`day20/` | **снимки** | код сдан и не изменяется; правка — только по прямому запросу пользователя |
+| `day21/` | **активная разработка** | здесь применяются правила структуры из [`project-rules.md`](project-rules.md) |
 | `shared/` | общий пакет | код, не меняющийся между днями; дни импортируют его, а не копируют |
 
 ## Модульная структура
@@ -137,7 +143,7 @@ flowchart TB
 | `models/task_state.py` | 102 | `task_states` (`TaskState`), `task_transitions` (`TaskTransition`) |
 | `models/__init__.py` | 43 | Реэкспорт ORM-классов (импорт — из `backend.storage.database`) |
 
-Это **целевая раскладка** `AGENTS.md`: Pydantic-схемы — `schemas/`, ORM —
+Это **целевая раскладка** `project-rules.md`: Pydantic-схемы — `schemas/`, ORM —
 `models/`. Движок и фабрику сессий создаёт `backend/storage/database.py`
 помощниками `shared/db_base.py` и он же реэкспортирует ORM-классы, поэтому
 остальной код импортирует таблицы из `backend.storage.database`.
@@ -149,14 +155,14 @@ flowchart TB
 | `backend/core/config.py` | 156 | core | URL и модели DeepSeek, дефолты агента, лимиты и цены, настройки сжатия/стратегий/памяти/профиля, границы полей состояния задачи, путь к `day13/agents.db` и `.env` |
 | `backend/core/dependencies.py` | 41 | core | Зависимости API-слоя: `get_manager`, `agent_or_404`, `task_or_404` |
 | `backend/domain/strategies.py` | 62 | domain | `Enum Strategy` (`sliding_window` / `sticky_facts` / `branching` / `summary`) и проверка значения |
-| `backend/domain/context_fsm.py` | 256 | domain | Стейт-машина сжатия: `Enum` + паттерн State (цель `AGENTS.md`) |
+| `backend/domain/context_fsm.py` | 256 | domain | Стейт-машина сжатия: `Enum` + паттерн State (цель `project-rules.md`) |
 | `backend/domain/context_policy.py` | 173 | domain | Чистая арифметика «когда сжимать и что оставить» |
 | `backend/domain/fact_extractor.py` | 96 | domain | Эвристика извлечения фактов «ключ → значение» |
 | `backend/domain/memory_layers.py` | 105 | domain | Категории и тексты блоков слоёв памяти (без ORM) |
 | `backend/domain/profile_values.py` | 335 | domain | Перечисления и нормализация значений профиля |
 | `backend/domain/profiles.py` | 204 | domain | Сборка блока персонализации для системного промпта |
 | `backend/domain/demo_profiles.py` | 107 | domain | Демонстрационные профили для UI и отчёта |
-| `backend/domain/task_fsm.py` | 387 | domain | Стейт-машина состояния задачи: `TaskStage`/`TaskStep`/`TaskEvent`, классы-этапы с `handle(event, step)`, таблицы `STAGE_STEPS`/`STAGE_TRANSITIONS` (цель `AGENTS.md`) |
+| `backend/domain/task_fsm.py` | 387 | domain | Стейт-машина состояния задачи: `TaskStage`/`TaskStep`/`TaskEvent`, классы-этапы с `handle(event, step)`, таблицы `STAGE_STEPS`/`STAGE_TRANSITIONS` (цель `project-rules.md`) |
 | `backend/domain/task_prompt.py` | 174 | domain | Тексты блока состояния для системного промпта: ожидаемые действия, завершённые этапы, `render_task_state_block` |
 | `backend/domain/task_intent.py` | 89 | domain | Распознавание намерения в реплике (`пауза` / `продолжи` / `откат` / `подтверждаю`) по таблице фраз с приоритетом групп |
 | `backend/storage/database.py` | 44 | storage | Движок и фабрика сессий + реэкспорт ORM-классов и `Base` |
@@ -192,7 +198,7 @@ flowchart TB
 (шесть точек входа слоёв). Дни 1, 4–11 автономны, `day12/` — снимок той же
 архитектуры, что и день 13.
 Для новых дней `shared/` — обязательное место для междневного кода
-(см. [`AGENTS.md`](../AGENTS.md), раздел «Структура файлов»).
+(см. [`project-rules.md`](project-rules.md), раздел «Структура файлов»).
 
 ## Как день 13 использует `shared/`
 
@@ -212,7 +218,7 @@ flowchart TB
 ## Инварианты структуры
 
 - Любой `.py` — **не больше 400 строк**; `app.py` ≤ 100,
-  `backend/api/main.py` ≤ 80 (команда проверки — в `AGENTS.md`, раздел
+  `backend/api/main.py` ≤ 80 (команда проверки — в `project-rules.md`, раздел
   «Структура файлов»).
 - Файл лежит в папке **своего слоя** (`core` / `domain` / `storage` /
   `services` / `agents` / `models` / `schemas` / `api` / `utils`); в корне

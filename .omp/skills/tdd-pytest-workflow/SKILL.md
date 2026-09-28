@@ -21,7 +21,8 @@ description: "Test-Driven Development workflow with pytest for the ai-challenge 
 uv run pytest -q
 ```
 
-(с `day13` зависимости ведёт `uv` — см. `AGENTS.md`, раздел «Зависимости: uv»;
+(с `day13` зависимости ведёт `uv` — см. `docs/project-rules.md` в корне
+репозитория, раздел «Зависимости: uv»;
 для снимков `day1`–`day12` команда прежняя: `.venv\Scripts\python -m pytest -q`)
 
 - `pytest.ini` дня задаёт `testpaths = tests` и `pythonpath = . tests`, поэтому

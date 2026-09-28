@@ -1,7 +1,8 @@
 # Структура дня 21
 
 Карта модулей дня 21: что где лежит и за что отвечает. Правила структуры — в
-[`../AGENTS.md`](../AGENTS.md) и [`../docs/architecture.md`](docs/architecture.md).
+[`../docs/project-rules.md`](../docs/project-rules.md) и
+[`../docs/architecture.md`](../docs/architecture.md).
 
 **Главные правила раскладки.** Любой `.py` ≤ 400 строк (`app.py` ≤ 100,
 `backend/api/main.py` ≤ 80). Файл лежит в папке **своего слоя**: конфигурация —

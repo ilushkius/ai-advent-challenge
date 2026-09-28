@@ -59,7 +59,8 @@ uv run streamlit run app.py     # http://localhost:8501
 задачей (кнопка, текст, правка документации) можно заниматься сразу — без
 архитектурной ступени. Полное описание маршрута — в
 [`../WORKFLOW.md`](../WORKFLOW.md), правила для агента — в
-[`../AGENTS.md`](../AGENTS.md).
+[`../AGENTS.md`](../AGENTS.md) дня и в корневых [`../../AGENTS.md`](../../AGENTS.md),
+[`../../RULES.md`](../../RULES.md).
 
 ## 3. Тесты
 
