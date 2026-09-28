@@ -194,13 +194,14 @@ class ContextCompressor:
 
         started = datetime.now(timezone.utc)
         try:
-            client = self.agent._make_client()
-            response = client.chat.completions.create(
-                model=config.SUMMARY_MODEL,
+            # Через обёртку LLM: тип задачи `summarize` держит сводку на дешёвой
+            # модели, а метрики кэша контекста попадают в журнал расходов.
+            response = self.agent.llm_client.call(
                 messages=prompt,
-                temperature=config.SUMMARY_TEMPERATURE,
+                task_type=config.LLM_TASK_SUMMARY,
                 max_tokens=config.SUMMARY_MAX_TOKENS,
-            )
+                temperature=config.SUMMARY_TEMPERATURE,
+            ).response
         except Exception as exc:  # нет ключа, сеть, лимиты — ход не ломаем
             raise CompressionError(f"Сбой суммаризации: {exc}") from exc
 

@@ -17,9 +17,10 @@
 import streamlit as st
 
 from . import (
-    api_client, common, context_panels, indexing_section, invariant_panel,
-    mcp_section, memory_panels, notifications, orchestration_section,
-    pipeline_section, profile_section, scheduler_section, task_panel,
+    api_client, common, context_panels, cost_section, indexing_section,
+    invariant_panel, mcp_section, memory_panels, notifications,
+    orchestration_section, pipeline_section, profile_section, scheduler_section,
+    task_panel,
 )
 
 
@@ -78,7 +79,7 @@ def render_main_area() -> None:
             "Раздел",
             ["💬 Чат и память", "👤 Профиль пользователя", "🧭 Состояние задачи",
              "📏 Инварианты", "🔌 MCP", "🗓 Планировщик", "🔀 Пайплайны",
-             "🌐 Оркестрация", "📦 Индексация"],
+             "🌐 Оркестрация", "📦 Индексация", "💰 Расходы"],
             horizontal=True, key="main_section", label_visibility="collapsed",
         )
         if section.startswith("👤"):
@@ -105,6 +106,10 @@ def render_main_area() -> None:
             # Индексация дня 21: документы, два индекса FAISS и поиск по ним.
             # Тоже служба процесса: индекс один на бэкенд, а не на агента.
             indexing_section.render_indexing_section()
+        elif section.startswith("💰"):
+            # Расходы на LLM (день 21): журнал, кэш контекста, непиковые часы.
+            # Раздел глобальный: считает запросы всех агентов процесса.
+            cost_section.render_cost_section()
         else:
             if not agents:
                 st.info("Агентов пока нет — создайте первого в боковой панели. "
@@ -320,6 +325,12 @@ def render_main_area() -> None:
                                     record.get("indexing") or {})
                                 if index_note:
                                     notes.append(index_note)
+                                # Расходы на LLM (день 21): модель, токены и доля
+                                # ввода из кэша контекста — это видно и здесь, а не
+                                # только во вкладке «💰 Расходы».
+                                cost_note = cost_section.cost_note(record)
+                                if cost_note:
+                                    notes.append(cost_note)
                                 if ctx.get("trimmed_messages"):
                                     notes.append(f"⚠️ пропущено реплик в запросе: "
                                                  f"{ctx['trimmed_messages']}")

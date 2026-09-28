@@ -101,7 +101,10 @@ def scheduler_tasks(status: Optional[str] = None):
         "сохраняется, сбор делает первый запрос, сводка считается сразу за "
         "прошедший интервал — результат виден в `result`, подтверждение в "
         "`message`. Неудача немедленного шага не отменяет задачу: причина в "
-        "`error`, а попытка повторится по расписанию."
+        "`error`, а попытка повторится по расписанию. Флаг `prefer_off_peak` "
+        "переносит ПЕРВЫЙ запуск в непиковое окно DeepSeek (скидка провайдера): "
+        "если расчётное время попадает в пик, оно сдвигается на начало "
+        "ближайшего непикового окна (`scheduler` в ответе `GET /scheduler/status`)."
     ),
 )
 def scheduler_create(body: SchedulerTaskIn):
@@ -111,6 +114,7 @@ def scheduler_create(body: SchedulerTaskIn):
             tool=body.tool, arguments=body.arguments, name=body.name,
             run_now=body.run_now, schedule_type=_type_value(body.schedule_type),
             schedule_value=body.schedule_value,
+            prefer_off_peak=body.prefer_off_peak,
         )
     except ScheduleRejected as exc:
         raise _rejected(exc) from exc
@@ -233,7 +237,9 @@ def scheduler_tools():
     description=(
         "Работает ли обслуживание таймеров, в каком часовом поясе идут расписания, "
         "сколько задач поставлено в APScheduler и как часто таблица задач "
-        "сверяется с планировщиком."
+        "сверяется с планировщиком. Поля `off_peak`, `next_off_peak` и "
+        "`discount_percent` показывают непиковые часы DeepSeek: действует ли "
+        "скидка сейчас и когда начнётся следующее выгодное окно."
     ),
 )
 def scheduler_status():

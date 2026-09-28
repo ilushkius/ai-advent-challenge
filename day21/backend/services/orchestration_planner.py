@@ -25,6 +25,7 @@ from shared.logging_utils import get_logger
 from ..core import config
 from ..domain.mcp_tools import MCPFleetTool
 from ..domain.orchestration_plan import build_plan_prompt, parse_plan
+from .llm_client import LLMClient
 
 logger = get_logger(__name__)
 
@@ -56,12 +57,15 @@ class OrchestrationPlanner:
             logger.info("Оркестрация: ключа DeepSeek нет — план построит эвристика")
             return None
         try:
-            response = self._get_client(key).chat.completions.create(
-                model=config.ORCH_PLAN_MODEL,
+            # Вызов через обёртку LLM: тип задачи `orchestration` сам выбирает
+            # модель из таблицы, а метрики кэша контекста уходят в журнал расходов.
+            planner_client = LLMClient(client_factory=lambda: self._get_client(key))
+            response = planner_client.call(
                 messages=build_plan_prompt(query, tools),
-                temperature=config.ORCH_PLAN_TEMPERATURE,
+                task_type=config.LLM_TASK_ORCHESTRATION,
                 max_tokens=config.ORCH_PLAN_MAX_TOKENS,
-            )
+                temperature=config.ORCH_PLAN_TEMPERATURE,
+            ).response
         except Exception as exc:  # noqa: BLE001 — план не критичен, есть эвристика
             logger.warning("Оркестрация: планировщик не ответил: %s", exc)
             return None

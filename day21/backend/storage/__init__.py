@@ -18,7 +18,10 @@
   шагов и статистика по серверам и инструментам;
 - ``index_rows`` — ORM-строки индексации в словари API/UI (день 21);
 - ``chunk_store`` — ``ChunkStore``: чанки документов (метаданные, текст, id вектора);
-- ``index_run_store`` — ``IndexRunStore``: запуски индексации, их прогресс и метрики.
+- ``index_run_store`` — ``IndexRunStore``: запуски индексации, их прогресс и метрики;
+- ``llm_usage_rows`` — ORM-строки журнала расходов на LLM в словари API/UI (день 21);
+- ``llm_usage_store`` — ``LLMUsageStore``: запись запросов к модели и агрегаты
+  расхода за период (токены, доля кэша, разрезы по модели и типу).
 """
 
 from . import (
@@ -27,6 +30,8 @@ from . import (
     index_rows,
     index_run_store,
     invariant_store,
+    llm_usage_rows,
+    llm_usage_store,
     memory_rows,
     orchestration_rows,
     orchestration_store,
@@ -47,6 +52,7 @@ from .database import (
     Fact,
     IndexRun,
     Invariant,
+    LLMUsage,
     LongTermMemory,
     OrchestrationRun,
     OrchestrationStep,
@@ -77,6 +83,8 @@ from .invariant_store import (
     InvariantManager,
     InvariantNotFoundError,
 )
+from .llm_usage_rows import llm_usage_dict
+from .llm_usage_store import LLMUsageStore
 from .memory_rows import _long_term_dict, _short_term_dict, _working_dict
 from .orchestration_store import OrchestrationRunNotFoundError, OrchestrationStore
 from .pipeline_store import PipelineRunNotFoundError, PipelineStore
@@ -113,6 +121,8 @@ __all__ = [
     "InvariantExistsError",
     "InvariantManager",
     "InvariantNotFoundError",
+    "LLMUsage",
+    "LLMUsageStore",
     "LongTermMemory",
     "NotificationNotFoundError",
     "OrchestrationRun",
@@ -157,6 +167,9 @@ __all__ = [
     "init_db",
     "invariant_store",
     "jsonable",
+    "llm_usage_dict",
+    "llm_usage_rows",
+    "llm_usage_store",
     "make_engine",
     "make_session_factory",
     "memory_rows",

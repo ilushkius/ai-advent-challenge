@@ -30,6 +30,8 @@
   задач, исполнение тика одним путём (день 18);
 - ``schedule_service`` — ``ScheduleService``: операции уровня инструментов —
   создание задачи, пауза, возобновление, удаление, чтение данных планировщика;
+- ``off_peak`` — ``shift_to_off_peak``: перенос первого запуска задачи в
+  непиковое окно DeepSeek при флаге ``prefer_off_peak`` (день 21);
 - ``pipeline`` — ``Pipeline``: прогон декларативного пайплайна MCP-инструментов
   (маппинг данных между шагами, условия перехода, журнал шагов в SQLite);
 - ``pipeline_service`` — ``PipelineService``: запуск пайплайна (фоном или
@@ -62,7 +64,7 @@ from . import (
     index_comparison, index_runner, index_service, indexing_service,
     invariant_checker, mcp_client, mcp_errors,
     mcp_fleet_state, mcp_loop, mcp_registry, mcp_tool_runner, mcp_transport,
-    orchestration_planner,
+    off_peak, orchestration_planner,
     orchestration_service, orchestrator, pipeline, pipeline_service,
     schedule_service, scheduled_jobs, scheduler, source_fetch, task_state,
 )

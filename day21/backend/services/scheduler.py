@@ -37,6 +37,7 @@ from typing import Any, Callable, Optional
 from shared.logging_utils import get_logger
 
 from ..core import config
+from ..domain import peak_hours
 from ..domain.schedule_spec import ScheduleRejected
 from ..domain.schedule_timing import next_run_at
 from ..domain.scheduler_fsm import (
@@ -57,7 +58,7 @@ from ..storage.scheduler_data_store import SchedulerDataStore
 from ..storage.scheduler_rows import as_utc, jsonable
 from ..storage.scheduler_store import SchedulerStore
 from . import apscheduler_bridge as bridge
-from . import scheduled_jobs
+from . import off_peak, scheduled_jobs
 from .source_fetch import fetch_json
 
 __all__ = ["TaskScheduler", "get_scheduler"]
@@ -115,7 +116,11 @@ class TaskScheduler:
         logger.debug("Планировщик остановлен")
 
     def status(self) -> dict[str, Any]:
-        """Состояние планировщика для ``GET /scheduler/status``."""
+        """Состояние планировщика для ``GET /scheduler/status``.
+
+        Вместе с таймерами отдаём блок непиковых часов DeepSeek: без него
+        ``prefer_off_peak`` был бы невидим тому, кто ставит задачи.
+        """
         scheduler = self._scheduler
         pending = 0
         timezone_name = config.SCHEDULER_TIMEZONE
@@ -123,12 +128,33 @@ class TaskScheduler:
             timezone_name = str(scheduler.timezone)
             pending = sum(1 for job in scheduler.get_jobs()
                           if bridge.job_task_id(job.id) is not None)
+        off_peak = self.peak_status()
         return {
             "running": self.running,
             "timezone": timezone_name,
             "pending_jobs": pending,
             "sync_seconds": config.SCHEDULER_SYNC_SECONDS,
+            "off_peak": off_peak["off_peak"],
+            "next_off_peak": off_peak["next_off_peak"],
+            "discount_percent": off_peak["discount_percent"],
         }
+
+    # --- непиковые часы DeepSeek (скидка провайдера) ---
+    def is_off_peak(self, moment: Optional[datetime] = None) -> bool:
+        """Скидка DeepSeek действует сейчас? (``moment`` — для тестов.)
+
+        Правило окна живёт в домене (``domain/peak_hours.py``): планировщику
+        детали не нужны, но нужен ответ, чтобы ставить тяжёлые задачи в дешёвые часы.
+        """
+        return peak_hours.is_off_peak(moment or datetime.now(timezone.utc))
+
+    def get_next_off_peak_time(self, moment: Optional[datetime] = None) -> datetime:
+        """Начало следующего непикового окна (строго позже ``moment``) — момент сдвига."""
+        return peak_hours.next_off_peak(moment or datetime.now(timezone.utc))
+
+    def peak_status(self, moment: Optional[datetime] = None) -> dict[str, Any]:
+        """Пик или непик, подпись окна и скидка — блок ``GET /scheduler/status``."""
+        return peak_hours.peak_status(moment or datetime.now(timezone.utc))
 
     # --- сверка БД и планировщика ---
     def sync_from_db(self) -> int:
@@ -166,8 +192,11 @@ class TaskScheduler:
         приложение было выключено), задача выполняется сразу — так напоминание не
         теряется, а сбор не ждёт целый период. Планировщик не запущен (тесты,
         скрипты) — расписание всё равно считается и ложится в БД.
+
+        Задача с флагом ``prefer_off_peak`` переносится в непик при постановке
+        (``services/off_peak.py``): это единственная точка, где момент известен.
         """
-        moment = self._planned_next_run(task)
+        moment = off_peak.shift_to_off_peak(task, self._planned_next_run(task))
         if self._scheduler is None:
             return self._store.set_next_run(task["id"], moment)
         job = bridge.add_task_job(self._scheduler, task, moment,

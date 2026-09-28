@@ -133,6 +133,8 @@ from ..domain.task_state_machine import (
     is_transition_allowed,
     transition_explanation,
 )
+from ..core.prompt_builder import get_prompt_builder
+from ..services.llm_client import LLMClient, get_llm_client
 from ..services.task_state import TaskStateMachine
 
 logger = get_logger(__name__)
@@ -228,6 +230,8 @@ class Agent:
         pipeline_service=None,
         orchestration_service=None,
         indexing_service=None,
+        prompt_builder=None,
+        llm_client=None,
     ) -> None:
         self.agent_id = agent_id
         self.config = cfg
@@ -280,6 +284,14 @@ class Agent:
         # процесса (см. свойство ``indexing_service``); в тестах сюда приходит
         # служба на временном индексе, поэтому агент не грузит модель эмбеддингов.
         self._indexing_service = indexing_service
+        # Оптимизация затрат (день 21): строитель промптов со стабильным префиксом и
+        # обёртка вызова LLM (модель по задаче, метрики кэша, журнал расходов).
+        # None — общие объекты процесса (см. свойства); в тестах сюда приходят свои.
+        self._prompt_builder = prompt_builder
+        self._llm_client = llm_client
+        #: Статистика последней сборки системного сообщения (стабильный префикс,
+        #: сжатие, попадание в кэш) — её читает отчёт о стоимости хода.
+        self._last_prompt_stats: Dict[str, Any] = {}
         # Старт приложения/создание агента: загружаем краткосрочный слой.
         self.load_history()
 
@@ -803,6 +815,34 @@ class Agent:
             self._indexing_service = get_indexing_service()
         return self._indexing_service
 
+    @property
+    def prompt_builder(self):
+        """Строитель промптов: свой или общий на процесс (день 21).
+
+        Общий нужен ради кэша стабильных частей и счётчиков попаданий: если бы
+        каждый агент строил префикс своим объектом, «сколько раз префикс взят из
+        кэша» нельзя было бы показать снаружи.
+        """
+        if self._prompt_builder is None:
+            self._prompt_builder = get_prompt_builder()
+        return self._prompt_builder
+
+    @property
+    def llm_client(self):
+        """Обёртка вызова LLM: модель по задаче, метрики кэша, журнал расходов.
+
+        Фабрика клиента — та же ``_make_client``, поэтому подмена клиента в тестах
+        видна и здесь: обёртка не создаёт соединение сама.
+        """
+        if self._llm_client is None:
+            self._llm_client = LLMClient(
+                agent_id=self.agent_id,
+                client_factory=self._make_client,
+                session_factory=self._session_factory,
+                default_temperature=self.config.temperature,
+            )
+        return self._llm_client
+
     def apply_index_context(self, prompt: str, payload: List[dict]) -> dict:
         """Шаг поиска по индексу документов (день 21): фрагменты в промпт.
 
@@ -831,10 +871,7 @@ class Agent:
             return {**empty, "error": str(exc)}
         hits = report["results"]
         block = render_index_block(hits)
-        added = 0
-        if block:
-            self._append_system_block(payload, block)
-            added = self.count_tokens(block)
+        added = self.count_tokens(self._append_system_block(payload, block)) if block else 0
         sources: list[str] = []
         for hit in hits:
             source = str(hit.get("source") or "")
@@ -886,10 +923,7 @@ class Agent:
         # прогона его нет (прогон не знает, почему его запустили), а блок собирается
         # только для распознанной реплики.
         block = render_orchestration_block({**report, "detected": True})
-        added = 0
-        if block:
-            self._append_system_block(payload, block)
-            added = self.count_tokens(block)
+        added = self.count_tokens(self._append_system_block(payload, block)) if block else 0
         return {
             **report,
             "detected": True,
@@ -922,10 +956,7 @@ class Agent:
         # прогона его нет (прогон не знает, почему его запустили), а блок собирается
         # только для распознанной реплики.
         block = render_pipeline_block({**report, "detected": True})
-        added = 0
-        if block:
-            self._append_system_block(payload, block)
-            added = self.count_tokens(block)
+        added = self.count_tokens(self._append_system_block(payload, block)) if block else 0
         return {**report, "detected": True, "used_in_prompt": bool(block),
                 "added_tokens": added}
 
@@ -955,11 +986,9 @@ class Agent:
         scheduler_block = render_scheduler_block(outcome)
         added = 0
         if block:
-            self._append_system_block(payload, block)
-            added = self.count_tokens(block)
+            added = self.count_tokens(self._append_system_block(payload, block))
         if scheduler_block:
-            self._append_system_block(payload, scheduler_block)
-            added += self.count_tokens(scheduler_block)
+            added += self.count_tokens(self._append_system_block(payload, scheduler_block))
         return {
             **outcome.to_dict(),
             "used_in_prompt": bool(block or scheduler_block),
@@ -967,20 +996,26 @@ class Agent:
             "schedule": render_schedule_report(outcome),
         }
 
-    @staticmethod
-    def _append_system_block(payload: List[dict], block: str) -> None:
-        """Дописывает блок в системное сообщение запроса (создаёт его, если нужно).
+    def _append_system_block(self, payload: List[dict], block: str) -> str:
+        """Дописывает блок в системное сообщение запроса и возвращает его текст.
 
         Системное сообщение ровно одно (``_system_message``), но payload может
         прийти и без него — например, при пустом системном промпте. Тогда блок
         становится первым сообщением: порядок «system → остальное» — требование
         провайдера, а не деталь реализации.
+
+        Блок СЖИМАЕТСЯ (``PromptCompressor``): это динамическая часть — результат
+        инструмента, а не инструкция, — и её токены платятся в каждом запросе.
+        Возвращается именно сжатый текст: вызывающий код считает по нему
+        ``added_tokens``, иначе экономия осталась бы только в логе.
         """
+        block = self.prompt_builder.compress(block)
         for item in payload:
             if item.get("role") == "system":
                 item["content"] = "\n\n".join(filter(None, [item.get("content"), block]))
-                return
+                return block
         payload.insert(0, {"role": "system", "content": block})
+        return block
 
     # --- инварианты (день 14) ---
     def invariant_rows(self, active_only: bool = True) -> List[dict]:
@@ -1005,6 +1040,7 @@ class Agent:
         """
         return InvariantChecker(
             session_factory=self._session_factory, client_factory=self._make_client,
+            agent_id=self.agent_id,
         )
 
     def check_invariants(self, text: str,
@@ -1078,54 +1114,103 @@ class Agent:
     def _system_message(self, summary_text: str = "",
                         facts: Optional[Dict[str, str]] = None,
                         memory: Optional[MemoryContext] = None) -> List[dict]:
-        """Системное сообщение агента: профиль + роль + инварианты + блоки памяти/задачи.
+        """Системное сообщение агента, собранное строителем промптов (день 21).
 
-        Порядок блоков: ПРОФИЛЬ ПОЛЬЗОВАТЕЛЯ (персонализация дня 12) →
-        системный промпт агента → ИНВАРИАНТЫ (день 14) → рабочая память →
-        долговременная память → конспект → факты → СОСТОЯНИЕ ЗАДАЧИ (день 13).
-        Профиль идёт первым: это постоянная инструкция пользователя, одинаковая
-        во всех запросах, и она не должна теряться за блоками памяти.
-        Инварианты — сразу после роли агента: это правила проекта, которые
-        сильнее любых пожеланий в диалоге и должны читаться до фактов и памяти.
-        Состояние задачи идёт последним: это КОНКРЕТНАЯ точка, с которой надо
-        продолжать, и она должна читаться сразу после общей рамки. Блок задачи
-        (день 15) называет допустимые следующие этапы и запрещает пробовать
-        недопустимые — модель видит ту же границу, что и правила допуска. Все
-        блоки вкладываются в существующее system-сообщение, а не добавляются
-        отдельными: так поведение не зависит от того, как провайдер обрабатывает
-        несколько system-сообщений подряд.
+        Сообщение по-прежнему РОВНО ОДНО (поведение не зависит от того, как
+        провайдер обрабатывает несколько system-сообщений подряд), а его текст
+        делится на две зоны:
+
+        * **стабильный префикс** — профиль пользователя (день 12) → системный
+          промпт агента → инварианты проекта (день 14) → каталог MCP-инструментов →
+          примеры → общие инструкции с пределом длины ответа. Это то, что не
+          меняется между запросами одного агента, поэтому сервер DeepSeek может
+          отдать его из кэша контекста (попадание дешевле обычного ввода);
+        * **динамическая часть** — рабочая и долговременная память, конспект, факты
+          и состояние задачи (день 13). Она СЖИМАЕТСЯ `PromptCompressor`: пробелы,
+          комментарии и минификация JSON внутри блоков убирают токены, не меняя
+          смысла.
+
+        Профиль остаётся первым внутри стабильной части: он одинаков во всех
+        запросах пользователя, а порядок «постоянная инструкция → остальное»
+        сохранён с прошлых дней. Сжатие к стабильной части не применяется никогда —
+        иначе её содержимое менялось бы между запросами и кэш не работал бы.
         """
-        parts = []
-        profile_block = self.profile.prompt.text
-        if profile_block:
-            parts.append(profile_block)
-        if self.config.system_prompt:
-            parts.append(self.config.system_prompt)
-        invariant_block = self.invariants_block()
-        if invariant_block:
-            parts.append(invariant_block)
+        stable = {
+            "profile": self.profile.prompt.text,
+            "system": self.config.system_prompt,
+            "invariants": self.invariants_block(),
+            "tools": self.tools_catalog_text(),
+            "examples": self.examples_text(),
+            "general": config.PROMPT_GENERAL_INSTRUCTIONS,
+        }
+        dynamic: list[str] = []
         if memory is not None:
             if memory.working_text:
-                parts.append(memory.working_text)
+                dynamic.append(memory.working_text)
             if memory.long_term_text:
-                parts.append(memory.long_term_text)
+                dynamic.append(memory.long_term_text)
         if summary_text:
-            parts.append(
+            dynamic.append(
                 "Конспект предыдущей части диалога (используй как память о том, "
                 "что обсуждалось раньше):\n" + summary_text
             )
         if facts:
             lines = [f"- {key}: {value}" for key, value in sorted(facts.items())]
-            parts.append(
+            dynamic.append(
                 "Известные факты диалога (ключ-значение, используй как опорные "
                 "данные; более свежие значения важнее старых):\n" + "\n".join(lines)
             )
         task_block = self.task_state_block()
         if task_block:
-            parts.append(task_block)
-        if not parts:
+            dynamic.append(task_block)
+        built = self.prompt_builder.build(
+            **stable, dynamic=dynamic, task_type=config.LLM_TASK_CHAT,
+            max_response_tokens=self.config.max_tokens,
+        )
+        text = built["system"]
+        self._last_prompt_stats = {
+            "stable_tokens": built["stable_tokens"],
+            "dynamic_tokens": built["dynamic_tokens"],
+            "saved_tokens": built["saved_tokens"],
+            "cache_hit": built["cache_hit"],
+            "max_tokens": built["max_tokens"],
+        }
+        if not text:
             return []
-        return [{"role": "system", "content": "\n\n".join(parts)}]
+        return [{"role": "system", "content": text}]
+
+    def tools_catalog_text(self) -> str:
+        """Каталог MCP-инструментов для стабильного префикса.
+
+        Пусто, если инструментов нет: подключать серверы здесь нельзя (это сделал бы
+        каждый ход агента), поэтому читается уже известный каталог. Пустая строка —
+        нормальный случай: агент без MCP-инструментов не должен платить за их
+        описание в каждом запросе.
+        """
+        try:
+            registry = MCPToolRunner(self._mcp_registry).registry
+            tools = registry.list_all_tools()
+        except Exception as exc:  # noqa: BLE001 — каталог не критичен для ответа
+            logger.debug("Каталог MCP-инструментов недоступен: %s", exc)
+            return ""
+        if not tools:
+            return ""
+        lines = [
+            f"- {tool.name}: {tool.description}" if tool.description else f"- {tool.name}"
+            for tool in tools
+        ]
+        return "Доступные MCP-инструменты (вызов через раздел MCP):\n" + "\n".join(lines)
+
+    @staticmethod
+    def examples_text() -> str:
+        """Few-shot примеры для стабильного префикса (``config.PROMPT_EXAMPLES``).
+
+        По умолчанию пусто: примеры стоят токенов в КАЖДОМ запросе, а задачи дня
+        (сводка, классификация, ответ по документам) уже описаны в промпте и
+        инструментах. Механизм оставлен рабочим — непустой текст попадёт в
+        кэшируемый префикс и после первого запроса будет стоить десятую часть.
+        """
+        return config.PROMPT_EXAMPLES
 
     def _context_tokens_for(self, messages) -> int:
         """Оценка токенов контекста: системный промпт + список сообщений."""
@@ -1874,14 +1959,19 @@ class Agent:
             )
 
         started = time.perf_counter()
+        call = None
         try:
-            client = self._make_client()
-            response = client.chat.completions.create(
-                model=self.config.model,
+            # Вызов идёт через обёртку (день 21): она выбирает модель под тип задачи,
+            # ограничивает длину ответа, забирает из ответа метрики кэша контекста и
+            # пишет строку в журнал расходов `llm_usage`. Клиент при этом берётся из
+            # `_make_client` — та же точка подмены в тестах, что и раньше.
+            call = self.llm_client.call(
                 messages=payload,
-                temperature=self.config.temperature,
+                task_type=config.LLM_TASK_CHAT,
                 max_tokens=self.config.max_tokens,
+                temperature=self.config.temperature,
             )
+            response = call.response
         except AgentError as exc:
             self.short_term_messages.pop()  # откат: сбой ДО вызова сети
             record["error"] = str(exc)
@@ -1889,6 +1979,8 @@ class Agent:
             self.short_term_messages.pop()  # откат: ответа не было — история не меняется
             record["error"] = f"Сбой запроса к DeepSeek: {exc}"
         else:
+            if call is not None:
+                record["llm"] = call.to_dict()
             choice = response.choices[0] if response.choices else None
             answer = ""
             if choice is not None and choice.message is not None:

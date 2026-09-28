@@ -17,6 +17,8 @@ ORM-таблицы — отдельный пакет ``backend/models/``.
 - ``pipeline.py`` — пайплайн дня 19: запуск, его шаги, история и отчёт о прогоне;
 - ``indexing.py`` — индексация дня 21: запуск прогона, статистика стратегий,
   попадания поиска, очистка индекса и отчёт ``indexing`` поля генерации;
+- ``llm.py`` — расходы на LLM дня 21: журнал, статистика кэша, состояние непиковых
+  часов, прогноз экономии и таблица «тип задачи → модель»;
 - ``profile.py`` — профиль пользователя и его вклад в промпт;
 - ``task.py``    — состояние задачи: этап, шаг, контролируемые переходы (день 15),
   флаги-согласования и журнал попыток.
@@ -78,6 +80,18 @@ from .indexing import (
     IndexStatsOut,
     IndexStatsResponse,
     IndexStatusOut,
+)
+
+from .llm import (
+    LLMEstimateIn,
+    LLMModelsOut,
+    LLMPromptStatsOut,
+    LLMCompressorStatsOut,
+    LLMSavingsOut,
+    LLMStatsOut,
+    LLMStatusOut,
+    LLMUsageOut,
+    LLMUsageResponse,
 )
 
 from .memory import (
@@ -226,6 +240,15 @@ __all__ = [
     "LongTermDeleteOut",
     "LongTermEntryIn",
     "LongTermEntryOut",
+    "LLMCompressorStatsOut",
+    "LLMEstimateIn",
+    "LLMModelsOut",
+    "LLMPromptStatsOut",
+    "LLMSavingsOut",
+    "LLMStatsOut",
+    "LLMStatusOut",
+    "LLMUsageOut",
+    "LLMUsageResponse",
     "LongTermMemoryOut",
     "MCPCallIn",
     "MCPCallReportOut",

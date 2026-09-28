@@ -73,10 +73,8 @@ SUMMARY_TEMPERATURE = 0.2
 SUMMARY_MAX_TOKENS = 512
 
 # --- Стратегии управления контекстом (день 11) -------------------------------
-# Новая стратегия агента по умолчанию — «summary» (сжатие истории из дня 9),
-# остальные три добавляются днём 11: sliding_window, sticky_facts, branching.
-# Список значений — в backend/strategies.py (Enum Strategy), здесь — дефолт и
-# диапазон окна для стратегий со «скользящим окном».
+# Стратегия по умолчанию — «summary»; список значений — в domain/strategies.py,
+# здесь — дефолт и диапазон окна для скользящего окна.
 DEFAULT_STRATEGY = "summary"
 DEFAULT_WINDOW_SIZE = 10
 
@@ -146,11 +144,9 @@ INVARIANT_CHECK_MAX_TOKENS = 512
 INVARIANT_CHECK_TEMPERATURE = 0.0
 
 # --- MCP (день 17) -----------------------------------------------------------
-# Цель подключения по умолчанию — СОБСТВЕННЫЙ MCP-сервер дня 17 (stdio): та же
-# строка стоит в поле цели раздела «🔌 MCP» (frontend/mcp_section.DEFAULT_TARGET,
-# осознанная копия: frontend не импортирует backend) и в каталоге GET /mcp/servers.
-# сервер читает jsonplaceholder.typicode.com и публикует инструменты get_user,
-# get_post и list_user_posts.
+# Цель по умолчанию — свой MCP-сервер дня (stdio); та же строка стоит в разделе
+# «🔌 MCP» (frontend/mcp_section.DEFAULT_TARGET — осознанная копия, frontend не
+# импортирует backend).
 MCP_DEFAULT_TARGET = "uv run python mcp_server/server.py"
 # Таймаут подключения и запросов к MCP-серверу (секунды).
 MCP_TIMEOUT = 30.0
@@ -195,9 +191,8 @@ AGGREGATION_MAX_FIELDS = 30
 AGGREGATION_SAMPLES = 5
 
 # --- Композиция MCP-инструментов (день 19) -----------------------------------
-# Пайплайн описывается декларативно (шаги, аргументы, условия перехода), а его
-# прогон логируется в таблицы pipeline_runs/pipeline_steps: по ним читается
-# история, строится отчёт и видно, какой шаг остановил прогон.
+# Пайплайн описывается декларативно, прогон логируется в pipeline_runs и
+# pipeline_steps: по ним читается история и видно, какой шаг остановил прогон.
 #: Длины полей таблиц пайплайна (валидация — в domain/pipeline_spec.py).
 PIPELINE_NAME_MAX = 100
 PIPELINE_TOOL_MAX = 64
@@ -216,11 +211,7 @@ PIPELINE_SUMMARY_MAX = 4000
 PIPELINE_POLL_SECONDS = "1s"
 
 # --- Оркестрация MCP-серверов (день 20) ---------------------------------------
-# Флот серверов описывается ДАННЫМИ (mcp_servers.json): имя, команда запуска,
-# описание и кэш каталога tools/list. Реестр дня (services/mcp_registry.py)
-# поднимает по одному соединению на сервер и маршрутизирует вызов по инструменту,
-# а оркестратор (services/orchestrator.py) строит план шагов и логирует каждый шаг
-# в таблицы orchestration_runs/orchestration_steps.
+# Флот серверов — данные (mcp_servers.json); детали — в day20/STRUCTURE.md.
 #: Файл конфигурации флота в корне дня (правится без изменения кода).
 MCP_SERVERS_FILE = Path(__file__).resolve().parents[2] / "mcp_servers.json"
 #: Рабочий каталог команд флота: путь сервера в конфигурации задан от корня дня,
@@ -236,7 +227,6 @@ ORCH_NAME_MAX = 100
 ORCH_STATUS_MAX = 16
 ORCH_SERVER_MAX = 64
 ORCH_TOOL_MAX = 64
-#: Больше этого числа шагов план не принимается: длинный флоу — это уже программа.
 ORCH_STEPS_MAX = 12
 #: Сколько запусков и сколько шагов отдают списки API.
 ORCH_RUNS_LIMIT = 50
@@ -244,17 +234,16 @@ ORCH_STEPS_LIMIT = 100
 #: Периоды опроса интерфейса (строками — так их принимает st.fragment).
 ORCH_POLL_SECONDS = "1s"
 ORCH_HISTORY_SECONDS = "5s"
-#: Выбор модели и параметры промпта планировщика плана (services/orchestration_planner.py).
-ORCH_PLAN_MODEL = MODEL_CHAT
+#: Параметры промпта планировщика плана (services/orchestration_planner.py).
+#: Модель здесь не задаётся: её выбирает таблица `LLM_TASK_MODELS` по типу
+#: задачи `orchestration` (см. раздел «Оптимизация затрат на LLM» ниже).
 ORCH_PLAN_TEMPERATURE = 0.0
 ORCH_PLAN_MAX_TOKENS = 800
 
 # --- Индексация документов и поиск (день 21) ----------------------------------
-# Документы собираются из источников репозитория в папку дня (services/document_loader.py),
-# режутся на чанки двумя стратегиями (services/chunker.py), а эмбеддинги кладутся
-# в FAISS; метаданные чанков и журнал прогонов живут в SQLite (таблицы
-# document_chunks и index_runs). documents/ и index/ — производные данные: их
-# собирает и строит код, в git они не попадают.
+# Документы собираются в documents/, режутся на чанки, эмбеддинги ложатся в FAISS,
+# метаданные чанков и журнал прогонов — в SQLite. documents/ и index/ — производные
+# данные: их собирает код, в git они не попадают.
 #: Папка собранных документов и её манифест (метаданные каждого файла).
 DOCUMENTS_DIR = Path(__file__).resolve().parents[2] / "documents"
 DOCUMENTS_MANIFEST = DOCUMENTS_DIR / "manifest.json"
@@ -299,6 +288,75 @@ INDEX_STRATEGY_MAX = 16
 INDEX_CHUNK_ID_MAX = 200
 INDEX_STATUS_MAX = 16
 INDEX_QUERY_MAX = 500
+
+# --- Оптимизация затрат на LLM (день 21) --------------------------------------
+# Кэш контекста DeepSeek считает попадание дешевле ввода (цена попадания — доля от
+# цены ввода), тип задачи выбирает модель, непиковые часы дают скидку провайдера,
+# длина ответа ограничивается под задачу.
+#: Цена попадания в кэш как доля цены обычного ввода (DeepSeek: кэш-хит дешевле).
+LLM_CACHE_INPUT_RATIO = 0.1
+#: Типы задач: ими подписывается каждый запрос в журнале `llm_usage` и по ним
+#: выбирается модель и предел длины ответа.
+LLM_TASK_CHAT = "chat"                  # ответ агента в диалоге
+LLM_TASK_SUMMARY = "summarize"          # конспект истории (сжатие контекста)
+LLM_TASK_CLASSIFY = "classify"          # проверка инвариантов, короткие решения
+LLM_TASK_KEYWORDS = "keywords"          # извлечение ключевых слов и фактов
+LLM_TASK_ORCHESTRATION = "orchestration"  # план шагов по каталогу флота
+LLM_TASK_CODE = "code"                  # длинная генерация и рассуждения
+LLM_TASK_INDEXING = "indexing"          # тяжёлая пакетная обработка документов
+#: Модель под задачу: простые — дешёвая (MODEL_CHAT), сложные — основная
+#: (MODEL_REASONER). Список — данные: правка строки меняет маршрутизацию.
+LLM_TASK_MODELS = {
+    LLM_TASK_CHAT: MODEL_CHAT,
+    LLM_TASK_SUMMARY: MODEL_CHAT,
+    LLM_TASK_CLASSIFY: MODEL_CHAT,
+    LLM_TASK_KEYWORDS: MODEL_CHAT,
+    LLM_TASK_ORCHESTRATION: MODEL_REASONER,
+    LLM_TASK_CODE: MODEL_REASONER,
+    LLM_TASK_INDEXING: MODEL_REASONER,
+}
+LLM_TASK_DEFAULT = LLM_TASK_CHAT
+#: Предел длины ответа по умолчанию и для задач с длинным выводом.
+LLM_MAX_RESPONSE_TOKENS = 1000
+LLM_MAX_RESPONSE_TOKENS_LONG = 4000
+#: Предел по типу задачи: он же уходит в `max_tokens` запроса (но не выше
+#: пользовательского лимита агента).
+LLM_TASK_MAX_TOKENS = {
+    LLM_TASK_CHAT: LLM_MAX_RESPONSE_TOKENS,
+    LLM_TASK_SUMMARY: 512,
+    LLM_TASK_CLASSIFY: 256,
+    LLM_TASK_KEYWORDS: 256,
+    LLM_TASK_ORCHESTRATION: 800,
+    LLM_TASK_CODE: LLM_MAX_RESPONSE_TOKENS_LONG,
+    LLM_TASK_INDEXING: LLM_MAX_RESPONSE_TOKENS_LONG,
+}
+#: Сколько последних запросов отдаёт журнал расходов и глубина строк таблицы.
+LLM_USAGE_LIMIT = 50
+LLM_USAGE_MODEL_MAX = 64
+LLM_USAGE_TYPE_MAX = 32
+LLM_USAGE_AGENT_MAX = 64
+#: Периоды агрегации для статистики расходов (дни, за которые считаем).
+LLM_USAGE_PERIODS = {"day": 1, "week": 7, "month": 30, "all": 0}
+LLM_USAGE_PERIOD_DEFAULT = "week"
+#: Планирование тяжёлых задач на непиковые часы DeepSeek (UTC).
+#: Непик: будни 00–01, 04–06, 10–24 и все выходные; пик: будни 01–04 и 06–10.
+OFF_PEAK_WEEKDAY_HOURS_UTC = ((0, 1), (4, 6), (10, 24))
+PEAK_WEEKDAY_HOURS_UTC = ((1, 4), (6, 10))
+#: Оценка скидки провайдера на непиковых часах (проценты) — для прогноза экономии.
+OFF_PEAK_DISCOUNT_PERCENT = 50
+#: Few-shot примеры для стабильного префикса промпта. Пусто по умолчанию:
+#: примеры стоят токенов в КАЖДОМ запросе, а задачи дня уже описаны промптом,
+#: инвариантами и каталогом инструментов. Непустой текст попадёт в кэшируемый
+#: префикс, поэтому после первого запроса будет стоить десятую часть ввода.
+PROMPT_EXAMPLES = ""
+#: Общие инструкции для стабильного префикса промпта. Пусто по умолчанию:
+#: предел длины ответа добавляет сам строитель промптов (одна строка в
+#: непустом системном промпте), а всё, что дописано здесь, платится в КАЖДОМ
+#: запросе. Слот оставлен, чтобы инструкции задавались данными, а не кодом.
+PROMPT_GENERAL_INSTRUCTIONS = ""
+#: Предел длины стабильного префикса промпта: он кэшируется целиком, поэтому
+#: раздутый префикс дороже, чем кажется.
+PROMPT_STABLE_PREFIX_MAX = 6000
 
 # Заголовок и описание FastAPI-приложения (backend/api/main.py).
 API_TITLE = "Агенты DeepSeek + индексация документов — День 21"

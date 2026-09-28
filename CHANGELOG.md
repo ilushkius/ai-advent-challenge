@@ -5,6 +5,91 @@
 структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
 `chore` (прочее: инфраструктура, скиллы, служебные изменения).
 
+## 2026-09-28 — feat — day21: оптимизация затрат на LLM (кэш контекста, PromptBuilder, сжатие, непиковые часы, выбор модели)
+
+День 21 продолжают **снижение стоимости запросов к DeepSeek** без изменения логики
+агентов. Восемь механизмов: логирование метрик кэша, структурирование промптов
+(стабильный префикс + динамический хвост), кэширование стабильных частей на уровне
+приложения, сжатие динамической части, планирование тяжёлых задач на непиковые часы,
+выбор модели под задачу, ограничение длины ответа и отчёт об экономии.
+
+Что добавлено:
+
+- **`backend/core/prompt_builder.py`** — `PromptBuilder`: зоны промпта (стабильный
+  префикс: профиль → системный промпт → инварианты → каталог MCP-инструментов →
+  примеры → общие инструкции; затем динамика: память, конспект, факты, состояние
+  задачи, блоки результатов инструментов; затем хвост «Отвечай не длиннее N токенов»),
+  кэш стабильных префиксов по содержимому со счётчиками попаданий, guard от
+  динамических данных (метка времени, hex-id) в префиксе, `max_response_tokens`,
+  синглтон `get_prompt_builder()`;
+- **`backend/services/prompt_compressor.py`** — `PromptCompressor`: удаление
+  markdown/HTML-комментариев, схлопывание пробелов и пустых строк, склейка повторов,
+  минификация JSON (в ограждениях и целых JSON-блоках); идемпотентен; к стабильному
+  префиксу не применяется — иначе менялся бы кэшируемый текст;
+- **`backend/services/llm_client.py`** — `LLMClient`: `select_model(task_type)` по
+  таблице конфига, `max_tokens_for(task_type, limit)`, `call(...)` (ровно четыре
+  параметра SDK; извлечение `prompt_cache_hit_tokens`/`prompt_cache_miss_tokens` из
+  атрибутов, `model_extra` или словаря; запись строки журнала), `get_usage_stats`,
+  `usage`; фабрика клиента — `Agent._make_client`, поэтому подмена клиента в тестах
+  сохранена; сбой журнала не ломает запрос;
+- **`backend/models/llm_usage.py`**, **`backend/storage/llm_usage_store.py`**,
+  **`backend/storage/llm_usage_rows.py`** — таблица `llm_usage` (id, agent_id,
+  timestamp, model, prompt_tokens, completion_tokens, cache_hit_tokens,
+  cache_miss_tokens, cost_estimate, request_type, created_at) и агрегаты: запросы,
+  токены, **доля попаданий в кэш**, стоимость, разбивка по моделям, типам задач и дням;
+- **`backend/domain/llm_cost.py`** — чистая арифметика стоимости: `estimate_cost`
+  (попадание в кэш считается по `LLM_CACHE_INPUT_RATIO = 10 %` цены ввода),
+  `cache_savings`, `compression_savings`, `off_peak_savings`, `savings_summary`
+  (вклад каждого рычага отдельно; вклад предела длины ответа показан, но в «ядро»
+  экономии не входит — это оценка сверху);
+- **`backend/domain/peak_hours.py`**, **`backend/services/off_peak.py`**,
+  правки планировщика — непиковые часы DeepSeek данными: непик — будни 00:00–01:00,
+  04:00–06:00, 10:00–24:00 UTC и все выходные; пик — будни 01:00–04:00 и 06:00–10:00;
+  `is_off_peak()`, `get_next_off_peak_time()`, `peak_status()`, `savings_forecast()`;
+  флаг `prefer_off_peak` у задачи планировщика (живёт в JSON-колонке `schedule_value`,
+  новой колонки БД нет) переносит первый запуск в ближайшее дешёвое окно и переживает
+  перезапуск;
+- **API**: `backend/api/llm.py` — `GET /llm/usage`, `GET /llm/status`,
+  `POST /llm/estimate`, `GET /llm/models`, `GET /llm/peak`; схемы
+  `backend/schemas/llm.py`; поле `llm` в `GenerateResponse`; группа `llm` в
+  инвентаре `GET /` (99 записей, 81 уникальный путь OpenAPI);
+- **интерфейс**: `frontend/cost_api.py`, `frontend/cost_section.py` — десятый раздел
+  «💰 Расходы»: пик/непик и прогноз экономии, доля ввода из кэша, статистика
+  стабильных префиксов и сжатия, график расхода по дням, журнал запросов с
+  `cache_hit`/`cache_miss` и таблица «тип задачи → модель»; строка `cost_note` в
+  сводке хода;
+- **вызовы LLM переведены на обёртку с типом задачи**: `Agent.generate` (chat),
+  `ContextCompressor` (summarize), `InvariantChecker` (classify — и строки журнала
+  теперь привязаны к агенту), `OrchestrationPlanner` (orchestration); у
+  `ORCH_PLAN_MODEL` модель больше не задаётся — её выбирает таблица типов задач;
+- **блоки результатов инструментов сжимаются** перед подсчётом `added_tokens`: в
+  системное сообщение уходит уже сжатый текст (пайплайн, оркестрация, поиск по
+  индексу, MCP, планировщик);
+- **отчёт** `docs/reports/cost_optimization.md` + скрипт
+  `scripts/cost_optimization_report.py`: замер «до и после» на реальных текстах дня
+  (tiktoken): ввод 10 363 → 10 475 токенов, из них по полной цене 10 363 → 6 815,
+  экономия по нагрузке дня **39,3 %** (диалог 21,5 % — кэш контекста и сжатие;
+  тяжёлая задача 50 % — непик и сжатие), сжатие на своём материале 1,7 %;
+  допущения (длина ответа, скидка провайдера) названы в отчёте отдельно;
+- **тесты**: `tests/unit/test_llm_cost.py`, `tests/integration/test_llm_client.py`,
+  `tests/integration/test_agent_cost.py`, `tests/e2e/test_llm_api.py` плюс тесты
+  слотов (`tests/unit/test_prompt_builder.py`, `tests/unit/test_prompt_compressor.py`,
+  `tests/unit/test_peak_hours.py`, `tests/integration/test_llm_usage_store.py`,
+  `tests/integration/test_scheduler_off_peak.py`, `tests/unit/test_llm_usage_rows.py`).
+
+Документация дня приведена к правилу «день описывает только себя»: `README.md`
+(3030 → 403 строки), `docs/architecture.md` (3764 → 443), `docs/usage.md`,
+`STRUCTURE.md` — только день 21 (индексация и оптимизация), унаследованное от дня 20
+описано одной строкой со ссылкой на `day20/`. В `AGENTS.md` добавлено правило про
+работу с LLM и про документацию дня.
+
+Изменены тесты, фиксировавшие прежнюю форму промпта (день 21 осознанно меняет
+порядок зон и добавляет хвост с пределом длины ответа):
+`tests/integration/test_profile_agent.py` (роль агента первая, предел — в хвосте),
+`tests/e2e/test_profile_api.py::test_root_lists_new_endpoint_groups` (группа `llm`),
+а также autouse-фикстура `offline_planner` в `tests/conftest.py` (тесты не зовут
+настоящую модель планировщика).
+
 ## 2026-09-28 — feat — day21: индексация документов (две стратегии чанкинга, FAISS + SQLite, демо одной кнопкой)
 
 Новый день `day21/` — копия `day20/` (снимки `day1/`–`day20/` не изменялись) плюс

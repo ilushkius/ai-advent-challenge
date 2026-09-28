@@ -1,6 +1,6 @@
 """
 FastAPI-приложение дня 21: память, задача, инварианты, MCP-флот, планировщик,
-пайплайн, оркестрация MCP-серверов и ИНДЕКСАЦИЯ документов.
+пайплайн, оркестрация MCP-серверов, ИНДЕКСАЦИЯ документов и РАСХОДЫ на LLM.
 
 Запуск из папки day21/:  uvicorn backend.api.main:app --port 8000
 Swagger-документация:  http://127.0.0.1:8000/docs
@@ -18,8 +18,8 @@ Swagger-документация:  http://127.0.0.1:8000/docs
 службам — в ``backend/core/dependencies.py``. Функции ``get_manager`` /
 ``get_mcp_registry`` / ``get_scheduler`` / ``get_schedule_service`` /
 ``get_pipeline_service`` / ``get_orchestration_service`` / ``get_indexing_service`` /
-``get_index_service`` / ``get_embedding_service`` импортированы сюда как точки
-подмены для тестов.
+``get_index_service`` / ``get_embedding_service`` / ``get_llm_client`` импортированы
+сюда как точки подмены для тестов.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,14 +29,15 @@ from ..core import config
 from ..services.embedding_service import get_embedding_service
 from ..services.index_service import get_index_service
 from ..services.indexing_service import get_indexing_service
+from ..services.llm_client import get_llm_client
 from ..services.mcp_registry import get_mcp_registry
 from ..services.orchestration_service import get_orchestration_service
 from ..services.pipeline_service import get_pipeline_service
 from ..services.schedule_service import get_schedule_service
 from ..services.scheduler import get_scheduler
 from . import (
-    agents, context, indexing, invariants, mcp, mcp_servers, memory, orchestration,
-    pipelines, profiles, scheduler, tasks,
+    agents, context, indexing, invariants, llm, mcp, mcp_servers, memory,
+    orchestration, pipelines, profiles, scheduler, tasks,
 )
 from .lifespan import lifespan
 
@@ -59,6 +60,7 @@ app.add_middleware(
 app.include_router(agents.router)
 app.include_router(context.router)
 app.include_router(indexing.router)
+app.include_router(llm.router)
 app.include_router(invariants.router)
 app.include_router(mcp.router)
 app.include_router(mcp_servers.router)

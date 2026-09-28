@@ -231,6 +231,8 @@ def root():
                      "GET /indexing/stats, GET /indexing/search, GET /indexing/chunks, "
                      "GET /indexing/runs, GET /indexing/runs/{run_id}, "
                      "POST /indexing/clear (9 эндпоинтов)"),
+        "llm": ("/llm/usage, /llm/status, /llm/estimate, /llm/models, /llm/peak "
+                "(5 эндпоинтов — журнал расходов, кэш контекста, непиковые часы)"),
         "endpoints": [
             "POST /agents", "GET /agents", "GET /agents/{agent_id}",
             "PATCH /agents/{agent_id}", "DELETE /agents/{agent_id}",
@@ -323,5 +325,10 @@ def root():
             "GET /indexing/runs",
             "GET /indexing/runs/{run_id}",
             "POST /indexing/clear",
+            "GET /llm/usage",
+            "GET /llm/status",
+            "POST /llm/estimate",
+            "GET /llm/models",
+            "GET /llm/peak",
         ],
     }

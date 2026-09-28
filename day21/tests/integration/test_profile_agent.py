@@ -56,9 +56,12 @@ def test_agent_without_profile_has_no_personalization(session_factory):
                          system_prompt="Ты — ассистент.")
     assert agent.profile.exists is False
     assert agent.profile.personalized is False
-    assert agent._system_message() == [
-        {"role": "system", "content": "Ты — ассистент."}
-    ]
+    # Роль агента идёт первой, а хвост промпта называет предел длины ответа
+    # (день 21): он один для всех агентов, и его добавляет строитель промптов.
+    messages = agent._system_message()
+    assert messages[0]["role"] == "system"
+    assert messages[0]["content"].startswith("Ты — ассистент.")
+    assert "не длиннее" in messages[0]["content"]
 
 
 def test_profile_increases_context_tokens(session_factory):
@@ -97,9 +100,10 @@ def test_generate_reports_applied_profile_and_system_prompt(session_factory,
     assert profile["instructions"] == ["Всегда предлагай два варианта решения"]
     # system_prompt — ровно то, что ушло в модель системным сообщением.
     assert record["system_prompt"].startswith(PROFILE_HEADER)
-    assert record["system_prompt"].endswith(
-        "- Всегда предлагай два варианта решения"
-    )
+    assert "- Всегда предлагай два варианта решения" in record["system_prompt"]
+    # Хвост системного промпта — предел длины ответа (день 21): он стоит ПОСЛЕ
+    # динамических блоков, чтобы не мешать кэшу стабильного префикса.
+    assert record["system_prompt"].endswith("токенов.")
     sent_system = fake.generate_calls[-1]["messages"][0]
     assert sent_system["role"] == "system"
     assert sent_system["content"] == record["system_prompt"]

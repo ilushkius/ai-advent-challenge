@@ -17,6 +17,8 @@ from fastapi import HTTPException
 
 if TYPE_CHECKING:  # только для аннотаций
     from ..agents.agent_manager import AgentManager
+    from ..core.prompt_builder import PromptBuilder
+    from ..services.llm_client import LLMClient
     from ..services.embedding_service import EmbeddingService
     from ..services.index_service import IndexService
     from ..services.indexing_service import IndexingService
@@ -122,6 +124,34 @@ def get_embedding_service() -> "EmbeddingService":
     from ..api import main
 
     return main.get_embedding_service()
+
+
+def get_llm_client() -> "LLMClient":
+    """Обёртка вызова LLM процесса (день 21): журнал расходов и выбор модели.
+
+    Та же точка подмены, что у остальных служб: тесты подменяют
+    ``monkeypatch.setattr(main, "get_llm_client", ...)``, и подмену видят и роутер
+    ``/llm``, и агент (через своё свойство ``llm_client``).
+    """
+    from ..api import main
+
+    return main.get_llm_client()
+
+
+def get_prompt_builder() -> "PromptBuilder":
+    """Строитель промптов процесса (день 21): кэш стабильных префиксов и счётчики.
+
+    Нужен роутеру ``/llm/status``: «сколько раз префикс взят из кэша» — свойство
+    процесса, а не одного агента.
+    """
+    from ..core.prompt_builder import get_prompt_builder as factory
+
+    return factory()
+
+
+def get_prompt_builder_stats() -> dict:
+    """Статистика последней сборки промпта по процессу (для отчёта о стоимости)."""
+    return dict(get_prompt_builder().stats())
 
 
 def agent_or_404(agent_id: str):

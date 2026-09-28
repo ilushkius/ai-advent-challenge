@@ -90,12 +90,23 @@ class ScheduleService:
     def create_task(self, *, tool: str, arguments: dict[str, Any],
                     name: Optional[str] = None, run_now: bool = True,
                     schedule_type: Optional[str] = None,
-                    schedule_value: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-        """Создаёт задачу планировщика: валидация, запись, немедленный шаг, постановка."""
+                    schedule_value: Optional[dict[str, Any]] = None,
+                    prefer_off_peak: bool = False) -> dict[str, Any]:
+        """Создаёт задачу планировщика: валидация, запись, немедленный шаг, постановка.
+
+        Флаг ``prefer_off_peak`` кладётся в JSON-колонку ``schedule_value`` и
+        означает «первый запуск — в непиковое окно DeepSeek» (скидка провайдера).
+        Он попадает туда ПОСЛЕ нормализации расписания: ``normalize_schedule``
+        оставляет только известные ключи своего типа и лишний отбросила бы. Сам
+        перенос делает планировщик при постановке, поэтому у задачи без флага
+        (или вне пика) расчётное время не меняется.
+        """
         validate_arguments(tool, arguments)
         require_tool_spec(tool)
         args = dict(arguments or {})
         kind, value = self._schedule_of(tool, args, schedule_type, schedule_value)
+        if prefer_off_peak:
+            value = {**value, "prefer_off_peak": True}
         task = self._store.create_task(
             name=(name or default_task_name(tool, args)),
             tool_name=tool, arguments=args,

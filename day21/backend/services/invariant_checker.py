@@ -30,6 +30,7 @@ from shared.deepseek_client import make_client
 from shared.logging_utils import get_logger
 
 from ..core import config
+from .llm_client import LLMClient
 from ..domain.invariant_prompt import render_check_user_message
 from ..domain.invariant_rules import deterministic_violations
 from ..domain.invariant_values import (
@@ -233,9 +234,13 @@ class InvariantChecker:
     ход: вердикт правил остаётся, причина попадает в ``note``.
     """
 
-    def __init__(self, session_factory=None, client_factory=None) -> None:
+    def __init__(self, session_factory=None, client_factory=None,
+                 agent_id: Optional[str] = None) -> None:
         self._session_factory = session_factory
         self._client_factory = client_factory or make_checker_client
+        #: Агент, по чьей реплике идёт проверка: по нему строка журнала
+        #: расходов привязывается к агенту (None — проверка вне агента).
+        self._agent_id = agent_id
 
     def check(self, text: str, use_llm: Optional[bool] = None,
               invariants: Optional[List[dict]] = None) -> InvariantCheckResult:
@@ -283,14 +288,18 @@ class InvariantChecker:
 
     def _ask_llm(self, text: str, invariants: List[dict]) -> List[InvariantViolation]:
         """Один вызов модели: список инвариантов и проверяемый текст."""
-        client = self._client_factory()
-        response = client.chat.completions.create(
-            model=config.MODEL_CHAT,
+        # Проверка — простая задача (`classify`): дешёвая модель и короткий ответ,
+        # а метрики кэша контекста попадают в журнал расходов через обёртку LLM.
+        client = LLMClient(client_factory=self._client_factory,
+                           session_factory=self._session_factory,
+                           agent_id=self._agent_id)
+        response = client.call(
             messages=[
                 {"role": "system", "content": INVARIANT_CHECK_SYSTEM_PROMPT},
                 {"role": "user", "content": render_check_user_message(text, invariants)},
             ],
-            temperature=config.INVARIANT_CHECK_TEMPERATURE,
+            task_type=config.LLM_TASK_CLASSIFY,
             max_tokens=config.INVARIANT_CHECK_MAX_TOKENS,
-        )
+            temperature=config.INVARIANT_CHECK_TEMPERATURE,
+        ).response
         return _parse_violations(response.choices[0].message.content, invariants)

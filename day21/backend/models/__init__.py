@@ -21,7 +21,9 @@
   сервером, инструментом, входом, выходом и временем);
 - ``indexing.py`` — таблицы индексации дня 21: ``document_chunks`` (чанк с
   метаданными, текстом и id вектора в FAISS) и ``index_runs`` (запуск с этапом,
-  счётчиками, метриками сравнения стратегий и ошибкой).
+  счётчиками, метриками сравнения стратегий и ошибкой);
+- ``llm_usage.py`` — журнал расходов дня 21: ``llm_usage`` (запрос к модели с
+  токенами, разметкой кэша, оценкой стоимости и типом задачи).
 
 ORM-классы реэкспортируются через ``backend.storage.database`` (``Base``,
 ``AgentRecord``, ``ShortTermMessage``, ``Summary``, ``TokenUsage``, ``Fact``,
@@ -29,7 +31,7 @@ ORM-классы реэкспортируются через ``backend.storage.d
 ``TaskState``, ``TaskTransition``, ``Invariant``, ``ScheduledTask``,
 ``SchedulerTaskRun``, ``Reminder``, ``SchedulerNotification``, ``CollectedRecord``,
 ``PeriodicSummary``, ``PipelineRun``, ``PipelineStep``, ``OrchestrationRun``,
-``OrchestrationStep``), поэтому остальной код дня
+``OrchestrationStep``, ``LLMUsage``), поэтому остальной код дня
 импортирует их оттуда, а не отсюда. Импорт всех модулей пакета — он же и
 регистрация таблиц в ``Base.metadata``, по которой ``init_db`` создаёт схему.
 
@@ -40,6 +42,7 @@ from .agent import AgentRecord
 from .context import Checkpoint, Fact, Summary, TokenUsage
 from .indexing import DocumentChunk, IndexRun
 from .invariant import Invariant
+from .llm_usage import LLMUsage
 from .memory import LongTermMemory, WorkingMemory
 from .message import ShortTermMessage
 from .orchestration import OrchestrationRun, OrchestrationStep
@@ -63,6 +66,7 @@ __all__ = [
     "Fact",
     "IndexRun",
     "Invariant",
+    "LLMUsage",
     "LongTermMemory",
     "OrchestrationRun",
     "OrchestrationStep",

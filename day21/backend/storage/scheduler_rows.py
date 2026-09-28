@@ -69,6 +69,7 @@ def task_dict(row: ScheduledTask) -> dict[str, Any]:
         "name": row.name,
         "schedule_type": kind,
         "schedule_value": value,
+        "prefer_off_peak": bool(value.get("prefer_off_peak", False)),
         "schedule_label": _label(kind, value),
         "tool_name": row.tool_name,
         "arguments": dict(row.arguments or {}),

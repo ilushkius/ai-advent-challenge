@@ -352,6 +352,10 @@ class GenerateResponse(BaseModel):
     # системный промпт. None — шага не было (запрос распознан как пайплайн или
     # оркестрация, либо запись идёт не из шага генерации).
     indexing: Optional[IndexingReportOut] = None
+    # Расходы на LLM (день 21): модель, токены ввода и вывода, сколько ввода взято
+    # из кэша контекста и оценка стоимости хода. None — вызова не было (ход отклонён
+    # инвариантами или упал до запроса).
+    llm: Optional[Dict[str, Any]] = None
     system_prompt: str = ""
     duration_sec: Optional[float] = None
     timestamp: datetime

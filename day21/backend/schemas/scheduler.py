@@ -73,6 +73,16 @@ class SchedulerStatusOut(BaseModel):
         config.SCHEDULER_SYNC_SECONDS,
         description="Как часто сверяются таблица задач и планировщик",
     )
+    off_peak: bool = Field(
+        False, description="Действует ли сейчас скидка DeepSeek на непиковые часы"
+    )
+    next_off_peak: Optional[str] = Field(
+        None, description="Когда начнётся следующее непиковое окно (ISO-8601, UTC)"
+    )
+    discount_percent: int = Field(
+        config.OFF_PEAK_DISCOUNT_PERCENT,
+        description="Размер скидки непикового окна, проценты",
+    )
 
 
 class ScheduledTaskOut(BaseModel):
@@ -91,6 +101,9 @@ class ScheduledTaskOut(BaseModel):
     schedule_type: str = Field("date", description="Тип расписания: date | interval | cron")
     schedule_value: dict[str, Any] = Field(
         default_factory=dict, description="Расписание в форме БД (run_date | seconds | cron)"
+    )
+    prefer_off_peak: bool = Field(
+        False, description="Перенесён ли первый запуск в непиковые часы DeepSeek"
     )
     schedule_label: str = Field("", description="Расписание для человека")
     status: str = Field("active", description="Состояние: active | paused | completed")
@@ -141,6 +154,10 @@ class SchedulerTaskIn(BaseModel):
         None,
         description="Значение расписания: {'run_date': …} | {'seconds': N} | {'cron': '*/5 * * * *'}",
         examples=[{"cron": "*/5 * * * *"}],
+    )
+    prefer_off_peak: bool = Field(
+        False,
+        description="Перенести первый запуск на непиковые часы DeepSeek (скидка провайдера)",
     )
 
 

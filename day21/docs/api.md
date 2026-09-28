@@ -1,7 +1,7 @@
-# API дня 20 — агенты DeepSeek с оркестрацией флота MCP-серверов, декларативным пайплайном, планировщиком фоновых задач, контролируемыми переходами, инвариантами, состоянием задачи, памятью и профилем
+# API дня 21 — агенты DeepSeek с индексацией документов и оптимизацией затрат на LLM: оркестрация флота MCP-серверов, декларативный пайплайн, планировщик фоновых задач, контролируемые переходы, инварианты, состояние задачи, память, профиль и журнал расходов
 
 Бэкенд — FastAPI-приложение `day21/backend/api/main.py`. Заголовок приложения —
-«Агенты DeepSeek + оркестрация MCP-серверов — День 20», версия схемы — `14.0.0`
+«Агенты DeepSeek + индексация документов — День 21», версия схемы — `15.0.0`
 (видны в Swagger UI и `GET /openapi.json`). Базовый адрес после запуска
 (из папки `day21`):
 
@@ -130,7 +130,10 @@ MCP-сервера дня (`day21/mcp_servers/search_server`, `data_server`,
 
 Схемы ответов описаны в пакете `day21/backend/schemas/` — по доменам: `agent.py`
 (агент, генерация, метрики), `context.py` (сжатие, стратегии, ветки, факты),
-`invariant.py` (инварианты и результат проверки), `mcp.py` (статус MCP-подключения,
+`indexing.py` (индексация документов и поле `indexing` генерации),
+`invariant.py` (инварианты и результат проверки), `llm.py` (журнал расходов на
+LLM, прогноз экономии и поле `llm` генерации),
+`mcp.py` (статус MCP-подключения,
 инструменты сервера и их вызов), `mcp_servers.py` (флот MCP-серверов, его
 инструменты и обновление кэша), `memory.py` (три слоя памяти),
 `orchestration.py` (запуск оркестрации, его шаги и отчёт по реплике),
@@ -142,12 +145,13 @@ MCP-сервера дня (`day21/mcp_servers/search_server`, `data_server`,
 
 ## Эндпоинты
 
-Всего 94 записи эндпоинтов (в списке `GET /` — все, кроме самой подсказки): 10 в
+Всего 99 записей эндпоинтов (в списке `GET /` — все, кроме самой подсказки): 10 в
 разделе агентов (CRUD, генерация и статистика), 9 контекста (сжатие, стратегии,
 ветки, факты), 10 памяти, 6 профилей пользователей, 11 состояния задачи, 6
 инвариантов, 5 MCP активного соединения, 3 флота MCP-серверов, 14 планировщика, 5
-пайплайна, 6 оркестрации и 9 индексации. Вместе с корневым `GET /` приложение
-объявляет 95 эндпоинтов, а уникальных путей в OpenAPI — 76: FastAPI сводит методы одного пути
+пайплайна, 6 оркестрации, 9 индексации и 5 расходов на LLM. Вместе с корневым
+`GET /` приложение объявляет 100 эндпоинтов, а уникальных путей в OpenAPI — 81:
+FastAPI сводит методы одного пути
 (`GET`/`POST`/`DELETE /orchestration/runs/{run_id}` — это три записи одного пути) в
 одну запись схемы.
 Ниже — сводка; разбор по группам —
@@ -155,7 +159,9 @@ MCP-сервера дня (`day21/mcp_servers/search_server`, `data_server`,
 [«Персонализация»](#персонализация-профили-пользователей),
 [«Состояние задачи»](#состояние-задачи),
 [«Инварианты»](#инварианты), [«MCP»](#mcp), [«Планировщик»](#планировщик),
-[«Пайплайн»](#пайплайн), [«Оркестрация»](#оркестрация) и
+[«Пайплайн»](#пайплайн), [«Оркестрация»](#оркестрация),
+[«Индексация документов»](#индексация-документов),
+[«Расходы на LLM»](#расходы-на-llm) и
 [«MCP-серверы»](#mcp-серверы).
 
 | Метод | Путь | Назначение | Успех |
@@ -254,6 +260,11 @@ MCP-сервера дня (`day21/mcp_servers/search_server`, `data_server`,
 | GET | `/indexing/runs` | история запусков индексации (предел `limit`) | 200 IndexRunsResponse |
 | GET | `/indexing/runs/{run_id}` | отчёт о запуске: строка запуска и метрики сравнения | 200 IndexRunReportOut |
 | POST | `/indexing/clear` | очистить индекс стратегии (`all` — обеих) | 200 IndexClearOut |
+| GET | `/llm/usage` | журнал расходов за период: токены, доля кэша, стоимость, разбивка по моделям/типам/дням + последние запросы | 200 LLMUsageResponse |
+| GET | `/llm/status` | пик или непик сейчас, когда дешёвое окно и скидка, статистика кэша префиксов и сжатия, таблицы «тип задачи → модель/предел» | 200 LLMStatusOut |
+| POST | `/llm/estimate` | прогноз экономии по числам токенов: вклад кэша, сжатия, непика и предела ответа | 200 LLMSavingsOut |
+| GET | `/llm/models` | маршрутизация моделей: тип задачи → модель и предел ответа, доля цены кэша, тарифы моделей | 200 LLMModelsOut |
+| GET | `/llm/peak` | правило непиковых окон DeepSeek (UTC) и текущий статус окна | 200 `{off_peak_weekday_hours_utc, peak_weekday_hours_utc, weekends_off_peak, discount_percent, status}` |
 | GET | `/` | список доступных эндпоинтов | 200 объект-подсказка |
 
 ## GET /
@@ -261,8 +272,9 @@ MCP-сервера дня (`day21/mcp_servers/search_server`, `data_server`,
 Корневая точка — подсказка: имя приложения, путь к Swagger, префиксы памяти,
 персонализации, состояния задачи (отдельным ключом — группа `task_transitions`),
 инвариантов, MCP (активное соединение), флота MCP-серверов (ключ `mcp_servers`),
-планировщика, пайплайна и оркестрации, а также перечень эндпоинтов (85 строк —
-все, кроме самого `GET /`).
+планировщика, пайплайна, оркестрации, индексации документов (ключ `indexing`) и
+расходов на LLM (ключ `llm`), а также перечень эндпоинтов (99 строк — все, кроме
+самого `GET /`).
 
 ```bash
 curl.exe http://127.0.0.1:8000/
@@ -270,7 +282,7 @@ curl.exe http://127.0.0.1:8000/
 
 ```json
 {
-  "name": "Агенты DeepSeek с оркестрацией MCP-серверов — День 20",
+  "name": "Агенты DeepSeek с индексацией документов — День 21",
   "docs": "/docs",
   "memory": "/agents/{agent_id}/memory/... (short-term | working | long-term)",
   "personalization": "/users, /users/{user_id}/profile, /agents/{agent_id}/profile",
@@ -282,6 +294,8 @@ curl.exe http://127.0.0.1:8000/
   "scheduler": "/scheduler/tasks, /scheduler/tasks/{task_id}/pause|resume|run|history, /scheduler/tools, /scheduler/status, /scheduler/reminders, /scheduler/collected, /scheduler/summaries, /scheduler/notifications (14 эндпоинтов)",
   "pipelines": "/pipelines/run, /pipelines/runs, /pipelines/runs/{run_id}, /pipelines/runs/{run_id}/steps, /pipelines/runs/{run_id} (5 эндпоинтов)",
   "orchestration": "/orchestration/run, /orchestration/demo, /orchestration/runs, /orchestration/runs/{run_id}, /orchestration/runs/{run_id}/steps, DELETE /orchestration/runs/{run_id} (6 эндпоинтов)",
+  "indexing": "POST /indexing/run, POST /indexing/demo, GET /indexing/status, GET /indexing/stats, GET /indexing/search, GET /indexing/chunks, GET /indexing/runs, GET /indexing/runs/{run_id}, POST /indexing/clear (9 эндпоинтов)",
+  "llm": "/llm/usage, /llm/status, /llm/estimate, /llm/models, /llm/peak (5 эндпоинтов — журнал расходов, кэш контекста, непиковые часы)",
   "endpoints": [
     "POST /agents",
     "GET /agents",
@@ -367,7 +381,21 @@ curl.exe http://127.0.0.1:8000/
     "GET /orchestration/runs",
     "GET /orchestration/runs/{run_id}",
     "GET /orchestration/runs/{run_id}/steps",
-    "DELETE /orchestration/runs/{run_id}"
+    "DELETE /orchestration/runs/{run_id}",
+    "POST /indexing/run",
+    "POST /indexing/demo",
+    "GET /indexing/status",
+    "GET /indexing/stats",
+    "GET /indexing/search",
+    "GET /indexing/chunks",
+    "GET /indexing/runs",
+    "GET /indexing/runs/{run_id}",
+    "POST /indexing/clear",
+    "GET /llm/usage",
+    "GET /llm/status",
+    "POST /llm/estimate",
+    "GET /llm/models",
+    "GET /llm/peak"
   ]
 }
 ```
@@ -5172,6 +5200,7 @@ curl.exe -X POST http://127.0.0.1:8000/mcp/servers/refresh \
 | `schedule` | ScheduleReportOut/null | шаг планировщика: зарегистрирована ли фоновая задача (`registered`), каким инструментом (`tool`), какая задача (`task`), текст сводки (`summary`) и подтверждение (`message`); `null` — фоновой задачи не появилось (реплика не про планировщик, нет MCP-соединения, вызов отклонён правилами или инструмент ответил ошибкой). Считается до вызова DeepSeek, поэтому заполнено и при `error` |
 | `pipeline` | PipelineReportOut/null | шаг пайплайна (день 19): распознана ли в реплике композиция (`detected`), номер и статус прогона (`run_id`, `status`), его шаги (`steps`), итог (`message`), шаг с ошибкой (`failed_at_step`, `error`), длительность (`total_duration_ms`), ушёл ли результат в промпт (`used_in_prompt`) и сколько токенов добавил блок (`added_tokens`); `null` — пайплайна в реплике нет или реплика отклонена `hard`-инвариантом. Выполняется до контроля лимита контекста и до вызова DeepSeek, поэтому заполнен и при `error` |
 | `indexing` | IndexingReportOut/null | шаг поиска по индексу документов (день 21): был ли поиск (`detected`), по какой стратегии (`strategy`), сколько фрагментов нашлось (`hits`), из каких документов (`sources`), ушли ли они в системный промпт (`used_in_prompt`, `added_tokens`) и текст ошибки поиска (`error`). `detected: false` — индекса нет или реплику занял пайплайн/оркестрация; `null` — шага не было (запись идёт не из генерации). Выполняется до контроля лимита контекста, поэтому добавленный блок в лимит входит |
+| `llm` | объект/null | отчёт о вызове модели (день 21): `model`, `request_type` (тип задачи), `max_tokens` (предел ответа этого запроса), `prompt_tokens`, `completion_tokens`, `cache_hit_tokens`, `cache_miss_tokens`, `cache_hit_percent` (доля ввода, взятого из кэша контекста), `cost_estimate` (оценка стоимости хода, $). `null` — вызова не было (реплика отклонена инвариантом, сбой до обращения к модели или шаг не из генерации) |
 | `system_prompt` | строка | итоговое system-сообщение запроса (профиль + роль + инварианты + блоки памяти + блок состояния задачи + блок данных MCP + блок данных планировщика + блок результата пайплайна; считается до вызова DeepSeek) |
 | `duration_sec` | float/null | длительность запроса |
 | `timestamp` | datetime | время ответа |
@@ -5502,11 +5531,231 @@ curl.exe -X POST http://127.0.0.1:8000/mcp/servers/refresh \
 `stage`, `allowed_next` ([строка] — доступные этапы) и `blocked`
 ([TaskBlockedOut]).
 
+## Расходы на LLM
+
+Оптимизация затрат — подсистема дня 21: сколько стоят запросы агентов и какими
+рычагами эта стоимость снижается. Пять эндпоинтов `/llm` отдают то же, что видно
+во вкладке «💰 Расходы» интерфейса и в отчёте
+`day21/docs/reports/cost_optimization.md`: журнал расходов, состояние рычагов,
+прогноз, справку по моделям и правило непиковых окон.
+
+Каждый запрос к DeepSeek пишется строкой в таблицу `llm_usage`
+(`backend/models/llm_usage.py`): агент, время, модель, тип задачи, токены ввода и
+вывода, **раздельно** `cache_hit_tokens` (ввод, попавший в кэш контекста) и
+`cache_miss_tokens` (ввод мимо кэша), оценка стоимости. Стоимость считает чистый
+домен `backend/domain/llm_cost.py` по тарифам `MODEL_PRICES`, а попадание в кэш
+контекста оценивается долей цены ввода `LLM_CACHE_INPUT_RATIO = 0.1` (то есть
+10% цены ввода).
+
+Тарифы моделей (за 1M токенов, `prices` в `GET /llm/models`):
+
+| Модель | Ввод, $ | Вывод, $ |
+|---|---|---|
+| `deepseek-chat` | 0.27 | 1.10 |
+| `deepseek-reasoner` | 0.55 | 2.19 |
+
+Рычаги экономии:
+
+* **кэш контекста** — стабильный префикс промпта (профиль → системный промпт →
+  инварианты → каталог MCP-инструментов → примеры → общие инструкции) собирается
+  `PromptBuilder` (`backend/core/prompt_builder.py`) и кэшируется по содержимому:
+  со второго запроса провайдер отдаёт его десятой частью цены ввода. Динамика
+  (память, конспект, факты, состояние задачи, блоки инструментов) идёт после
+  префикса и кэш не портит; `looks_dynamic` не даёт занести в префикс метку
+  времени или hex-id — иначе кэш промахивался бы на каждой реплике;
+* **сжатие промптов** — `PromptCompressor` (`backend/services/prompt_compressor.py`)
+  снимает комментарии, лишние пробелы, повторы строк и абзацев, минифицирует JSON
+  в ограждениях. Применяется только к динамической части: к стабильному префиксу
+  его применять нельзя, иначе префикс перестанет совпадать с кэшированным;
+* **маршрутизация моделей** — тип задачи определяет модель и предел длины ответа
+  (`LLM_TASK_MODELS` и `LLM_TASK_MAX_TOKENS` конфига):
+
+  | Тип задачи | Модель | Предел ответа, токенов |
+  |---|---|---|
+  | `chat` (ответ в диалоге) | `deepseek-chat` | 1000 |
+  | `summarize` (конспект истории) | `deepseek-chat` | 512 |
+  | `classify` (проверка инвариантов) | `deepseek-chat` | 256 |
+  | `keywords` (ключевые слова и факты) | `deepseek-chat` | 256 |
+  | `orchestration` (план по каталогу флота) | `deepseek-reasoner` | 800 |
+  | `code` (длинная генерация) | `deepseek-reasoner` | 4000 |
+  | `indexing` (пакетная обработка) | `deepseek-reasoner` | 4000 |
+
+* **непиковые часы** — скидка провайдера вне пиковых окон: задача планировщика с
+  флагом `prefer_off_peak` переносит первый запуск в ближайшее дешёвое окно
+  (`backend/services/off_peak.py`, правило — `backend/domain/peak_hours.py`).
+
+Непик и пик (UTC): **непик** — будни 00:00–01:00, 04:00–06:00 и 10:00–24:00 плюс
+все выходные; **пик** — будни 01:00–04:00 и 06:00–10:00. Размер скидки —
+`OFF_PEAK_DISCOUNT_PERCENT = 50`; это тариф провайдера, поэтому в расчётах он
+участвует как допущение, а не как измерение.
+
+### GET /llm/usage
+
+Параметры: `agent_id` (необязательный — сузить выборку до одного агента),
+`period` (`day` | `week` | `month` | `all`, по умолчанию `week`), `limit` (сколько
+последних запросов отдать, по умолчанию 50). **Неизвестный период — `400`.**
+
+```bash
+curl "http://127.0.0.1:8000/llm/usage?period=week&limit=10"
+```
+
+```json
+{
+  "stats": {
+    "period": "week",
+    "requests": 6,
+    "prompt_tokens": 10475,
+    "completion_tokens": 1080,
+    "total_tokens": 11555,
+    "cache_hit_tokens": 3660,
+    "cache_miss_tokens": 6815,
+    "cache_hit_percent": 34.9,
+    "cost_estimate": 0.003127,
+    "by_model": { "deepseek-chat": { "requests": 6, "total_tokens": 11555, "cost_estimate": 0.003127 } },
+    "by_type": { "chat": { "requests": 6, "total_tokens": 11555, "cost_estimate": 0.003127 } },
+    "daily": [ { "date": "2026-09-28", "requests": 6, "total_tokens": 11555, "cost_estimate": 0.003127 } ]
+  },
+  "requests": [
+    {
+      "id": 6,
+      "agent_id": "agent-1",
+      "timestamp": "2026-09-28T18:48:11+00:00",
+      "model": "deepseek-chat",
+      "prompt_tokens": 1745,
+      "completion_tokens": 180,
+      "cache_hit_tokens": 732,
+      "cache_miss_tokens": 1013,
+      "cost_estimate": 0.000491,
+      "request_type": "chat",
+      "created_at": "2026-09-28T18:48:11+00:00"
+    }
+  ],
+  "count": 1
+}
+```
+
+Значения `stats` — из прогона `scripts/cost_optimization_report.py` (диалог из шести
+запросов: 10475 токенов ввода, из них 3660 отдано из кэша контекста); строка
+`requests` показывает форму записи журнала (свежие запросы первыми).
+
+* `cache_hit_tokens` и `cache_miss_tokens` — ввод, разделённый по кэшу:
+  `prompt_tokens` = их сумма, и именно по ним видно, работает ли кэш (`cache_miss`
+  растёт — префикс перестал совпадать, например в него попали динамические данные);
+* `cache_hit_percent` — доля ввода, взятого из кэша: `cache_hit / (cache_hit +
+  cache_miss) * 100`;
+* `cost_estimate` — оценка стоимости по тарифу модели: промах считается по полной
+  цене ввода, попадание — по 10% цены ввода, вывод — по цене вывода;
+* `period` — окно агрегации; `daily` — расход по дням для графика;
+  `by_model`/`by_type` — разбивка по моделям и типам задач: по ней видно, какие
+  задачи ушли на дешёвую модель и где кэш не сработал.
+
+### GET /llm/status
+
+Пик или непик сейчас, когда начнётся дешёвое окно и какова скидка, статистика
+стабильного префикса промптов (сколько раз префикс взят из кэша приложения) и
+сжатия, а также таблицы «тип задачи → модель» и «тип задачи → предел ответа».
+
+```json
+{
+  "off_peak": false,
+  "peak": true,
+  "window_label": "2026-09-28 06:00–10:00 UTC",
+  "next_off_peak": "2026-09-28T10:00:00+00:00",
+  "next_off_peak_in_seconds": 9000,
+  "discount_percent": 50,
+  "description": "Пиковые часы DeepSeek (2026-09-28 06:00–10:00 UTC); ближайшее непиковое окно — 28.09 10:00 UTC (скидка 50%)",
+  "prompt": {
+    "cache_hits": 5,
+    "cache_misses": 1,
+    "cache_hit_percent": 83.3,
+    "cache_size": 1,
+    "stable_tokens": 732,
+    "dynamic_tokens": 0,
+    "saved_tokens": 0,
+    "requests": 6
+  },
+  "compressor": {
+    "calls": 0,
+    "tokens_before": 0,
+    "tokens_after": 0,
+    "saved_tokens": 0,
+    "saved_percent": 0.0
+  },
+  "task_models": { "chat": "deepseek-chat", "code": "deepseek-reasoner" },
+  "task_max_tokens": { "chat": 1000, "code": 4000 }
+}
+```
+
+`prompt` — статистика строителя промптов (попадания/промахи кэша приложения,
+размер префикса `stable_tokens`, токены динамики и снятые сжатием), `compressor` —
+работа сжатия. Счётчики живут в процессе бэкенда и обнуляются вместе с ним: это
+наблюдение за поведением кэша, а не история расходов (история — в `llm_usage`).
+
+### POST /llm/estimate
+
+Тело — числа токенов, по которым считается прогноз: `model`, `task_type`,
+`prompt_tokens`, `completion_tokens`, `cache_hit_tokens`, `compressed_tokens`,
+`max_response_tokens`, `off_peak_share` (`0…1` — доля запроса, ушедшая в непик;
+выход за границы — `422`).
+
+```bash
+curl -X POST http://127.0.0.1:8000/llm/estimate -H "Content-Type: application/json" \
+  -d "{\"model\":\"deepseek-chat\",\"prompt_tokens\":10475,\"completion_tokens\":1080,\"cache_hit_tokens\":3660,\"compressed_tokens\":0,\"max_response_tokens\":1000,\"off_peak_share\":0.0}"
+```
+
+```json
+{
+  "model": "deepseek-chat",
+  "cost": 0.003127,
+  "baseline_cost": 0.005169,
+  "cache": { "tokens": 3660, "cost_without_cache": 0.000988, "cost_with_cache": 0.000099, "saving": 0.000889 },
+  "compression": { "tokens": 0, "price_per_million": 0.27, "saving": 0.0 },
+  "response_limit": { "tokens": 1048, "saving": 0.001153 },
+  "off_peak": { "cost": 0.0, "discount_percent": 50, "saving": 0.0, "cost_off_peak": 0.0 },
+  "core_saving": 0.000889,
+  "core_saving_percent": 17.2,
+  "total_saving": 0.002042,
+  "saving_percent": 39.5
+}
+```
+
+Как читать ответ:
+
+* `cost` — стоимость запроса с оптимизацией, `baseline_cost` — без неё;
+* `cache`, `compression`, `off_peak` — вклад каждого рычага (токены и деньги), а
+  `response_limit` — вклад **предела длины ответа**: он считается как экономия
+  против `DEFAULT_MAX_TOKENS = 2048` (сколько не потратилось бы на вывод, если
+  длинный ответ упрётся в потолок). Это **оценка сверху**: фактическая длина
+  ответа от потолка не зависит, поэтому он не входит в `core_saving`;
+* `core_saving` (и `core_saving_percent`) — экономия только измеряемых рычагов:
+  кэш + сжатие + скидка непика; `total_saving` (и `saving_percent`) — со всеми
+  рычагами, включая потолок ответа. Отчёт об оптимизации считает итог по
+  `core_saving`, а строку потолка показывает отдельно — по той же причине;
+* `off_peak.saving` — прогноз скидки на переданную долю стоимости
+  (`off_peak_share`); при `off_peak_share = 0` вклад нулевой, потому что запрос
+  целиком попал в пик.
+
+### GET /llm/models
+
+Данные маршрутизации: `task_models` (тип задачи → модель), `task_max_tokens` (тип
+задачи → предел ответа), `default_model` (модель задач по умолчанию —
+`deepseek-chat`), `cache_input_ratio` (доля цены ввода за попадание в кэш — `0.1`)
+и `prices` (тарифы моделей за 1M токенов). Таблицы берутся из того же конфига, по
+которому работает `LLMClient`, поэтому разойтись с поведением не могут.
+
+### GET /llm/peak
+
+Правило окон и текущий статус: `off_peak_weekday_hours_utc` (`[[0, 1], [4, 6],
+[10, 24]]`), `peak_weekday_hours_utc` (`[[1, 4], [6, 10]]`),
+`weekends_off_peak` (`true`), `discount_percent` (50) и `status` — тот же блок,
+что отдаёт `GET /llm/status`: пик/непик, подпись окна, момент следующего дешёвого
+окна и секунды до него.
+
 ## Коды ошибок
 
 | Код | Когда | Тело |
 |---|---|---|
-| `400` | пустой `task_id` после обрезки пробелов в `PUT /memory/task`; недопустимый переход состояния задачи: пропуск этапа, откат больше чем на этап, переход «в себя», выход из этапа без согласования (guard-условие), любой переход из `done`, пауза из `done` и повторная пауза, `advance` и `rollback` на паузе, шаг чужого этапа, несовпадение `to_stage` с целью отката, `resume` не на паузе; цель MCP не разобрана: пустая после обрезки пробелов, URL там, где нужен запуск команды, и наоборот; `POST /mcp/call` — инструмента нет в каталоге сервера или аргументы не подходят по `input_schema` (нет обязательного, лишний, тип не тот); `POST /scheduler/tasks` — инструмент не входит в планировщик дня, лишний/отсутствующий аргумент, значение не того типа или вне границ, `source_url` без `http(s)://`, неразобранное расписание (интервал вне 1…86400, cron не из пяти полей, `date` без `run_date`); неизвестный `status` в фильтрах `/scheduler/tasks` и `/scheduler/reminders`; негодная конфигурация пайплайна (не объект, пустой список `steps`, шагов больше `PIPELINE_STEPS_MAX`, шаг без `tool`, неизвестное условие `op`) и неизвестный `status` в фильтре `/pipelines/runs`; негодный план оркестрации (не объект, пустой список `steps`, шагов больше `ORCH_STEPS_MAX`, шаг без `tool`, `args` не объект, неизвестное условие), невыполнимый сценарий оркестрации (плана нет, а флот не публикует нужных инструментов) неизвестный `status` в фильтре `/orchestration/runs`; неизвестная `strategy` индексации, пустой `query` поиска и отсутствие документов у `/indexing/*` | `HTTPException` с `detail` (у `POST /tasks/{task_id}/transition` — причина и подсказка) |
+| `400` | пустой `task_id` после обрезки пробелов в `PUT /memory/task`; недопустимый переход состояния задачи: пропуск этапа, откат больше чем на этап, переход «в себя», выход из этапа без согласования (guard-условие), любой переход из `done`, пауза из `done` и повторная пауза, `advance` и `rollback` на паузе, шаг чужого этапа, несовпадение `to_stage` с целью отката, `resume` не на паузе; цель MCP не разобрана: пустая после обрезки пробелов, URL там, где нужен запуск команды, и наоборот; `POST /mcp/call` — инструмента нет в каталоге сервера или аргументы не подходят по `input_schema` (нет обязательного, лишний, тип не тот); `POST /scheduler/tasks` — инструмент не входит в планировщик дня, лишний/отсутствующий аргумент, значение не того типа или вне границ, `source_url` без `http(s)://`, неразобранное расписание (интервал вне 1…86400, cron не из пяти полей, `date` без `run_date`); неизвестный `status` в фильтрах `/scheduler/tasks` и `/scheduler/reminders`; негодная конфигурация пайплайна (не объект, пустой список `steps`, шагов больше `PIPELINE_STEPS_MAX`, шаг без `tool`, неизвестное условие `op`) и неизвестный `status` в фильтре `/pipelines/runs`; негодный план оркестрации (не объект, пустой список `steps`, шагов больше `ORCH_STEPS_MAX`, шаг без `tool`, `args` не объект, неизвестное условие), невыполнимый сценарий оркестрации (плана нет, а флот не публикует нужных инструментов) неизвестный `status` в фильтре `/orchestration/runs`; неизвестная `strategy` индексации, пустой `query` поиска и отсутствие документов у `/indexing/*`, неизвестный период агрегации расходов у `GET /llm/usage` (не `day`/`week`/`month`/`all`) | `HTTPException` с `detail` (у `POST /tasks/{task_id}/transition` — причина и подсказка) |
 | `404` | неизвестный `agent_id` во всех `/agents/{agent_id}/...` (а для `DELETE /memory/long-term/{id}` — ещё и отсутствующая запись); нет профиля у `GET`/`PUT`/`DELETE /users/{user_id}/profile`; неизвестный `task_id` во всех `/tasks/{task_id}/...`; неизвестный `task_id` у `/scheduler/tasks/{task_id}/...` и `notification_id` у `POST /scheduler/notifications/{id}/read`; неизвестный `run_id` у `/pipelines/runs/{run_id}`, `…/steps` и `DELETE /pipelines/runs/{run_id}`, а также у `/orchestration/runs/{run_id}`, `…/steps` и `DELETE /orchestration/runs/{run_id}` и у `/indexing/runs/{run_id}`; неизвестное имя сервера у `GET /mcp/servers/{name}/tools` | `HTTPException` с `detail` |
 | `409` | профиль с таким `user_id` уже есть (`POST /users/{user_id}/profile`); задача с таким `task_id` уже заведена (`POST /agents/{agent_id}/tasks`); `GET /mcp/tools` и `POST /mcp/call` без соединения с MCP-сервером; пауза не активной задачи и возобновление не стоящей на паузе, запуск уже выполненной задачи планировщика; поиск по непостроенному индексу (`GET /indexing/search` без индексации) | `HTTPException` с `detail` |
 | `422` | невалидное тело запроса (Pydantic/FastAPI): невалидные поля профиля, `initial_stage` вне `planning`/`execution`/`validation`, неизвестный этап/шаг, слишком длинные `expected_action`/`reason`, пустой `task_id`, тело `PATCH /tasks/{task_id}/context` без единого флага, пустая цель или неизвестный транспорт у `POST /mcp/connect`, пустое или длиннее 100 символов имя инструмента у `POST /mcp/call`, `schedule_type` вне `date`/`interval`/`cron`, пустой или длиннее 64 символов `tool`, пустое или длиннее 100 символов `name` у `POST /scheduler/tasks`, не объект `pipeline`/`initial_args`, не булево `background` у `POST /pipelines/run`, нечисловой `limit`/`run_id` в `/pipelines/...`, пустая или длиннее 500 символов `query`, не объект `plan`/`initial_args`, не булево `background`, нечисловой `run_id`/`limit` в `/orchestration/...`, `top_k` вне 1…20, `limit` < 1 и не булево `background` в `/indexing/...` | объект с `detail` — списком ошибок |
