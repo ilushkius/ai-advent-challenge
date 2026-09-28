@@ -21,7 +21,6 @@ from backend.services.mcp_registry import MCPRegistry
 from backend.services.schedule_service import ScheduleService
 from backend.services.scheduler import TaskScheduler
 from backend.storage import database
-from backend.storage.database import init_db, make_engine, make_session_factory
 from backend.storage.scheduler_data_store import SchedulerDataStore
 from backend.storage.scheduler_store import SchedulerStore
 
@@ -44,11 +43,9 @@ REMINDER_RESULT = {
 }
 
 
-def _build_client(tmp_path, monkeypatch, *, connected: bool = True):
+def _build_client(session_factory, tmp_path, monkeypatch, *, connected: bool = True):
     """TestClient с изолированной БД, заглушкой планировщика и фейковым реестром MCP."""
-    engine = make_engine(f"sqlite:///{(tmp_path / 'scheduler.db').as_posix()}")
-    init_db(engine)
-    factory = make_session_factory(engine)
+    factory = session_factory
     monkeypatch.setattr(database, "SessionLocal", factory)
 
     import backend.api.main as main
@@ -78,9 +75,9 @@ def _build_client(tmp_path, monkeypatch, *, connected: bool = True):
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def client(session_factory, tmp_path, monkeypatch):
     """TestClient с подключённым фейковым сервером дня."""
-    with _build_client(tmp_path, monkeypatch) as test_client:
+    with _build_client(session_factory, tmp_path, monkeypatch) as test_client:
         yield test_client
 
 
@@ -262,9 +259,9 @@ def test_generate_reports_scheduled_task(client):
     assert "## Данные планировщика" in body["system_prompt"]
 
 
-def test_generate_without_scheduler_intent_has_no_report(tmp_path, monkeypatch):
+def test_generate_without_scheduler_intent_has_no_report(session_factory, tmp_path, monkeypatch):
     """Реплика без ключевых слов планировщика: ``schedule`` пусто, задачи нет."""
-    with _build_client(tmp_path, monkeypatch) as test_client:
+    with _build_client(session_factory, tmp_path, monkeypatch) as test_client:
         agent_id = test_client.post("/agents", json={"name": "Планировщик"}).json()["agent_id"]
         body = test_client.post(f"/agents/{agent_id}/generate",
                                 json={"prompt": "Сколько будет 2+2?"}).json()

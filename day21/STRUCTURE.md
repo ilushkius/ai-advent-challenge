@@ -98,6 +98,7 @@ precision@k и recall@k по пяти тестовым запросам с groun
 day21/
 ├── app.py                    # точка входа Streamlit (79 строк, лимит 100): set_page_config + вызовы секций
 ├── AGENTS.md                 # правила дня и workflow нового дня (≤ 5 КБ): границы, документация, тесты, инструменты
+├── WORKFLOW.md               # маршрут: сырое задание → ARCHITECT_PROMPT.md → исполнение в omp.sh → commit + tag
 ├── .omp/RULES.md             # sticky-правила (omp загружает их только из native-локаций: <ближайший непустой .omp/>)
 ├── .clineignore              # служебное и тяжёлое внутри дня (.venv, output, index, *.db) — вне контекста агента
 ├── documents/                # СОБРАННЫЕ документы (производные данные, в Git не попадают): 25 файлов + manifest.json
@@ -132,8 +133,10 @@ day21/
 │   │                         # и llm_usage.py (журнал расходов)
 │   ├── schemas/              # Pydantic-схемы API: 14 модулей, в том числе indexing.py и llm.py
 │   └── utils/                # своего кода нет (общий — в repo-level shared/)
-├── tests/                    # pytest: 2521 тест (unit/ — 1727, integration/ — 575, e2e/ — 219)
-│   ├── conftest.py           # общие фикстуры (+ autouse no_real_fleet, offline_planner и isolated_indexing)
+├── tests/                    # pytest: 2521 тест (unit/ — 1727, integration/ — 575, e2e/ — 219); по умолчанию 2446 (75 slow отложены)
+│   ├── conftest.py           # общие фикстуры (session-scoped schema_template для схемы БД) + autouse no_real_network
+│   ├── fixtures_fleet.py     # фикстуры флота MCP-серверов и оркестрации (вынесены из conftest: лимит 400 строк)
+│   ├── fixtures_indexing.py  # фикстуры индексации документов (тоже вынесены из conftest)
 │   ├── indexing_fakes.py     # фейки индексации: эмбеддер на хешах слов и три тестовых документа
 │   └── …                     # унаследованные помощники тестов дня 20 (orchestration_fakes, mcp_fakes, stub_api, support…)
 ├── docs/                     # architecture.md, usage.md, api.md, reports/
@@ -162,7 +165,9 @@ day21/
 отчёты дня 21 (их создают `uv run python scripts/indexing_demo.py` и
 `uv run python scripts/cost_optimization_report.py`), `context_optimization.md` —
 отчёт об экономии контекста агента (замеры окружения, написан по фактам логов, а не
-генерируется скриптом), остальные (`orchestration_demo.md`,
+генерируется скриптом), `test_optimization.md` — отчёт об ускорении тестов
+(параллелизм, общая схема БД, маркер `slow`; тоже написан по замерам), остальные
+(`orchestration_demo.md`,
 `pipeline_demo.md`, `scheduler_demo.md`, `mcp_tool_demo.md`, `mcp_demo.md`,
 `task_state_demo.md`, `personalization_comparison.md`) унаследованы и читаются как
 история.
@@ -300,6 +305,17 @@ indexing_fsm, llm_cost, peak_hours, orchestration_fsm, …`), а не реэкс
 стратегии, профиль, задача и переходы, инварианты, MCP, планировщик, пайплайн, флот и
 оркестрация) остаются на месте; их раскладка по файлам — в
 [`day20/STRUCTURE.md`](../day20/STRUCTURE.md).
+
+**Режимы прогона и скорость.** Тесты идут параллельно (`pytest-xdist`, `-n auto`)
+и делят одну схему БД на прогон: session-scoped `schema_template` строит её один
+раз, а `session_factory` копирует файл (2,65 мс вместо 934 мс у `create_all`) —
+изоляция сохранена (файл на тест), время полного прогона упало с 370 с до 68 с.
+Тяжёлые тесты (75 штук: подпроцессы MCP-серверов по stdio и часть e2e) помечены
+`slow` и по умолчанию пропускаются: `uv run pytest` идёт ~31 с и покрывает 2446
+тестов, полный набор — `uv run pytest -m ""` или `--run-slow`. Autouse-фикстура
+`no_real_network` запрещает тестам TCP на нелокальные адреса (внешние API
+подменены фейками). Замеры и разбор — в
+[`docs/reports/test_optimization.md`](docs/reports/test_optimization.md).
 
 Новые фикстуры дня 21 в `tests/conftest.py`: `documents_dir` (три документа: markdown
 с заголовками, plain text и Python с декоратором), `documents`, `document_loader`,

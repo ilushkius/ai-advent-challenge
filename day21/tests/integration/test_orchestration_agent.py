@@ -110,6 +110,7 @@ def test_plain_reply_touches_nothing(session_factory, tmp_path):
         "total_duration_ms": 0, "used_in_prompt": False, "added_tokens": 0}
 
 
+@pytest.mark.slow
 def test_failure_of_the_run_does_not_break_the_turn(session_factory, tmp_path):
     """Сбой оркестрации не роняет ход: реплика распознана, ответ собран без данных."""
     agent, fake, registry, service = _agent(session_factory, tmp_path,

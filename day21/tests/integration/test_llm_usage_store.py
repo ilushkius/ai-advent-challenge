@@ -170,6 +170,7 @@ def test_cache_hit_percent_zero_without_input(session_factory):
     assert store.stats()["cache_hit_percent"] == 0.0
 
 
+@pytest.mark.slow
 def test_cache_hit_percent_falls_back_to_prompt(session_factory):
     """Старые строки без разметки кэша считают знаменателем ``prompt_tokens``.
 

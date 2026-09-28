@@ -14,7 +14,6 @@ from backend.agents.agent_manager import AgentManager
 from backend.domain.demo_invariants import DEMO_INVARIANTS
 from backend.domain.invariant_prompt import REFUSAL_HEADER, WARNING_HEADER
 from backend.storage import database
-from backend.storage.database import init_db, make_engine, make_session_factory
 
 from support import FakeClient
 
@@ -29,11 +28,9 @@ CLEAN_TEXT = "Добавь эндпоинт /health в FastAPI"
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def client(session_factory, monkeypatch):
     """TestClient на временной БД с подменённым клиентом DeepSeek у агентов."""
-    engine = make_engine(f"sqlite:///{(tmp_path / 'invariants.db').as_posix()}")
-    init_db(engine)
-    factory = make_session_factory(engine)
+    factory = session_factory
 
     fake = FakeClient(reply="Ответ ассистента")
     # Менеджер получает ту же фабрику клиента: проверка /invariants/check идёт
@@ -152,6 +149,7 @@ def test_list_active_only_hides_disabled(client):
     assert first["id"] in [item["id"] for item in all_items]
 
 
+@pytest.mark.slow
 def test_get_returns_invariant_and_404_for_unknown(client):
     """GET по id и 404 на неизвестный id — раздел UI различает эти случаи."""
     created = new_invariant(client)
@@ -319,6 +317,7 @@ def test_root_lists_invariant_endpoints(client):
         assert path in body["endpoints"]
 
 
+@pytest.mark.slow
 def test_openapi_contains_invariant_paths(client):
     """Инварианты попадают в OpenAPI: /docs — контракт для внешнего клиента."""
     paths = client.get("/openapi.json").json()["paths"]

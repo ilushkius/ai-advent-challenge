@@ -17,7 +17,6 @@ from backend.agents.agent_manager import AgentManager
 from backend.core import config
 from backend.core.prompt_builder import PromptBuilder, reset_prompt_builder
 from backend.storage import database
-from backend.storage.database import init_db, make_engine, make_session_factory
 from backend.storage.llm_usage_store import LLMUsageStore
 
 from support import FakeClient
@@ -37,11 +36,9 @@ SEED_ROWS = (
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def client(session_factory, monkeypatch):
     """TestClient на временной БД с подменённым клиентом DeepSeek и своим журналом."""
-    engine = make_engine(f"sqlite:///{(tmp_path / 'llm.db').as_posix()}")
-    init_db(engine)
-    factory = make_session_factory(engine)
+    factory = session_factory
     monkeypatch.setattr(database, "SessionLocal", factory)
     reset_prompt_builder()
 

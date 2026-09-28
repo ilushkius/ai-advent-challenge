@@ -82,6 +82,7 @@ def test_get_invariant_of_unknown_id_is_none(manager) -> None:
 
 
 # ---------- чтение списка ----------
+@pytest.mark.slow
 def test_list_orders_by_name_and_skips_inactive(manager) -> None:
     """``active_only`` по умолчанию: выключенное правило в промпт не попадает."""
     add(manager, name="Я")

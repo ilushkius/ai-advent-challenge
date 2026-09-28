@@ -22,7 +22,6 @@ from backend.services.mcp_tool_runner import MCPToolRunner
 from backend.services.pipeline import Pipeline
 from backend.services.pipeline_service import PipelineService
 from backend.storage import database
-from backend.storage.database import init_db, make_engine, make_session_factory
 from backend.storage.pipeline_store import PipelineStore
 
 from pipeline_fakes import make_pipeline_factory
@@ -42,11 +41,9 @@ ARGS = {
 RAG_QUESTION = "найди статьи про RAG, сделай сводку и сохрани в файл"
 
 
-def _build_client(tmp_path, monkeypatch, **client_kwargs):
+def _build_client(session_factory, tmp_path, monkeypatch, **client_kwargs):
     """TestClient с изолированной БД, фейковым MCP-реестром и службой пайплайнов."""
-    engine = make_engine(f"sqlite:///{(tmp_path / 'pipelines.db').as_posix()}")
-    init_db(engine)
-    factory = make_session_factory(engine)
+    factory = session_factory
     monkeypatch.setattr(database, "SessionLocal", factory)
 
     import backend.api.main as main
@@ -71,9 +68,9 @@ def _build_client(tmp_path, monkeypatch, **client_kwargs):
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def client(session_factory, tmp_path, monkeypatch):
     """TestClient с подключённым фейковым сервером композиции."""
-    instance = _build_client(tmp_path, monkeypatch)
+    instance = _build_client(session_factory, tmp_path, monkeypatch)
     try:
         yield instance
     finally:

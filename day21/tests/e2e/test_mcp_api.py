@@ -13,17 +13,14 @@ from fastapi.testclient import TestClient
 from backend.services.mcp_registry import MCPRegistry
 from backend.storage import database
 from backend.agents.agent_manager import AgentManager
-from backend.storage.database import init_db, make_engine, make_session_factory
 
 from mcp_fakes import FAKE_MCP_TOOLS, make_mcp_factory
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def client(session_factory, monkeypatch):
     """TestClient с изолированной БД и реестром на фейковых MCP-клиентах."""
-    engine = make_engine(f"sqlite:///{(tmp_path / 'mcp.db').as_posix()}")
-    init_db(engine)
-    factory = make_session_factory(engine)
+    factory = session_factory
     monkeypatch.setattr(database, "SessionLocal", factory)
 
     import backend.api.main as main

@@ -31,6 +31,7 @@ def indexed(index_service, documents):
     return index_service, chunks, report
 
 
+@pytest.mark.slow
 def test_index_chunks_reports_counts_and_dimension(indexed):
     """Отчёт индексации: число чанков, эмбеддингов, размерность и время."""
     service, chunks, report = indexed

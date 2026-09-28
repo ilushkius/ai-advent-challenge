@@ -9,7 +9,6 @@ from fastapi.testclient import TestClient
 
 from backend.storage import database
 from backend.agents.agent_manager import AgentManager
-from backend.storage.database import init_db, make_engine, make_session_factory
 from backend.domain.profiles import PROFILE_HEADER
 
 from support import FakeClient
@@ -33,11 +32,9 @@ FRIENDLY = {
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def client(session_factory, monkeypatch):
     """TestClient на временной БД с подменённым клиентом DeepSeek у агентов."""
-    engine = make_engine(f"sqlite:///{(tmp_path / 'profile.db').as_posix()}")
-    init_db(engine)
-    factory = make_session_factory(engine)
+    factory = session_factory
 
     manager = AgentManager(session_factory=factory)
     monkeypatch.setattr(database, "SessionLocal", factory)
@@ -146,6 +143,7 @@ def test_generate_returns_applied_profile_and_system_prompt(client):
     assert sent_system["content"] == body["system_prompt"]
 
 
+@pytest.mark.slow
 def test_generate_without_profile_reports_no_personalization(client):
     """Без профиля генерация работает как раньше, но честно это сообщает."""
     info = create_agent(client, user_id="nobody")
@@ -221,6 +219,7 @@ def test_agent_profile_unknown_agent_returns_404(client):
     assert client.get("/agents/ffffffff/profile").status_code == 404
 
 
+@pytest.mark.slow
 def test_root_and_docs_list_personalization_endpoints(client):
     """Корневой ответ перечисляет эндпоинты персонализации (навигация в UI)."""
     root = client.get("/").json()

@@ -1,17 +1,24 @@
-"""Фикстуры pytest дня 20: временная БД, агент с подменённым клиентом DeepSeek,
-планировщик без таймеров, пайплайн на фейковом MCP-реестре и ФЛОТ серверов дня 20.
+"""Фикстуры pytest дня 21: временная БД (копия общей схемы), агент с подменённым
+клиентом DeepSeek, планировщик без таймеров и пайплайн на фейковом MCP-реестре.
 
 Общие фейки и утилиты — в `tests/support.py` (импортируются как `from support
 import ...`, для чего `tests` добавлена в pythonpath в pytest.ini). Фейки
 планировщика — в `tests/scheduler_fakes.py`, фейки пайплайна — в
-`tests/pipeline_fakes.py`, фейки флота серверов — в `tests/orchestration_fakes.py`.
+`tests/pipeline_fakes.py`.
+
+Фикстуры флота MCP-серверов и оркестрации (день 20) живут в
+`tests/fixtures_fleet.py`, индексации документов (день 21) — в
+`tests/fixtures_indexing.py`: conftest упёрся бы в лимит 400 строк. Импортированные
+сюда фикстуры pytest видит как объявленные здесь.
 """
+import shutil
+import socket
+
 from datetime import datetime, timezone
 
 import pytest
 
 from backend.core import config
-from backend.agents.agent import Agent
 from backend.storage.database import AgentRecord, init_db, make_engine, make_session_factory
 from backend.services.task_state import TaskStateMachine
 from backend.storage.scheduler_data_store import SchedulerDataStore
@@ -20,25 +27,87 @@ from backend.services.mcp_tool_runner import MCPToolRunner
 from backend.services.pipeline import Pipeline
 from backend.services.pipeline_service import PipelineService
 from backend.services.schedule_service import ScheduleService
-from backend.services.orchestration_service import OrchestrationService
-from backend.services.orchestration_planner import OrchestrationPlanner
-from backend.services.orchestrator import Orchestrator
 from backend.services.scheduler import TaskScheduler
 from backend.storage.pipeline_store import PipelineStore
-from backend.storage.orchestration_store import OrchestrationStore
-from backend.services.document_loader import DocumentLoader
-from backend.services.index_service import IndexService
-from backend.services.indexing_service import IndexingService
-from backend.storage.chunk_store import ChunkStore
-from backend.storage.index_run_store import IndexRunStore
 
-from indexing_fakes import FakeEmbedder, make_documents
-from orchestration_fakes import make_fleet_registry, make_fleet_factory, write_servers_file
 from pipeline_fakes import make_pipeline_registry
 from scheduler_fakes import FakeFetcher
 from support import FakeClient, create_agent
 from stub_api import stub_api
 from backend_stub import backend_api_stub
+
+from fixtures_fleet import (  # noqa: F401  (фикстуры: pytest читает их как свои)
+    fleet_registry,
+    no_real_fleet,
+    offline_planner,
+    orchestration_service,
+    orchestration_store,
+    orchestrator,
+)
+from fixtures_indexing import (  # noqa: F401  (фикстуры: pytest читает их как свои)
+    chunk_store,
+    document_loader,
+    documents,
+    documents_dir,
+    fake_embedder,
+    index_run_store,
+    index_service,
+    indexing_service,
+    isolated_indexing,
+)
+
+
+def pytest_addoption(parser):
+    """Добавляет `--run-slow`: полный прогон, включая тяжёлые тесты.
+
+    По умолчанию `pytest.ini` оставляет быстрый набор (`-m "not slow"`), поэтому
+    полный прогон требовал бы помнить выражение маркеров; флаг делает это явным.
+    """
+    parser.addoption(
+        "--run-slow", action="store_true", default=False,
+        help="запустить и медленные тесты (маркер slow: подпроцессы MCP, e2e)",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """`--run-slow` снимает дефолтное `-m "not slow"` из `addopts` (pytest.ini).
+
+    Явное выражение маркеров, переданное в командной строке, остаётся в силе:
+    флаг меняет только дефолт из `addopts`, а не выбор пользователя.
+    """
+    if not config.getoption("--run-slow", default=False):
+        return
+    args = config.invocation_params.args
+    explicit = any(a == "-m" or a.startswith("-m=") or a.startswith("--markexpr") for a in args)
+    if not explicit and config.option.markexpr == "not slow":
+        config.option.markexpr = ""
+
+
+@pytest.fixture(autouse=True)
+def no_real_network(monkeypatch):
+    """Тесты не выходят в сеть: чужой хост — падение с понятным текстом.
+
+    Внешние API уже подменены (``FakeClient`` — DeepSeek, autouse-фикстуры
+    ``offline_planner`` и ``isolated_indexing`` — планировщик и модель
+    эмбеддингов, стенды ``stub_api``/``backend_stub`` слушают 127.0.0.1), но
+    самой проверки не было: новый тест мог незаметно пойти в интернет. Запрет
+    ловит ровно этот случай и не мешает локальным стендам и stdio-подпроцессам.
+    """
+    real_connect = socket.socket.connect
+
+    def guarded(self, address, *args, **kwargs):
+        """Пускает только локальные адреса; остальные — явная ошибка теста."""
+        host = address[0] if isinstance(address, tuple) else address
+        local = (not host) or str(host).startswith(("127.", "localhost", "::1", "0.0.0.0"))
+        if not local:
+            raise AssertionError(
+                f"тест попытался выйти в сеть: {host}. Подмените внешний вызов "
+                "фейком (tests/support.py: FakeClient, tests/stub_api.py) — "
+                "тесты дня 21 работают офлайн."
+            )
+        return real_connect(self, address, *args, **kwargs)
+
+    monkeypatch.setattr(socket.socket, "connect", guarded)
 
 
 @pytest.fixture
@@ -52,11 +121,28 @@ def stub_api_base():
         yield base_url
 
 
-@pytest.fixture
-def session_factory(tmp_path):
-    """Фабрика сессий на временной SQLite-базе (файл живёт до конца теста)."""
-    engine = make_engine(f"sqlite:///{(tmp_path / 'test.db').as_posix()}")
+@pytest.fixture(scope="session")
+def schema_template(tmp_path_factory):
+    """Готовая схема БД: строится ОДИН раз за прогон.
+
+    `init_db` (create_all по ~25 таблицам) стоит ≈0,9 с — почти секунда на каждый
+    тест, которому нужна база. Здесь схема строится один раз, а тесты получают
+    копию файла (≈3 мс): изоляция сохраняется, потому что у каждого теста свой
+    файл, меняется только способ его создания.
+    """
+    path = tmp_path_factory.mktemp("schema") / "schema.db"
+    engine = make_engine(f"sqlite:///{path.as_posix()}")
     init_db(engine)
+    engine.dispose()
+    return path
+
+
+@pytest.fixture
+def session_factory(tmp_path, schema_template):
+    """Фабрика сессий на временной SQLite-базе: копия схемы, файл живёт до конца теста."""
+    db = tmp_path / "test.db"
+    shutil.copyfile(schema_template, db)
+    engine = make_engine(f"sqlite:///{db.as_posix()}")
     return make_session_factory(engine)
 
 
@@ -173,173 +259,3 @@ def backend_api_base():
     """
     with backend_api_stub() as base_url:
         yield base_url
-
-
-# ---------- флот MCP-серверов и оркестрация (день 20) ----------
-@pytest.fixture(autouse=True)
-def no_real_fleet(tmp_path, monkeypatch):
-    """Не даёт тестам поднимать настоящий флот MCP-серверов.
-
-    ``lifespan`` приложения на старте зовёт ``connect_all()``: тот читает
-    ``mcp_servers.json`` и запускает по процессу на сервер. В тестах этого быть не
-    должно (медленно, зависит от окружения и от рабочего файла дня), поэтому путь
-    к файлу конфигурации подменяется ПУСТЫМ временным файлом — серверов нет,
-    процессов нет. Так же защищены реестры, которые тесты собирают сами в
-    фикстурах: они читают путь из ``config`` в момент создания.
-
-    Тесты, которым нужен флот (``fleet_registry`` и e2e оркестрации), передают
-    серверам реестра свой файл конфигурации явно — тогда подмена пути не важна.
-    """
-    import backend.api.main as main
-
-    from backend.core import config
-
-    # Файл-заглушка лежит в подкаталоге: `tmp_path` тесты используют и как рабочий
-    # каталог (например, каталог вывода `save_to_file`), и посторонний файл в нём
-    # попадал бы в проверки списка файлов.
-    guard_dir = tmp_path / "fleet-guard"
-    guard_dir.mkdir(exist_ok=True)
-    empty = write_servers_file(guard_dir / "mcp_servers.json", names=())
-    monkeypatch.setattr(config, "MCP_SERVERS_FILE", empty)
-    registry = make_fleet_registry(guard_dir, servers_file=empty)
-    monkeypatch.setattr(main, "get_mcp_registry", lambda: registry)
-    yield registry
-
-
-@pytest.fixture
-def orchestration_store(session_factory):
-    """Хранилище запусков оркестрации на временной БД."""
-    return OrchestrationStore(session_factory=session_factory)
-
-
-@pytest.fixture
-def fleet_registry(tmp_path):
-    """Реестр на фейковом флоте из трёх серверов (настоящие процессы не поднимаются)."""
-    registry = make_fleet_registry(tmp_path)
-    registry.connect_all()
-    try:
-        yield registry
-    finally:
-        registry.close()
-
-
-@pytest.fixture
-def orchestrator(fleet_registry, orchestration_store):
-    """Оркестратор на фейковом флоте и временном журнале (без модели: план — эвристика)."""
-    return Orchestrator(registry=fleet_registry, store=orchestration_store)
-
-
-@pytest.fixture
-def orchestration_service(orchestrator, orchestration_store):
-    """Служба оркестрации поверх того же оркестратора и журнала."""
-    return OrchestrationService(orchestrator=orchestrator, store=orchestration_store)
-
-
-# ---------- индексация документов (день 21) ----------
-@pytest.fixture(autouse=True)
-def offline_planner(monkeypatch):
-    """Планировщик оркестрации в тестах не ходит в модель.
-
-    ``OrchestrationPlanner`` по умолчанию читает ключ DeepSeek из ``.env`` дня и
-    зовёт API: тогда результат теста зависит от сети, квоты и таймаутов, а план
-    приходит то эвристикой, то моделью — тесты «без плана сработала эвристика»
-    падали именно так (проверено: полный прогон дня 21 дал шесть таких падений).
-    Тесты, которым нужен план модели, подставляют планировщик явно.
-
-    Побочный эффект приятный: набор тестов перестаёт ждать таймаутов сети
-    (в днях 20 и раньше один только этот тест занимал минуту).
-    """
-    monkeypatch.setattr(OrchestrationPlanner, "plan",
-                        lambda self, query, tools: None)
-
-
-@pytest.fixture(autouse=True)
-def isolated_indexing(tmp_path, monkeypatch):
-    """Уводит индексацию от рабочих файлов дня и запрещает загрузку модели.
-
-    Две ловушки, которые эта фикстура закрывает для ВСЕХ тестов дня:
-
-    * ``lifespan`` приложения зовёт ``load_all``/``save_all`` у службы индексов
-      процесса — то есть читал и писал бы рабочие ``day21/index/*.index`` и держал
-      бы их в общем singleton между тестами. Поэтому ``main.get_index_service``
-      подменяется службой на ``tmp_path``: файлов там нет, писать нечего;
-    * модель эмбеддингов весит сотни мегабайт и требует сети. ``warmup`` в
-      демон-потоке старта попытался бы её загрузить, поэтому ``EmbeddingService._load``
-      заменён функцией-ошибкой: случайная загрузка настоящей модели = падение теста
-      (у ``warmup`` исключение ловится, поэтому старт приложения не ломается).
-    """
-    import backend.api.main as main
-
-    from backend.services import embedding_service as embedding_module
-    from backend.services import index_service as index_module
-    from backend.services import indexing_service as indexing_module
-    from backend.services.embedding_service import EmbeddingService
-    from backend.services.index_service import IndexService
-
-    monkeypatch.setattr(indexing_module, "_service", None)
-    monkeypatch.setattr(index_module, "_service", None)
-    monkeypatch.setattr(embedding_module, "_service", None)
-
-    def no_real_model(_self):
-        """Настоящая модель в тестах не загружается (сеть и сотни мегабайт)."""
-        raise AssertionError("тест попытался загрузить настоящую модель эмбеддингов")
-
-    monkeypatch.setattr(EmbeddingService, "_load", no_real_model)
-
-    isolated = IndexService(embedder=EmbeddingService(),
-                            index_dir=tmp_path / "index-isolated")
-    monkeypatch.setattr(main, "get_index_service", lambda: isolated)
-    yield isolated
-
-
-@pytest.fixture
-def documents_dir(tmp_path):
-    """Папка с тремя тестовыми документами: markdown, plain text и Python."""
-    base = tmp_path / "documents"
-    make_documents(base)
-    return base
-
-
-@pytest.fixture
-def documents(documents_dir):
-    """Три тестовых документа как ``Document`` (метаданные — эвристиками домена)."""
-    return DocumentLoader(documents_dir=documents_dir,
-                          sources=()).ensure_documents()
-
-
-@pytest.fixture
-def document_loader(documents_dir):
-    """Загрузчик на тестовой папке: сборка из репозитория тесту не нужна."""
-    return DocumentLoader(documents_dir=documents_dir, sources=())
-
-
-@pytest.fixture
-def fake_embedder():
-    """Эмбеддер на хешах слов: детерминированный, без модели и без сети."""
-    return FakeEmbedder()
-
-
-@pytest.fixture
-def chunk_store(session_factory):
-    """Хранилище чанков на временной БД."""
-    return ChunkStore(session_factory=session_factory)
-
-
-@pytest.fixture
-def index_run_store(session_factory):
-    """Хранилище запусков индексации на временной БД."""
-    return IndexRunStore(session_factory=session_factory)
-
-
-@pytest.fixture
-def index_service(tmp_path, fake_embedder, chunk_store):
-    """Служба индексов на фейковом эмбеддере, временной БД и временном каталоге."""
-    return IndexService(embedder=fake_embedder, store=chunk_store,
-                        index_dir=tmp_path / "index")
-
-
-@pytest.fixture
-def indexing_service(index_service, document_loader, index_run_store):
-    """Служба индексации: те же три документа, фейковый эмбеддер, временная БД."""
-    return IndexingService(index_service=index_service, loader=document_loader,
-                           run_store=index_run_store)

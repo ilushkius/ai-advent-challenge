@@ -55,6 +55,7 @@ def test_demo_run_completes_with_metrics(indexing_service):
     assert metrics["embedding_model"] == indexing_service.index_service.embedder.model_name
 
 
+@pytest.mark.slow
 def test_demo_run_counts_and_stages(indexing_service, monkeypatch):
     """Счётчики доходят до итоговых, а этапы пишутся по FSM и в правильном порядке."""
     stages: list[str] = []
@@ -79,6 +80,7 @@ def test_demo_run_counts_and_stages(indexing_service, monkeypatch):
     assert run["finished_at"] and run["duration_ms"] >= 0
 
 
+@pytest.mark.slow
 def test_demo_run_indexes_both_strategies(indexing_service):
     """После демо-прогона поиск работает по обеим стратегиям."""
     indexing_service.start_demo(background=False)
@@ -90,6 +92,7 @@ def test_demo_run_indexes_both_strategies(indexing_service):
         assert all(hit["source"] for hit in hits)
 
 
+@pytest.mark.slow
 def test_demo_metrics_have_quality_per_query(indexing_service):
     """По каждому запросу видно ожидаемые источники и сколько их чанков в индексе."""
     metrics = indexing_service.start_demo(background=False)["metrics"]
@@ -182,6 +185,7 @@ def test_embedder_failure_lands_in_run_error(index_service, document_loader,
 
 
 # ---------- фон и чтение ----------
+@pytest.mark.slow
 def test_background_run_finishes(indexing_service):
     """Фоновый запуск отвечает сразу, а терминальный статус всё равно наступает."""
     report = indexing_service.start_demo(background=True)
@@ -201,6 +205,7 @@ def test_status_returns_latest_run(indexing_service):
     assert indexing_service.status()["run"]["id"] == report["run_id"]
 
 
+@pytest.mark.slow
 def test_runs_history_is_newest_first(indexing_service):
     """История запусков идёт от свежих к старым и считает их число."""
     first = indexing_service.start_run("fixed", background=False)["run_id"]
@@ -219,6 +224,7 @@ def test_chunks_endpoint_payload(indexing_service):
     assert all(chunk["strategy"] == "structural" for chunk in payload["chunks"])
 
 
+@pytest.mark.slow
 def test_search_caps_top_k(indexing_service):
     """Слишком большой ``top_k`` зажимается сверху пределом дня."""
     indexing_service.start_demo(background=False)

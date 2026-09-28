@@ -13,7 +13,6 @@ from fastapi.testclient import TestClient
 
 from backend.storage import database
 from backend.agents.agent_manager import AgentManager
-from backend.storage.database import init_db, make_engine, make_session_factory
 from backend.domain.task_fsm import TaskStage, TaskStep
 
 from support import FakeClient
@@ -23,11 +22,9 @@ AGENT_PAYLOAD = {"name": "Агент задачи", "temperature": 0.5, "max_tok
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def client(session_factory, monkeypatch):
     """TestClient на временной БД с подменённым клиентом DeepSeek у агентов."""
-    engine = make_engine(f"sqlite:///{(tmp_path / 'tasks.db').as_posix()}")
-    init_db(engine)
-    factory = make_session_factory(engine)
+    factory = session_factory
 
     manager = AgentManager(session_factory=factory)
     monkeypatch.setattr(database, "SessionLocal", factory)
@@ -262,6 +259,7 @@ def test_transition_body_validation(client):
     ).status_code == 400
 
 
+@pytest.mark.slow
 def test_history_lists_creation_and_every_transition(client):
     """Журнал: создание + по записи на переход, с причинами и временем."""
     agent_id = new_agent(client)
@@ -318,6 +316,7 @@ def test_generate_without_task_has_no_state(client):
     assert "Текущий этап" not in body["system_prompt"]
 
 
+@pytest.mark.slow
 def test_root_lists_task_endpoints(client):
     """Корневой ответ перечисляет эндпоинты состояния задачи (навигация в UI)."""
     root = client.get("/").json()

@@ -13,7 +13,6 @@ from fastapi.testclient import TestClient
 
 from backend.storage import database
 from backend.agents.agent_manager import AgentManager
-from backend.storage.database import init_db, make_engine, make_session_factory
 
 from support import FakeClient
 
@@ -22,11 +21,9 @@ AGENT_PAYLOAD = {"name": "Агент задачи", "temperature": 0.5, "max_tok
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def client(session_factory, monkeypatch):
     """TestClient на временной БД с подменённым клиентом DeepSeek у агентов."""
-    engine = make_engine(f"sqlite:///{(tmp_path / 'transitions.db').as_posix()}")
-    init_db(engine)
-    factory = make_session_factory(engine)
+    factory = session_factory
 
     manager = AgentManager(session_factory=factory)
     monkeypatch.setattr(database, "SessionLocal", factory)

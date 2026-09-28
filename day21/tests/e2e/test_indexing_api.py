@@ -20,7 +20,6 @@ from backend.services.index_service import IndexService
 from backend.services.indexing_service import IndexingService
 from backend.storage import database
 from backend.storage.chunk_store import ChunkStore
-from backend.storage.database import init_db, make_engine, make_session_factory
 from backend.storage.index_run_store import IndexRunStore
 
 from indexing_fakes import FakeEmbedder, make_documents
@@ -34,11 +33,9 @@ PLAIN_PROMPT = "расскажи про чанкинг и покрытие до�
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def client(session_factory, tmp_path, monkeypatch):
     """TestClient с изолированной БД, фейковым эмбеддером и службой индексации."""
-    engine = make_engine(f"sqlite:///{(tmp_path / 'indexing.db').as_posix()}")
-    init_db(engine)
-    factory = make_session_factory(engine)
+    factory = session_factory
     monkeypatch.setattr(database, "SessionLocal", factory)
 
     import backend.api.main as main
@@ -72,6 +69,7 @@ def _demo(client, background=False):
 
 
 # ---------- запуск ----------
+@pytest.mark.slow
 def test_demo_run_is_synchronous_and_complete(client):
     """Синхронный демо-прогон отдаёт статус completed и метрики сравнения."""
     body = _demo(client)
@@ -83,6 +81,7 @@ def test_demo_run_is_synchronous_and_complete(client):
     assert len(body["metrics"]["queries"]) == 5
 
 
+@pytest.mark.slow
 def test_demo_run_builds_both_indexes(client):
     """После демо-прогона статистика показывает чанки обеих стратегий."""
     _demo(client)
@@ -139,6 +138,7 @@ def test_stats_before_any_run(client):
     assert body["fixed"]["histogram"]
 
 
+@pytest.mark.slow
 def test_runs_history(client):
     """История запусков идёт от свежих к старым и считает их."""
     first = _demo(client)["run_id"]
@@ -150,6 +150,7 @@ def test_runs_history(client):
     assert client.get("/indexing/runs", params={"limit": 1}).json()["count"] == 1
 
 
+@pytest.mark.slow
 def test_run_report_returns_metrics(client):
     """Отчёт о запуске отдаёт строку запуска и метрики (то, что показывает интерфейс)."""
     run_id = _demo(client)["run_id"]

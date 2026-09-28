@@ -85,6 +85,7 @@ def test_not_found_reports_the_status_code(stub_api_base):
     assert "ответил кодом 404" in str(exc.value)
 
 
+@pytest.mark.slow
 def test_unreachable_host_is_reported():
     """Недоступный узел — ``ToolError`` с причиной, а не исключение httpx."""
     fetch.configure(timeout=1.0)

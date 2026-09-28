@@ -33,6 +33,7 @@ def test_missing_command_reports_not_found():
         client.close()
 
 
+@pytest.mark.slow
 def test_unreachable_http_endpoint_reports_url_hint():
     """HTTP-сервер не поднят: текст говорит про URL, а не про внутренности SDK."""
     client = MCPClient("http://127.0.0.1:9/mcp", transport=MCPTransport.STREAMABLE_HTTP,

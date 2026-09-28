@@ -10,17 +10,14 @@ from fastapi.testclient import TestClient
 
 from backend.storage import database
 from backend.agents.agent_manager import AgentManager
-from backend.storage.database import init_db, make_engine, make_session_factory
 
 from support import FakeClient
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def client(session_factory, monkeypatch):
     """TestClient на временной БД с подменённым клиентом DeepSeek у агентов."""
-    engine = make_engine(f"sqlite:///{(tmp_path / 'api.db').as_posix()}")
-    init_db(engine)
-    factory = make_session_factory(engine)
+    factory = session_factory
 
     # Менеджер-синглтон приложения подменяем на изолированный (своя БД).
     manager = AgentManager(session_factory=factory)
@@ -74,6 +71,7 @@ def seed_via_api(client, agent_id, turns=4):
     return response.json()
 
 
+@pytest.mark.slow
 def test_create_and_read_agent(client):
     """Создание возвращает настройки сжатия, а GET их же отдаёт."""
     info = create_agent(client, keep_last_messages=4, summarize_every=6)

@@ -15,7 +15,6 @@ from fastapi.testclient import TestClient
 
 from backend.services.mcp_registry import MCPRegistry
 from backend.storage import database
-from backend.storage.database import init_db, make_engine, make_session_factory
 
 from orchestration_fakes import FLEET_CATALOGS, make_fleet_factory, write_servers_file
 
@@ -23,13 +22,11 @@ from orchestration_fakes import FLEET_CATALOGS, make_fleet_factory, write_server
 EXPECTED_TOTAL_TOOLS = 11
 
 
-def _build_client(tmp_path, monkeypatch, *, errors=None):
+def _build_client(session_factory, tmp_path, monkeypatch, *, errors=None):
     """TestClient с изолированной БД и фейковым флотом из временного файла."""
     import backend.api.main as main
 
-    engine = make_engine(f"sqlite:///{(tmp_path / 'fleet.db').as_posix()}")
-    init_db(engine)
-    monkeypatch.setattr(database, "SessionLocal", make_session_factory(engine))
+    factory = session_factory
 
     servers_file = write_servers_file(tmp_path / "mcp_servers.json")
     registry = MCPRegistry(fleet_factory=make_fleet_factory(errors=errors),
@@ -44,9 +41,9 @@ def _build_client(tmp_path, monkeypatch, *, errors=None):
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def client(session_factory, tmp_path, monkeypatch):
     """TestClient с подключённым фейковым флотом."""
-    instance = _build_client(tmp_path, monkeypatch)
+    instance = _build_client(session_factory, tmp_path, monkeypatch)
     try:
         yield instance
     finally:
@@ -119,9 +116,9 @@ def test_refresh_writes_cache_to_file(client):
     assert client.get("/mcp/servers/search_server/tools").json()["count"] == 3
 
 
-def test_failed_server_is_data_not_error(tmp_path, monkeypatch):
+def test_failed_server_is_data_not_error(session_factory, tmp_path, monkeypatch):
     """Сбой одного сервера — его запись (``error``), а не отказ всего запроса."""
-    client = _build_client(tmp_path, monkeypatch,
+    client = _build_client(session_factory, tmp_path, monkeypatch,
                            errors={"data_server": "сервер не ответил"})
     try:
         response = client.get("/mcp/servers")
@@ -147,6 +144,7 @@ def test_failed_server_is_data_not_error(tmp_path, monkeypatch):
         client.registry.close()
 
 
+@pytest.mark.slow
 def test_active_connection_endpoints_still_work(client):
     """Пять эндпоинтов активного соединения не пострадали от каталога флота."""
     assert client.get("/mcp/status").json()["state"] == "disconnected"

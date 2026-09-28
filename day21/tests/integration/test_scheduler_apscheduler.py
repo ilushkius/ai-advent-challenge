@@ -16,6 +16,7 @@ from backend.storage.scheduler_data_store import SchedulerDataStore
 from backend.storage.scheduler_store import SchedulerStore
 
 from scheduler_fakes import FakeFetcher
+import pytest
 
 #: Сколько ждать первого автоматического запуска (секунд).
 TICK_TIMEOUT = 15.0
@@ -24,6 +25,7 @@ ONE_SECOND = {"source_url": "https://example.test/fast", "interval_seconds": 1,
               "name": "fast"}
 
 
+@pytest.mark.slow
 def test_scheduler_runs_jobs_by_itself(session_factory):
     """Задача с периодом в секунду срабатывает сама, а планировщик встаёт по команде."""
     fetcher = FakeFetcher()

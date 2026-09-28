@@ -135,7 +135,9 @@ curl -X POST http://127.0.0.1:8000/scheduler/tasks \
 ```bash
 uv run python scripts/indexing_demo.py --stub-embedder   # 5 сценариев индексации офлайн
 uv run python scripts/cost_optimization_report.py        # замер «до и после» и отчёт
-uv run pytest -q                                          # весь набор дня
+uv run pytest -q                                          # быстрый прогон (по умолчанию без помеченных slow)
+uv run pytest -q -m ""                                    # полный прогон: все тесты, в том числе slow
+uv run pytest -q --cov=backend --cov-report=term-missing  # полный прогон с покрытием бэкенда
 uv run pytest -q tests/unit/test_prompt_builder.py tests/unit/test_prompt_compressor.py \
   tests/unit/test_peak_hours.py tests/unit/test_llm_cost.py
 uv run pytest -q tests/integration/test_llm_client.py tests/integration/test_agent_cost.py \

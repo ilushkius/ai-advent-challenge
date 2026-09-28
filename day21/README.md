@@ -341,13 +341,34 @@ uv run streamlit run app.py
 `http://127.0.0.1:8000/docs`. В API дня 94 записи, включая девять `/indexing/*` и
 пять `/llm/*`.
 
+## Рабочий процесс
+
+Три ступени: **сырое задание → архитектурный план → исполнение**. Размытое ТЗ дня
+прогоняется через [`../ARCHITECT_PROMPT.md`](../ARCHITECT_PROMPT.md) в отдельном
+чате с DeepSeek (декомпозиция и DoD, пошаговый план, риски и план Б, проверки,
+команды фиксации); готовый план передаётся в omp.sh и исполняется в `day21/`;
+результат фиксируется коммитом и тегом дня. Простые задачи (кнопка, текст,
+документация) идут без архитектурной ступени — полное описание в
+[`WORKFLOW.md`](WORKFLOW.md).
+
 ## Тесты
 
 ```bash
 cd day21
-uv run pytest -q                                    # автотесты дня, офлайн
+uv run pytest -m "not slow" -q          # быстрый прогон при разработке (unit, без интеграционных и e2e)
+uv run pytest -m "" -q                  # полный прогон (все тесты; параллельно, -n auto из pytest.ini)
+uv run pytest --cov=backend --cov-report=term-missing   # покрытие бэкенда
 uv run python scripts/indexing_demo.py --stub-embedder   # прогон демо без модели
 ```
+
+Тесты идут параллельно (`pytest-xdist`, `-n auto`), а схема БД строится **один раз
+за прогон** (session-scoped `schema_template`; тест получает копию файла — 2,65 мс
+вместо 934 мс у `create_all`), поэтому быстрый прогон идёт **31 с** (2446 тестов), а
+полный — **68 с** (2521 тест) при покрытии 96 %. Медленные тесты (75 штук:
+подпроцессы MCP-серверов по stdio и часть e2e) помечены `slow` и по умолчанию
+пропускаются — их включает `-m ""` или `--run-slow`. Тесты работают офлайн:
+autouse-фикстура `no_real_network` запрещает TCP на нелокальные адреса. Замеры и
+разбор — [docs/reports/test_optimization.md](docs/reports/test_optimization.md).
 
 Тесты работают офлайн: клиент DeepSeek подменяется фейком, база — временная
 SQLite, а модель эмбеддингов и флот MCP-серверов подменяются autouse-фикстурами
@@ -372,6 +393,7 @@ SQLite, а модель эмбеддингов и флот MCP-серверов 
 day21/
 ├── app.py                    # точка входа Streamlit: set_page_config + вызовы секций
 ├── AGENTS.md                 # правила дня и workflow нового дня (core правила — .omp/RULES.md)
+├── WORKFLOW.md               # маршрут дня: сырое задание → план → исполнение → коммит
 ├── .omp/RULES.md             # sticky-правила дня для агента (native-локация omp)
 ├── .clineignore              # служебное внутри дня — вне контекста агента
 ├── documents/                # собранные документы (производные данные, в Git не попадают): 25 файлов + manifest.json
@@ -395,7 +417,7 @@ day21/
 │   ├── schemas/              # Pydantic-схемы API (включая indexing.py и llm.py)
 │   └── utils/                # своего кода нет: общий живёт в repo-level shared/
 ├── tests/                    # pytest: unit/, integration/, e2e/ + conftest.py и фейки (indexing_fakes.py, …)
-├── docs/                     # architecture.md, api.md, usage.md, reports/ (indexing_demo.md, cost_optimization.md, context_optimization.md, …)
+├── docs/                     # architecture.md, api.md, usage.md, reports/ (indexing_demo.md, cost_optimization.md, context_optimization.md, test_optimization.md, …)
 ├── scripts/                  # прогоны демонстраций и сборка отчётов (indexing_demo.py, prepare_documents.py,
 │                             # indexing_scenarios.py, indexing_report.py, indexing_ui_shot.py, cost_optimization_report.py, …)
 ├── STRUCTURE.md              # карта модулей дня по слоям и лимит 400 строк

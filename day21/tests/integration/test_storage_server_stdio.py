@@ -15,6 +15,10 @@ from backend.services.mcp_client import MCPClient
 
 from mcp_servers.storage_server import config
 
+# Тесты поднимают настоящий процесс MCP-сервера и говорят с ним по stdio:
+# каждый занимает больше секунды, поэтому файл целиком помечен slow.
+pytestmark = pytest.mark.slow
+
 SERVER = (Path(__file__).resolve().parents[1] / ".."
           / "mcp_servers" / "storage_server" / "server.py")
 

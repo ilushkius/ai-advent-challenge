@@ -18,6 +18,10 @@ from backend.services.mcp_client import MCPClient
 
 from backend_stub import BAD_INTERVAL_DETAIL, REMINDER_ID, SUMMARY_ID, TASK_ID
 
+# Тесты поднимают настоящий процесс MCP-сервера и говорят с ним по stdio:
+# каждый занимает больше секунды, поэтому файл целиком помечен slow.
+pytestmark = pytest.mark.slow
+
 SERVER = Path(__file__).resolve().parents[2] / "mcp_server" / "server.py"
 
 #: Девять инструментов сервера дня: три читают данные, три планируют работу,

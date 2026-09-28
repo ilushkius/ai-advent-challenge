@@ -21,7 +21,6 @@ from backend.services.mcp_registry import MCPRegistry
 from backend.services.orchestration_service import OrchestrationService
 from backend.services.orchestrator import Orchestrator
 from backend.storage import database
-from backend.storage.database import init_db, make_engine, make_session_factory
 from backend.storage.orchestration_store import OrchestrationStore
 
 from orchestration_fakes import make_fleet_factory, write_servers_file
@@ -31,13 +30,11 @@ from support import FakeClient
 ORCH_REPLY = "найди данные про RAG и сохрани в базу"
 
 
-def _build_client(tmp_path, monkeypatch, *, fleet_errors=None):
+def _build_client(session_factory, tmp_path, monkeypatch, *, fleet_errors=None):
     """TestClient с изолированной БД, фейковым флотом и службой оркестрации."""
     import backend.api.main as main
 
-    engine = make_engine(f"sqlite:///{(tmp_path / 'orchestration.db').as_posix()}")
-    init_db(engine)
-    factory = make_session_factory(engine)
+    factory = session_factory
     monkeypatch.setattr(database, "SessionLocal", factory)
 
     servers_file = write_servers_file(tmp_path / "mcp_servers.json")
@@ -64,9 +61,9 @@ def _build_client(tmp_path, monkeypatch, *, fleet_errors=None):
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def client(session_factory, tmp_path, monkeypatch):
     """TestClient с подключённым фейковым флотом из трёх серверов."""
-    instance = _build_client(tmp_path, monkeypatch)
+    instance = _build_client(session_factory, tmp_path, monkeypatch)
     try:
         yield instance
     finally:
@@ -193,9 +190,9 @@ def test_error_contract(client):
                        json={"background": "не bool"}).status_code == 422
 
 
-def test_failed_run_is_reported_with_step_number(tmp_path, monkeypatch):
+def test_failed_run_is_reported_with_step_number(session_factory, tmp_path, monkeypatch):
     """Падение шага: 200 с ``failed``, номер шага и предыдущие ``ok`` в истории."""
-    client = _build_client(tmp_path, monkeypatch,
+    client = _build_client(session_factory, tmp_path, monkeypatch,
                            fleet_errors={"data_server": "сервер не ответил"})
     try:
         report = client.post("/orchestration/run", json={

@@ -18,7 +18,6 @@ from backend.agents.agent_manager import AgentManager
 from backend.core import config
 from backend.services.mcp_registry import MCPRegistry
 from backend.storage import database
-from backend.storage.database import init_db, make_engine, make_session_factory
 
 from mcp_fakes import FAKE_TOOL_CATALOG, make_mcp_factory
 from support import FakeClient
@@ -29,11 +28,9 @@ USER = {"id": 1, "name": "Leanne Graham", "city": "Gwenborough"}
 QUESTION = "Найди информацию о пользователе с ID 1"
 
 
-def _build_client(tmp_path, monkeypatch, **client_kwargs):
+def _build_client(session_factory, tmp_path, monkeypatch, **client_kwargs):
     """TestClient с изолированной БД и реестром на фейковых MCP-клиентах."""
-    engine = make_engine(f"sqlite:///{(tmp_path / 'mcp_call.db').as_posix()}")
-    init_db(engine)
-    factory = make_session_factory(engine)
+    factory = session_factory
     monkeypatch.setattr(database, "SessionLocal", factory)
 
     import backend.api.main as main
@@ -54,9 +51,9 @@ def _build_client(tmp_path, monkeypatch, **client_kwargs):
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def client(session_factory, tmp_path, monkeypatch):
     """TestClient с каталогом своего сервера дня и готовым результатом вызова."""
-    with _build_client(tmp_path, monkeypatch, call_result=USER) as test_client:
+    with _build_client(session_factory, tmp_path, monkeypatch, call_result=USER) as test_client:
         yield test_client
 
 
@@ -113,9 +110,9 @@ def test_call_validates_body(client, payload):
     assert response.status_code == 422
 
 
-def test_call_reports_transport_failure_as_502(tmp_path, monkeypatch):
+def test_call_reports_transport_failure_as_502(session_factory, tmp_path, monkeypatch):
     """Обрыв связи — 502 с текстом ошибки: ответа сервера не было."""
-    with _build_client(tmp_path, monkeypatch,
+    with _build_client(session_factory, tmp_path, monkeypatch,
                        call_fail="Соединение с MCP-сервером оборвалось") as test_client:
         test_client.post("/mcp/connect", json={"target": config.MCP_DEFAULT_TARGET})
         response = test_client.post("/mcp/call", json={"tool": "get_user",
@@ -124,9 +121,9 @@ def test_call_reports_transport_failure_as_502(tmp_path, monkeypatch):
     assert "оборвалось" in response.json()["detail"]
 
 
-def test_tool_error_comes_as_data_not_http_error(tmp_path, monkeypatch):
+def test_tool_error_comes_as_data_not_http_error(session_factory, tmp_path, monkeypatch):
     """Ошибка инструмента — 200 с ``is_error: true``: это ответ, а не отказ запроса."""
-    with _build_client(tmp_path, monkeypatch,
+    with _build_client(session_factory, tmp_path, monkeypatch,
                        call_error="Пользователя не существует") as test_client:
         test_client.post("/mcp/connect", json={"target": config.MCP_DEFAULT_TARGET})
         response = test_client.post("/mcp/call", json={"tool": "get_user",

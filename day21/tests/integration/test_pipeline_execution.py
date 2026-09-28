@@ -119,6 +119,7 @@ def test_guard_stops_run_without_calling_next_step(pipeline, pipeline_registry,
     assert pipeline_store.run(report["run_id"])["status"] == "stopped"
 
 
+@pytest.mark.slow
 def test_bad_arguments_are_rejected_before_the_server(pipeline, pipeline_store):
     """Отказ по ``input_schema`` — шаг failed с кодом bad_arguments, и он в журнале."""
     broken = copy.deepcopy(DEFAULT_PIPELINE)

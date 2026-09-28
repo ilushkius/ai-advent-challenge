@@ -126,6 +126,7 @@ def test_bad_limit_is_a_tool_error():
     assert "limit" in str(exc.value)
 
 
+@pytest.mark.slow
 def test_unreachable_api_is_reported():
     """Недоступный внешний API — ``ToolError`` с причиной, а не исключение httpx."""
     web.configure(api_base="http://127.0.0.1:1", timeout=1.0)
