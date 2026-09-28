@@ -1,0 +1,19 @@
+# Служебные и тяжёлые пути дня 21 — не подмешивать в контекст агента.
+# Индексы дня собираются кодом (index/build.py) и в Git не нужны: см. корневой
+# .gitignore, где day21/index/ и *.index уже исключены.
+.venv/
+.agents/
+__pycache__/
+.pytest_cache/
+output/
+logs/
+index/
+*.faiss
+*.index
+*.db
+*.onnx
+*.bin
+*.pkl
+*.npz
+
+# Отчёты прогонов намеренно НЕ игнорируются: docs/reports/ — часть дня.

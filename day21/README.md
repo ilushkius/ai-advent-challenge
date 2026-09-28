@@ -278,6 +278,24 @@ JSON в ограждении), дало 4173 → 4104 токенов (**1.7 %**)
 переносит задачу флагом `prefer_off_peak`, а размер скидки остаётся за
 провайдером.
 
+## Экономия контекста агента
+
+Отдельный от «Расходов» слой: агент не тратит контекст на архив дней и на сырые
+выгрузки команд. Механизмы, замеры и допущения — в
+[docs/reports/context_optimization.md](docs/reports/context_optimization.md); кратко:
+
+| Механизм | Где включён | Что даёт (измерено) |
+|---|---|---|
+| Зона видимости | корневой `.gitignore` (плюс `.clineignore`): `day1`–`day20` вне обхода `grep`/`glob`/`find` | из обхода ушли 2 261 файл (28,74 МБ); исходники архива в 4,1× больше рабочего дня по `.py` |
+| Правила в контексте | `day21/.omp/RULES.md` (sticky) + `day21/AGENTS.md` | правила дня переживают длинную сессию; агент цитирует их, не читая архив |
+| Перехват команд | `bashInterceptor` в `~/.omp/agent/config.yml`: `cat`/`head`/`tail` → `read`, `grep` → `grep`, `find` → `glob`, `sed -i` → `edit`, `echo >` → `write` | `cat app.py` — 135 байт отказа вместо 7 559 байт файла (−98,2 %) |
+| Сжатие контекста | `compaction` (порог 850 000 токенов, `idleEnabled`) + расширение `billion-context` (порог сжимаемости 50 000 токенов) + плагин `context-mode` (11 MCP-инструментов) | контекст проверочной сессии 36 303 токена против 610 958 у сессии до правок |
+
+Проверка из папки дня: `omp -p "выполни bash-команду cat app.py"` отвечает
+`Blocked: Use the read tool instead of cat/head/tail`, а
+`omp -p "через glob **/*.py перечисли верхнеуровневые папки"` показывает только
+папки `day21`. Расход по дням и агентам — `omp stats --json`.
+
 ## Установка и запуск
 
 Менеджер зависимостей — **uv** (`pyproject.toml` + `uv.lock`, интерпретатор из
@@ -353,6 +371,9 @@ SQLite, а модель эмбеддингов и флот MCP-серверов 
 ```
 day21/
 ├── app.py                    # точка входа Streamlit: set_page_config + вызовы секций
+├── AGENTS.md                 # правила дня и workflow нового дня (core правила — .omp/RULES.md)
+├── .omp/RULES.md             # sticky-правила дня для агента (native-локация omp)
+├── .clineignore              # служебное внутри дня — вне контекста агента
 ├── documents/                # собранные документы (производные данные, в Git не попадают): 25 файлов + manifest.json
 ├── index/                    # индексы FAISS: fixed.index, structural.index; index/models/ — кэш весов модели
 ├── mcp_servers.json          # конфигурация флота MCP-серверов + кэш каталогов tools_cache
@@ -374,7 +395,7 @@ day21/
 │   ├── schemas/              # Pydantic-схемы API (включая indexing.py и llm.py)
 │   └── utils/                # своего кода нет: общий живёт в repo-level shared/
 ├── tests/                    # pytest: unit/, integration/, e2e/ + conftest.py и фейки (indexing_fakes.py, …)
-├── docs/                     # architecture.md, api.md, usage.md, reports/ (indexing_demo.md, cost_optimization.md, …)
+├── docs/                     # architecture.md, api.md, usage.md, reports/ (indexing_demo.md, cost_optimization.md, context_optimization.md, …)
 ├── scripts/                  # прогоны демонстраций и сборка отчётов (indexing_demo.py, prepare_documents.py,
 │                             # indexing_scenarios.py, indexing_report.py, indexing_ui_shot.py, cost_optimization_report.py, …)
 ├── STRUCTURE.md              # карта модулей дня по слоям и лимит 400 строк

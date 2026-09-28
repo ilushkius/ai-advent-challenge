@@ -97,6 +97,9 @@ precision@k и recall@k по пяти тестовым запросам с groun
 ```
 day21/
 ├── app.py                    # точка входа Streamlit (79 строк, лимит 100): set_page_config + вызовы секций
+├── AGENTS.md                 # правила дня и workflow нового дня (≤ 5 КБ): границы, документация, тесты, инструменты
+├── .omp/RULES.md             # sticky-правила (omp загружает их только из native-локаций: <ближайший непустой .omp/>)
+├── .clineignore              # служебное и тяжёлое внутри дня (.venv, output, index, *.db) — вне контекста агента
 ├── documents/                # СОБРАННЫЕ документы (производные данные, в Git не попадают): 25 файлов + manifest.json
 ├── index/                    # ИНДЕКСЫ FAISS: fixed.index, structural.index; index/models/ — кэш весов модели (не в Git)
 ├── mcp_servers.json          # КОНФИГУРАЦИЯ ФЛОТА (унаследована от дня 20): три сервера + кэш каталогов tools_cache
@@ -157,7 +160,9 @@ day21/
 
 Отчёты прогонов лежат в `docs/reports/`: `indexing_demo.md` и `cost_optimization.md` —
 отчёты дня 21 (их создают `uv run python scripts/indexing_demo.py` и
-`uv run python scripts/cost_optimization_report.py`), остальные (`orchestration_demo.md`,
+`uv run python scripts/cost_optimization_report.py`), `context_optimization.md` —
+отчёт об экономии контекста агента (замеры окружения, написан по фактам логов, а не
+генерируется скриптом), остальные (`orchestration_demo.md`,
 `pipeline_demo.md`, `scheduler_demo.md`, `mcp_tool_demo.md`, `mcp_demo.md`,
 `task_state_demo.md`, `personalization_comparison.md`) унаследованы и читаются как
 история.
@@ -240,6 +245,23 @@ day21/
 tiktoken-счётчиком, скидка непика — тариф провайдера (в отчёте это указано в
 допущениях), а предел длины ответа показан отдельной строкой как оценка **сверху** и в
 итог не входит, потому что фактическая длина ответа от потолка не зависит.
+
+### Экономия контекста агента: корень дня, `.gitignore` и настройки окружения
+
+| Файл / место | Назначение |
+|---|---|
+| `AGENTS.md` | Правила дня и workflow нового дня: границы (`day1`–`day20` — архив), документация только о текущем состоянии, тесты не дублировать, обязательные инструменты, непиковые часы |
+| `.omp/RULES.md` | Sticky-правила; путь именно `.omp/`, потому что omp загружает sticky только из native-локаций (`~/.omp/agent/RULES.md` и `<ближайший непустой .omp/>/RULES.md`) |
+| `.clineignore` | Служебные и тяжёлые пути дня (`.venv`, `.agents`, `output/`, `index/`, `*.faiss`, `*.index`, `*.db`) вне контекста агента |
+| корневой `.gitignore`, раздел 4 | `day1/`–`day20/` исключены из обхода `grep`/`glob`/`find`: omp уважает `.gitignore`, а `.clineignore` не читает — это единственный рабочий механизм исключения архива |
+| корневой `.clineignore` | Тот же список дней для Cline и других инструментов (omp его не читает) |
+| `docs/reports/context_optimization.md` | Замеры: зона видимости, перехват команд, токены сессий, пороги обоих слоёв сжатия, помеченные оценки и команды воспроизведения |
+
+Настройки окружения (вне репозитория, `~/.omp/agent/config.yml`):
+`bashInterceptor.enabled`, `compaction.idleEnabled`, `display.showTokenUsage`;
+расширение `billion-context` и плагины `@mxalbert/context-mode`,
+`@better-compact/pi`. Отслеживаемые файлы архива не потеряны (2 261 на месте) —
+правила игнора влияют только на обход и на новые `git add`.
 
 ## Слои `backend/`
 
