@@ -1,0 +1,164 @@
+"""Pydantic-схемы API режима RAG (день 22).
+
+Схемы повторяют форму словарей ``services/rag_service.py``: ответ с контекстом
+корпуса и без него (``RagQueryOut``), сравнение двух ответов (``RagCompareOut``)
+и состояние корпуса с лимитами (``RagConfigOut``). Роутер не переупаковывает
+данные, а только объявляет контракт.
+
+``strategy`` — имя namespace корпуса (``rag_corpus_structural`` |
+``rag_corpus_fixed``), а ``top_k`` ограничен ``RAG_MAX_TOP_K``, а не
+``INDEX_MAX_TOP_K``: у режима RAG свои лимиты контекста. Пустой ``question``
+объявлен без ``min_length`` намеренно — отказ по пустому вопросу это осмысленный
+ответ API (400 с кодом ``empty_query``), а не ошибка валидации (422). По той же
+причине ``strategy`` объявлен без ``max_length``: ``INDEX_STRATEGY_MAX`` — предел
+имён индексов дня 21, а имя корпуса длиннее (``rag_corpus_structural`` — 19
+символов), и неизвестную стратегию отвергает сервис, отвечая 400.
+"""
+from __future__ import annotations
+
+from typing import List, Optional
+
+from pydantic import BaseModel, Field
+
+from ..core import config
+from ..domain import rag_mode
+
+
+class RagQueryIn(BaseModel):
+    """POST /rag/query — ответ по корпусу (с RAG) или без него."""
+
+    question: str = Field(
+        ..., max_length=config.INDEX_QUERY_MAX,
+        description="Вопрос к корпусу (пустой доходит до сервиса и получает 400)",
+    )
+    top_k: int = Field(
+        rag_mode.RAG_DEFAULT_TOP_K, ge=1, le=rag_mode.RAG_MAX_TOP_K,
+        description="Сколько фрагментов корпуса подмешать в контекст",
+    )
+    strategy: Optional[str] = Field(
+        None,
+        description=(
+            "Стратегия поиска: rag_corpus_structural (по умолчанию) | rag_corpus_fixed. "
+            "Без max_length намеренно: неизвестное имя — 400 от сервиса, а не 422"
+        ),
+    )
+    use_rag: bool = Field(
+        True,
+        description="true — ответ с контекстом корпуса, false — тот же вопрос без контекста",
+    )
+
+
+class RagSourceOut(BaseModel):
+    """Использованный фрагмент корпуса: откуда взят и насколько близок вопросу."""
+
+    source: str = Field(..., description="Файл корпуса (имя документа-источника дня 21)")
+    title: str = Field("", description="Заголовок документа")
+    section: str = Field("", description="Заголовок раздела (пусто у стратегии fixed)")
+    chunk_id: str = Field(..., description="Идентификатор чанка внутри стратегии")
+    score: float = Field(..., description="Близость к вопросу (больше — ближе)")
+
+
+class RagTokensOut(BaseModel):
+    """Расход вызова модели: токены, кэш контекста и оценка стоимости."""
+
+    model: str = Field(..., description="Модель, ответившая на вопрос")
+    prompt_tokens: int = Field(0, description="Токенов во входе (промпт и контекст)")
+    completion_tokens: int = Field(0, description="Токенов в ответе")
+    cache_hit_tokens: int = Field(0, description="Токенов промпта из кэша контекста")
+    cache_miss_tokens: int = Field(0, description="Токенов промпта, посчитанных заново")
+    cache_hit_percent: float = Field(0.0, description="Доля попаданий в кэш, %")
+    cost_estimate: float = Field(0.0, description="Оценка стоимости запроса, в валюте дня")
+
+
+class RagQueryOut(BaseModel):
+    """Ответ режима RAG: режим, текст, источники, расход и оценка опоры."""
+
+    mode: str = Field(..., description="rag — ответ с контекстом корпуса, no_rag — без него")
+    question: str = Field(..., description="Вопрос, на который отвечали")
+    answer: str = Field(..., description="Текст ответа модели")
+    fallback: bool = Field(
+        False, description="true — вызов с RAG не удался и ответ дан без контекста"
+    )
+    warning: str = Field("", description="Предупреждение отката (пусто — отказов не было)")
+    grounding: str = Field(
+        "", description="Опора ответа на контекст (пусто в режиме без RAG)"
+    )
+    sources: List[RagSourceOut] = Field(
+        default_factory=list, description="Чанки, попавшие в контекст, по убыванию близости"
+    )
+    chunks_used: int = Field(0, description="Сколько фрагментов ушло в промпт")
+    context_tokens: int = Field(0, description="Размер блока контекста в токенах")
+    duration_ms: int = Field(0, description="Сколько занял запрос целиком")
+    tokens: Optional[RagTokensOut] = Field(None, description="Расход вызова (None — вызова не было)")
+
+
+class RagCompareIn(BaseModel):
+    """POST /rag/compare — один вопрос, два ответа: с контекстом корпуса и без."""
+
+    question: str = Field(..., max_length=config.INDEX_QUERY_MAX, description="Вопрос к корпусу")
+    top_k: int = Field(
+        rag_mode.RAG_DEFAULT_TOP_K, ge=1, le=rag_mode.RAG_MAX_TOP_K,
+        description="Сколько фрагментов корпуса подмешать в контекст",
+    )
+    strategy: Optional[str] = Field(
+        None, description="Стратегия поиска: rag_corpus_structural (по умолчанию) | rag_corpus_fixed",
+    )
+
+
+class RagCompareOut(BaseModel):
+    """Сравнение: ответ без RAG и ответ с RAG на один и тот же вопрос."""
+
+    question: str = Field(..., description="Вопрос, на который отвечали дважды")
+    no_rag: RagQueryOut = Field(..., description="Ответ без контекста (база сравнения)")
+    rag: RagQueryOut = Field(..., description="Ответ с контекстом корпуса")
+
+
+class RagCorpusOut(BaseModel):
+    """Состояние корпуса: папка, объём в страницах и готовность к отчёту."""
+
+    corpus_dir: str = Field(..., description="Папка собранного корпуса")
+    documents: int = Field(0, description="Сколько документов в корпусе")
+    chars: int = Field(0, description="Суммарный объём корпуса в символах")
+    pages: int = Field(0, description="Объём корпуса в страницах по 1800 символов")
+    min_pages: int = Field(0, description="Минимум страниц, при котором корпус считается полным")
+    subdir: str = Field("", description="Подкаталог внутри documents/")
+    ready: bool = Field(False, description="Хватает ли корпуса для отчёта сравнения")
+
+
+class RagIndexOut(BaseModel):
+    """Индекс одной стратегии корпуса: сколько чанков лежит в хранилище."""
+
+    strategy: str = Field(..., description="Имя namespace корпуса")
+    chunks: int = Field(0, description="Сколько чанков проиндексировано")
+
+
+class RagConfigOut(BaseModel):
+    """GET /rag/config — готовность режима, индексы корпуса и лимиты."""
+
+    ready: bool = Field(..., description="Есть ли корпус и хотя бы один индекс")
+    corpus: RagCorpusOut = Field(..., description="Состояние корпуса")
+    indexes: List[RagIndexOut] = Field(
+        default_factory=list, description="Чанки по стратегиям корпуса"
+    )
+    chunks_total: int = Field(0, description="Чанков во всех индексах корпуса")
+    strategies: List[str] = Field(
+        default_factory=list, description="Стратегии корпуса по порядку применения"
+    )
+    default_strategy: str = Field(..., description="Стратегия поиска по умолчанию")
+    top_k_default: int = Field(..., description="Сколько фрагментов берётся по умолчанию")
+    top_k_max: int = Field(..., description="Верхняя граница top_k")
+    context_max_tokens: int = Field(..., description="Бюджет блока контекста в промпте")
+    chunk_max_chars: int = Field(..., description="Предел длины одного фрагмента в символах")
+
+
+__all__ = [
+    "RagCompareIn",
+    "RagCompareOut",
+    "RagConfigOut",
+    "RagCorpusOut",
+    "RagIndexOut",
+    "RagQueryIn",
+    "RagQueryOut",
+    "RagSourceOut",
+    "RagTokensOut",
+]

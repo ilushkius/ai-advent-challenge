@@ -20,6 +20,8 @@ ORM-таблицы — отдельный пакет ``backend/models/``.
 - ``llm.py`` — расходы на LLM дня 21: журнал, статистика кэша, состояние непиковых
   часов, прогноз экономии и таблица «тип задачи → модель»;
 - ``profile.py`` — профиль пользователя и его вклад в промпт;
+- ``rag.py`` — RAG дня 22: запрос по корпусу с RAG и без него, сравнение двух
+  ответов, состояние корпуса и лимиты контекста;
 - ``task.py``    — состояние задачи: этап, шаг, контролируемые переходы (день 15),
   флаги-согласования и журнал попыток.
 """
@@ -162,6 +164,18 @@ from .profile import (
     AppliedProfileOut,
 )
 
+from .rag import (
+    RagCompareIn,
+    RagCompareOut,
+    RagConfigOut,
+    RagCorpusOut,
+    RagIndexOut,
+    RagQueryIn,
+    RagQueryOut,
+    RagSourceOut,
+    RagTokensOut,
+)
+
 from .scheduler import (
     CollectedRecordOut,
     CollectedResponse,
@@ -278,6 +292,15 @@ __all__ = [
     "OrchestrationStepsResponse",
     "PeriodicSummaryOut",
     "ProfileElementOut",
+    "RagCompareIn",
+    "RagCompareOut",
+    "RagConfigOut",
+    "RagCorpusOut",
+    "RagIndexOut",
+    "RagQueryIn",
+    "RagQueryOut",
+    "RagSourceOut",
+    "RagTokensOut",
     "ReminderOut",
     "RemindersResponse",
     "ScheduleReportOut",

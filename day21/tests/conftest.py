@@ -55,6 +55,17 @@ from fixtures_indexing import (  # noqa: F401  (фикстуры: pytest чит�
     indexing_service,
     isolated_indexing,
 )
+from fixtures_rag import (  # noqa: F401  (фикстуры: pytest читает их как свои)
+    empty_index_service,
+    rag_client,
+    rag_corpus_dir,
+    rag_documents,
+    rag_index_service,
+    rag_loader,
+    rag_service,
+    rag_stub,
+    rag_usage_store,
+)
 
 
 def pytest_addoption(parser):

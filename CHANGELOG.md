@@ -5,6 +5,56 @@
 структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
 `chore` (прочее: инфраструктура, скиллы, служебные изменения).
 
+## 2026-09-29 — feat — день 22: RAG-режим с корпусом документов, 10 контрольных вопросов и сравнением с ответом без RAG
+
+Режим RAG: вопрос → гибридный поиск по корпусу (вектор FAISS плюс словесные веса)
+→ блок контекста с бюджетом → ответ модели с оценкой опоры на фрагменты.
+
+* Домен: `backend/domain/rag_mode.py` (промпт, лимиты контекста и отбора,
+  гибридный балл, оценка опоры), `rag_corpus_spec.py` (36 источников корпуса,
+  минимумы 25 страниц / 50 чанков на стратегию), `rag_eval.py` (10 контрольных
+  вопросов с эталонными фактами, `fact_score`, `verdict`).
+* Сервисы: `rag_corpus_loader.py` (`RagCorpusLoader` — подкаталог
+  `documents/rag_corpus/`), `rag_service.py` (`RAGService`: retrieve / rag_query /
+  no_rag_query / compare / prepare_corpus / config; ошибки `RAGRejected` и
+  `RAGUpstreamError`; синглтон `get_rag_service()`); метод
+  `LLMClient.generate_with_context` (стабильный системный префикс кэша → блок
+  контекста и вопрос) в `llm_client.py`.
+* HTTP: `backend/api/rag.py` — `POST /rag/query` (тело `use_rag`), `GET
+  /rag/config`, `POST /rag/compare`; коды `400` (пустой вопрос, неизвестная
+  стратегия), `409` (корпус не проиндексирован), `502` (сбой вызова модели в
+  режиме RAG и неудавшийся откат); схемы `backend/schemas/rag.py`; подключение в
+  `main.py`, `dependencies.py`, `agents.py` — список эндпоинтов вырос до 102
+  записей / 84 уникальных путей OpenAPI.
+* Скрипты: `scripts/prepare_rag_corpus.py` (сборка корпуса; флаги
+  `--list`/`--force`/`--validate`), `scripts/index_rag_corpus.py` (оба индекса),
+  `scripts/run_rag_eval.py` (прогон 10 вопросов и запись отчёта).
+* Фронтенд: `frontend/rag_api.py` и `frontend/rag_section.py` — панель «🔍
+  RAG-запрос по корпусу» внизу раздела чата и раздел «🆚 RAG-сравнение»;
+  `frontend/chat_section.py` — новые точки вставки, `app.py` — заголовок дня.
+* Тесты: `tests/fixtures_rag.py`, `tests/unit/test_rag_service.py` (23),
+  `tests/integration/test_rag_flow.py` (3 slow), `tests/e2e/test_rag_api.py` (11);
+  в `tests/integration/test_llm_client.py` — три теста `generate_with_context`.
+* Отчёт: `docs/reports/rag_eval.md` — таблица на 10 вопросов (лучше с RAG — 8,
+  хуже — 0, равно — 2), поиск нашёл ожидаемый источник во всех вопросах.
+* Документация: разделы RAG в `day21/README.md`, `docs/architecture.md`,
+  `docs/usage.md`, `docs/api.md`, `STRUCTURE.md`.
+
+**Затронуто:** `day21/backend/domain/` (`rag_mode.py`, `rag_corpus_spec.py`,
+`rag_eval.py`, `__init__.py`), `day21/backend/services/` (`rag_service.py`,
+`rag_corpus_loader.py`, `llm_client.py`, `__init__.py`),
+`day21/backend/schemas/rag.py` и `schemas/__init__.py`,
+`day21/backend/api/` (`rag.py`, `main.py`, `agents.py`, `__init__.py`),
+`day21/backend/core/dependencies.py`, `day21/backend/core/config.py`,
+`day21/frontend/` (`rag_api.py`, `rag_section.py`, `chat_section.py`, `app.py`),
+`day21/scripts/` (`prepare_rag_corpus.py`, `index_rag_corpus.py`,
+`run_rag_eval.py`), `day21/tests/` (`fixtures_rag.py`, `conftest.py`,
+`unit/test_rag_service.py`, `integration/test_rag_flow.py`,
+`integration/test_llm_client.py`, `e2e/test_rag_api.py`, `e2e/test_llm_api.py`,
+`e2e/test_indexing_api.py`), `day21/docs/reports/rag_eval.md`, документация
+`day21/` (`README.md`, `STRUCTURE.md`, `docs/architecture.md`, `docs/usage.md`,
+`docs/api.md`), `CHANGELOG.md`.
+
 ## 2026-09-29 — docs — корневая документация: входная точка и workflow проекта
 
 У проекта появилась документация верхнего уровня: раньше правила и процесс были

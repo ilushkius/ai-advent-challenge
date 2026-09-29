@@ -19,8 +19,8 @@ import streamlit as st
 from . import (
     api_client, common, context_panels, cost_section, indexing_section,
     invariant_panel, mcp_section, memory_panels, notifications,
-    orchestration_section, pipeline_section, profile_section, scheduler_section,
-    task_panel,
+    orchestration_section, pipeline_section, profile_section, rag_section,
+    scheduler_section, task_panel,
 )
 
 
@@ -79,7 +79,7 @@ def render_main_area() -> None:
             "Раздел",
             ["💬 Чат и память", "👤 Профиль пользователя", "🧭 Состояние задачи",
              "📏 Инварианты", "🔌 MCP", "🗓 Планировщик", "🔀 Пайплайны",
-             "🌐 Оркестрация", "📦 Индексация", "💰 Расходы"],
+             "🌐 Оркестрация", "📦 Индексация", "💰 Расходы", "🆚 RAG-сравнение"],
             horizontal=True, key="main_section", label_visibility="collapsed",
         )
         if section.startswith("👤"):
@@ -110,6 +110,10 @@ def render_main_area() -> None:
             # Расходы на LLM (день 21): журнал, кэш контекста, непиковые часы.
             # Раздел глобальный: считает запросы всех агентов процесса.
             cost_section.render_cost_section()
+        elif section.startswith("🆚"):
+            # Сравнение ответов с корпусом и без него (день 22): корпус и индекс —
+            # тоже служба процесса, а не свойство агента.
+            rag_section.render_rag_compare_section()
         else:
             if not agents:
                 st.info("Агентов пока нет — создайте первого в боковой панели. "
@@ -367,3 +371,11 @@ def render_main_area() -> None:
                         common.flash("success", "История, конспекты и метрики очищены. "
                                           "Новый диалог начнётся с нуля.")
                         st.rerun()
+
+            # --- RAG-запрос по корпусу (день 22) ---
+            # Отдельная панель внизу раздела чата: вопрос ищет фрагменты в
+            # корпусе документов, а не отвечает из памяти агента, поэтому
+            # своя форма и свой выбор стратегии. Стоит вне ветки агента: корпус
+            # не зависит от того, создан ли уже агент.
+            st.divider()
+            rag_section.render_chat_rag_panel()

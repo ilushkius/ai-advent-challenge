@@ -54,7 +54,11 @@
   прогресса (день 21);
 - ``index_comparison`` — сборка метрик сравнения стратегий (день 21);
 - ``indexing_service`` — ``IndexingService``: запуск прогонов (фоном или
-  синхронно), прогресс, поиск, статистика и очистка индекса (день 21).
+  синхронно), прогресс, поиск, статистика и очистка индекса (день 21);
+- ``rag_corpus_loader`` — ``RagCorpusLoader``: корпус режима RAG дня 22 — файлы
+  дня 21 в ``documents/rag_corpus/``, объём в страницах и проверка состава;
+- ``rag_service`` — ``RAGService``: режим RAG дня 22 — поиск по корпусу, ответ с
+  контекстом и без него, бюджет контекста, откат и оценка опоры на фрагменты.
 
 Сервисы знают про домен и хранилище, но не про HTTP и не про Streamlit.
 """
@@ -67,6 +71,8 @@ from . import (
     off_peak, orchestration_planner,
     orchestration_service, orchestrator, pipeline, pipeline_service,
     schedule_service, scheduled_jobs, scheduler, source_fetch, task_state,
+    rag_corpus_loader,
+    rag_service,
 )
 from .apscheduler_bridge import RECONCILE_JOB_ID, TASK_JOB_PREFIX
 from .compressor import SUMMARY_SYSTEM_PROMPT, CompressionError, ContextCompressor
@@ -108,6 +114,14 @@ from .orchestration_service import OrchestrationService, get_orchestration_servi
 from .orchestrator import Orchestrator
 from .pipeline import Pipeline
 from .pipeline_service import PipelineService, get_pipeline_service
+from .rag_corpus_loader import RagCorpusLoader, get_rag_corpus_loader
+from .rag_service import (
+    RAGError,
+    RAGRejected,
+    RAGService,
+    RAGUpstreamError,
+    get_rag_service,
+)
 from .schedule_service import ScheduleService, get_schedule_service
 from .scheduled_jobs import prepare, tick, tool_names
 from .scheduler import TaskScheduler, get_scheduler
@@ -174,6 +188,11 @@ __all__ = [
     "Orchestrator",
     "Pipeline",
     "PipelineService",
+    "RAGError",
+    "RAGRejected",
+    "RAGService",
+    "RAGUpstreamError",
+    "RagCorpusLoader",
     "SUBMIT_GRACE",
     "ScheduleService",
     "SourceFetchError",
@@ -194,6 +213,8 @@ __all__ = [
     "get_mcp_registry",
     "get_orchestration_service",
     "get_pipeline_service",
+    "get_rag_corpus_loader",
+    "get_rag_service",
     "get_schedule_service",
     "get_scheduler",
     "index_service",
@@ -208,6 +229,8 @@ __all__ = [
     "mcp_transport",
     "pipeline",
     "pipeline_service",
+    "rag_corpus_loader",
+    "rag_service",
     "prepare",
     "schedule_service",
     "scheduled_jobs",

@@ -1,7 +1,7 @@
-# API дня 21 — агенты DeepSeek с индексацией документов и оптимизацией затрат на LLM: оркестрация флота MCP-серверов, декларативный пайплайн, планировщик фоновых задач, контролируемые переходы, инварианты, состояние задачи, память, профиль и журнал расходов
+# API дня 22 — агенты DeepSeek с индексацией документов, RAG и оптимизацией затрат на LLM: оркестрация флота MCP-серверов, декларативный пайплайн, планировщик фоновых задач, контролируемые переходы, инварианты, состояние задачи, память, профиль, журнал расходов и поиск по корпусу документов
 
 Бэкенд — FastAPI-приложение `day21/backend/api/main.py`. Заголовок приложения —
-«Агенты DeepSeek + индексация документов — День 21», версия схемы — `15.0.0`
+«Агенты DeepSeek + индексация документов и RAG — День 22», версия схемы — `16.0.0`
 (видны в Swagger UI и `GET /openapi.json`). Базовый адрес после запуска
 (из папки `day21`):
 
@@ -138,19 +138,21 @@ LLM, прогноз экономии и поле `llm` генерации),
 инструменты и обновление кэша), `memory.py` (три слоя памяти),
 `orchestration.py` (запуск оркестрации, его шаги и отчёт по реплике),
 `pipeline.py` (запуск пайплайна, его шаги и отчёт по реплике), `profile.py`
-(профиль и его вклад в промпт), `task.py` (состояние задачи, его
+(профиль и его вклад в промпт), `rag.py` (поиск по корпусу RAG, ответ с
+контекстом и без, сравнение и конфигурация), `task.py` (состояние задачи, его
 переходы и журнал), `scheduler.py` (инструменты планировщика, задачи, их запуски,
 напоминания, сводки и уведомления); сводная таблица полей — в
 разделе [«Формы данных»](#формы-данных).
 
 ## Эндпоинты
 
-Всего 99 записей эндпоинтов (в списке `GET /` — все, кроме самой подсказки): 10 в
+Всего 102 записи эндпоинтов (в списке `GET /` — все, кроме самой подсказки): 10 в
 разделе агентов (CRUD, генерация и статистика), 9 контекста (сжатие, стратегии,
 ветки, факты), 10 памяти, 6 профилей пользователей, 11 состояния задачи, 6
 инвариантов, 5 MCP активного соединения, 3 флота MCP-серверов, 14 планировщика, 5
-пайплайна, 6 оркестрации, 9 индексации и 5 расходов на LLM. Вместе с корневым
-`GET /` приложение объявляет 100 эндпоинтов, а уникальных путей в OpenAPI — 81:
+пайплайна, 6 оркестрации, 9 индексации, 5 расходов на LLM и 3 RAG (поиск по
+корпусу, режим без RAG и сравнение). Вместе с корневым
+`GET /` приложение объявляет 103 эндпоинта, а уникальных путей в OpenAPI — 84:
 FastAPI сводит методы одного пути
 (`GET`/`POST`/`DELETE /orchestration/runs/{run_id}` — это три записи одного пути) в
 одну запись схемы.
@@ -161,7 +163,7 @@ FastAPI сводит методы одного пути
 [«Инварианты»](#инварианты), [«MCP»](#mcp), [«Планировщик»](#планировщик),
 [«Пайплайн»](#пайплайн), [«Оркестрация»](#оркестрация),
 [«Индексация документов»](#индексация-документов),
-[«Расходы на LLM»](#расходы-на-llm) и
+[«RAG-режим»](#rag-режим), [«Расходы на LLM»](#расходы-на-llm) и
 [«MCP-серверы»](#mcp-серверы).
 
 | Метод | Путь | Назначение | Успех |
@@ -265,6 +267,9 @@ FastAPI сводит методы одного пути
 | POST | `/llm/estimate` | прогноз экономии по числам токенов: вклад кэша, сжатия, непика и предела ответа | 200 LLMSavingsOut |
 | GET | `/llm/models` | маршрутизация моделей: тип задачи → модель и предел ответа, доля цены кэша, тарифы моделей | 200 LLMModelsOut |
 | GET | `/llm/peak` | правило непиковых окон DeepSeek (UTC) и текущий статус окна | 200 `{off_peak_weekday_hours_utc, peak_weekday_hours_utc, weekends_off_peak, discount_percent, status}` |
+| POST | `/rag/query` | ответ по корпусу RAG (`use_rag`) или тот же вопрос без контекста (400 — пустой вопрос или неизвестная стратегия; 409 — корпус не проиндексирован) | 200 RagQueryOut |
+| GET | `/rag/config` | готовность режима, состав корпуса, чанки по стратегиям и лимиты | 200 RagConfigOut |
+| POST | `/rag/compare` | один вопрос — два ответа: без RAG и с контекстом корпуса | 200 RagCompareOut |
 | GET | `/` | список доступных эндпоинтов | 200 объект-подсказка |
 
 ## GET /
@@ -272,9 +277,9 @@ FastAPI сводит методы одного пути
 Корневая точка — подсказка: имя приложения, путь к Swagger, префиксы памяти,
 персонализации, состояния задачи (отдельным ключом — группа `task_transitions`),
 инвариантов, MCP (активное соединение), флота MCP-серверов (ключ `mcp_servers`),
-планировщика, пайплайна, оркестрации, индексации документов (ключ `indexing`) и
-расходов на LLM (ключ `llm`), а также перечень эндпоинтов (99 строк — все, кроме
-самого `GET /`).
+планировщика, пайплайна, оркестрации, индексации документов (ключ `indexing`),
+расходов на LLM (ключ `llm`) и RAG (ключ `rag`), а также перечень эндпоинтов (102
+строки — все, кроме самого `GET /`).
 
 ```bash
 curl.exe http://127.0.0.1:8000/
@@ -282,7 +287,7 @@ curl.exe http://127.0.0.1:8000/
 
 ```json
 {
-  "name": "Агенты DeepSeek с индексацией документов — День 21",
+  "name": "Агенты DeepSeek с индексацией документов и RAG — День 22",
   "docs": "/docs",
   "memory": "/agents/{agent_id}/memory/... (short-term | working | long-term)",
   "personalization": "/users, /users/{user_id}/profile, /agents/{agent_id}/profile",
@@ -296,6 +301,7 @@ curl.exe http://127.0.0.1:8000/
   "orchestration": "/orchestration/run, /orchestration/demo, /orchestration/runs, /orchestration/runs/{run_id}, /orchestration/runs/{run_id}/steps, DELETE /orchestration/runs/{run_id} (6 эндпоинтов)",
   "indexing": "POST /indexing/run, POST /indexing/demo, GET /indexing/status, GET /indexing/stats, GET /indexing/search, GET /indexing/chunks, GET /indexing/runs, GET /indexing/runs/{run_id}, POST /indexing/clear (9 эндпоинтов)",
   "llm": "/llm/usage, /llm/status, /llm/estimate, /llm/models, /llm/peak (5 эндпоинтов — журнал расходов, кэш контекста, непиковые часы)",
+  "rag": "POST /rag/query, GET /rag/config, POST /rag/compare (3 эндпоинта — поиск по корпусу, режим без RAG, сравнение)",
   "endpoints": [
     "POST /agents",
     "GET /agents",
@@ -395,7 +401,10 @@ curl.exe http://127.0.0.1:8000/
     "GET /llm/status",
     "POST /llm/estimate",
     "GET /llm/models",
-    "GET /llm/peak"
+    "GET /llm/peak",
+    "POST /rag/query",
+    "GET /rag/config",
+    "POST /rag/compare"
   ]
 }
 ```
@@ -5531,6 +5540,88 @@ curl.exe -X POST http://127.0.0.1:8000/mcp/servers/refresh \
 `stage`, `allowed_next` ([строка] — доступные этапы) и `blocked`
 ([TaskBlockedOut]).
 
+### RagQueryIn
+
+Тело `POST /rag/query`.
+
+| Поле | Тип | Пояснение |
+|---|---|---|
+| `question` | строка | вопрос к корпусу (до 500 символов; пустой доходит до сервиса и получает `400`) |
+| `top_k` | int | сколько фрагментов корпуса подмешать в контекст, 1…10 (по умолчанию 5) |
+| `strategy` | строка/null | стратегия поиска: `rag_corpus_structural` (по умолчанию) или `rag_corpus_fixed` |
+| `use_rag` | bool | `true` — ответ с контекстом корпуса, `false` — тот же вопрос без него |
+
+### RagSourceOut
+
+Один использованный фрагмент корпуса.
+
+| Поле | Тип | Пояснение |
+|---|---|---|
+| `source` | строка | файл корпуса (имя документа-источника дня 21) |
+| `title` | строка | заголовок документа |
+| `section` | строка | заголовок раздела (пусто у стратегии `fixed`) |
+| `chunk_id` | строка | идентификатор чанка внутри стратегии |
+| `score` | float | близость к вопросу (больше — ближе) |
+
+### RagTokensOut
+
+Расход вызова модели.
+
+| Поле | Тип | Пояснение |
+|---|---|---|
+| `model` | строка | модель, ответившая на вопрос |
+| `prompt_tokens` | int | токенов во входе (промпт и контекст) |
+| `completion_tokens` | int | токенов в ответе |
+| `cache_hit_tokens` | int | токенов промпта из кэша контекста |
+| `cache_miss_tokens` | int | токенов промпта, посчитанных заново |
+| `cache_hit_percent` | float | доля попаданий в кэш, % |
+| `cost_estimate` | float | оценка стоимости запроса, в валюте дня |
+
+### RagQueryOut
+
+Ответ `POST /rag/query` (и одна сторона сравнения).
+
+| Поле | Тип | Пояснение |
+|---|---|---|
+| `mode` | строка | `rag` — ответ с контекстом корпуса, `no_rag` — без него |
+| `question` | строка | вопрос, на который отвечали |
+| `answer` | строка | текст ответа модели |
+| `fallback` | bool | `true` — вызов с RAG не удался и ответ дан без контекста |
+| `warning` | строка | предупреждение отката (пусто — отказов не было) |
+| `grounding` | строка | опора ответа на контекст (пусто в режиме без RAG) |
+| `sources` | [RagSourceOut] | чанки, попавшие в контекст, по убыванию близости |
+| `chunks_used` | int | сколько фрагментов ушло в промпт |
+| `context_tokens` | int | размер блока контекста в токенах |
+| `duration_ms` | int | сколько занял запрос целиком |
+| `tokens` | RagTokensOut/null | расход вызова (`null` — вызова не было) |
+
+### RagCompareOut
+
+Тело — `RagCompareIn` (`question`, `top_k`, `strategy`); ответ `POST /rag/compare`:
+
+| Поле | Тип | Пояснение |
+|---|---|---|
+| `question` | строка | вопрос, на который отвечали дважды |
+| `no_rag` | RagQueryOut | ответ без контекста (база сравнения) |
+| `rag` | RagQueryOut | ответ с контекстом корпуса |
+
+### RagConfigOut
+
+Ответ `GET /rag/config`.
+
+| Поле | Тип | Пояснение |
+|---|---|---|
+| `ready` | bool | есть ли корпус и хотя бы один индекс |
+| `corpus` | RagCorpusOut | состояние корпуса: `corpus_dir`, `documents`, `chars`, `pages`, `min_pages`, `subdir`, `ready` |
+| `indexes` | [RagIndexOut] | чанки по стратегиям: `strategy` и `chunks` |
+| `chunks_total` | int | чанков во всех индексах корпуса |
+| `strategies` | [строка] | стратегии корпуса по порядку применения |
+| `default_strategy` | строка | стратегия поиска по умолчанию |
+| `top_k_default` | int | сколько фрагментов берётся по умолчанию |
+| `top_k_max` | int | верхняя граница `top_k` |
+| `context_max_tokens` | int | бюджет блока контекста в промпте |
+| `chunk_max_chars` | int | предел длины одного фрагмента в символах |
+
 ## Расходы на LLM
 
 Оптимизация затрат — подсистема дня 21: сколько стоят запросы агентов и какими
@@ -5751,15 +5842,162 @@ curl -X POST http://127.0.0.1:8000/llm/estimate -H "Content-Type: application/js
 что отдаёт `GET /llm/status`: пик/непик, подпись окна, момент следующего дешёвого
 окна и секунды до него.
 
+## RAG-режим
+
+RAG-режим — подсистема дня 22: «вопрос → поиск релевантных фрагментов корпуса →
+блок контекста плюс вопрос → ответ модели». Три эндпоинта с абсолютными путями
+(`/rag...`; префиксов нет). Логику держит `backend/services/rag_service.py`
+(`RAGService`): гибридный поиск по индексу корпуса (`rag_corpus_structural` |
+`rag_corpus_fixed`), сборка блока контекста с бюджетом `RAG_CONTEXT_MAX_TOKENS`
+(лишние фрагменты отбрасывает `fit_context`), ответ через
+`LLMClient.generate_with_context` (стабильный системный префикс → блок контекста и
+вопрос) и оценка опоры ответа на контекст. Корпус собирают
+`scripts/prepare_rag_corpus.py` и индексируют `scripts/index_rag_corpus.py`,
+сравнение ответов пишет `scripts/run_rag_eval.py` в
+`docs/reports/rag_eval.md`. Оба индекса живут в тех же таблицах `document_chunks`
+(колонка `strategy`), что и индексация дня 21, — новых таблиц режим не заводит;
+лимиты перечислены в разделе [«Формы данных»](#формы-данных).
+
+### POST /rag/query
+
+Тело — `RagQueryIn`: `question`, `top_k` (1…10, по умолчанию 5), `strategy`
+(`rag_corpus_structural` по умолчанию | `rag_corpus_fixed`) и `use_rag`
+(`true` — ответ с контекстом корпуса, `false` — тот же вопрос без него; различие
+запросов ровно одно — наличие блока контекста). Ответ — `RagQueryOut`: `mode`,
+`answer`, `sources` (пять полей фрагмента), `chunks_used`, `context_tokens`,
+`duration_ms`, `tokens` и `grounding`. Если вызов модели с контекстом не удался
+после повторов, сервис сам отвечает без RAG и помечает ответ `fallback: true` с
+текстом `warning`.
+
+```bash
+curl.exe -X POST http://127.0.0.1:8000/rag/query ^
+  -H "Content-Type: application/json" ^
+  -d "{\"question\":\"Чему равен CHARS_PER_PAGE в day21/backend/services/document_loader.py?\",\"top_k\":5}"
+```
+
+```json
+{
+  "mode": "rag",
+  "question": "Чему равен CHARS_PER_PAGE в day21/backend/services/document_loader.py?",
+  "answer": "В контексте указано, что CHARS_PER_PAGE = 1800.",
+  "fallback": false,
+  "warning": "",
+  "grounding": "есть опора в контексте",
+  "sources": [
+    {
+      "source": "day21-backend-services-document_loader.py",
+      "title": "Сборка набора документов дня 21 в папку documents/ (день 21).",
+      "section": "module",
+      "chunk_id": "structural:day21-backend-services-document_loader.py:0000",
+      "score": 0.6406
+    }
+  ],
+  "chunks_used": 5,
+  "context_tokens": 2811,
+  "duration_ms": 931,
+  "tokens": {
+    "model": "deepseek-chat",
+    "prompt_tokens": 2400,
+    "completion_tokens": 300,
+    "cache_hit_tokens": 0,
+    "cache_miss_tokens": 2400,
+    "cache_hit_percent": 0.0,
+    "cost_estimate": 0.0
+  }
+}
+```
+
+Коды: `200`, `400` (пустой `question` или неизвестная `strategy`), `409` (корпус
+RAG не проиндексирован), `502` (сбой вызова модели в режиме RAG и неудавшийся
+откат на ответ без контекста).
+
+### GET /rag/config
+
+Готовность режима и его лимиты — `RagConfigOut`: `ready`, состав корпуса `corpus`
+(`documents`, `chars`, `pages`, `min_pages`, `ready`), чанки по стратегиям
+`indexes`, `chunks_total`, `strategies`, `default_strategy`, `top_k_default`,
+`top_k_max`, `context_max_tokens`, `chunk_max_chars`. Состояние корпуса читается из
+каталога `documents/rag_corpus/`, счётчики чанков — из таблицы `document_chunks`.
+Этим ответом пользуется панель «🔍 RAG-запрос по корпусу» в интерфейсе.
+
+```bash
+curl.exe http://127.0.0.1:8000/rag/config
+```
+
+```json
+{
+  "ready": true,
+  "corpus": {
+    "corpus_dir": "…/day21/documents/rag_corpus",
+    "documents": 36,
+    "chars": 314669,
+    "pages": 174,
+    "min_pages": 25,
+    "subdir": "rag_corpus",
+    "ready": true
+  },
+  "indexes": [
+    {"strategy": "rag_corpus_fixed", "chunks": 291},
+    {"strategy": "rag_corpus_structural", "chunks": 389}
+  ],
+  "chunks_total": 680,
+  "strategies": ["rag_corpus_fixed", "rag_corpus_structural"],
+  "default_strategy": "rag_corpus_structural",
+  "top_k_default": 5,
+  "top_k_max": 10,
+  "context_max_tokens": 3000,
+  "chunk_max_chars": 2000
+}
+```
+
+Коды: `200`.
+
+### POST /rag/compare
+
+Тело — `RagCompareIn` (`question`, `top_k`, `strategy`). Сервис отвечает на один и
+тот же вопрос дважды — сначала без RAG (база), затем с контекстом корпуса — и
+возвращает `RagCompareOut` (`question`, `no_rag`, `rag`). Базовый ответ считается
+первым, поэтому сбой режима RAG не отнимает сравнение.
+
+```bash
+curl.exe -X POST http://127.0.0.1:8000/rag/compare ^
+  -H "Content-Type: application/json" ^
+  -d "{\"question\":\"Чему равен CHARS_PER_PAGE в day21/backend/services/document_loader.py?\",\"top_k\":5}"
+```
+
+```json
+{
+  "question": "Чему равен CHARS_PER_PAGE в day21/backend/services/document_loader.py?",
+  "no_rag": {
+    "mode": "no_rag",
+    "answer": "В контексте нет данных для ответа.",
+    "sources": [],
+    "chunks_used": 0,
+    "context_tokens": 0,
+    "grounding": ""
+  },
+  "rag": {
+    "mode": "rag",
+    "answer": "В контексте указано, что CHARS_PER_PAGE = 1800.",
+    "sources": [{"source": "day21-backend-services-document_loader.py", "section": "module", "chunk_id": "structural:day21-backend-services-document_loader.py:0000", "score": 0.6406}],
+    "chunks_used": 5,
+    "context_tokens": 2811,
+    "grounding": "есть опора в контексте"
+  }
+}
+```
+
+Коды: `200`, `400`, `409`, `502` — те же условия, что у `POST /rag/query`.
+
 ## Коды ошибок
 
 | Код | Когда | Тело |
 |---|---|---|
-| `400` | пустой `task_id` после обрезки пробелов в `PUT /memory/task`; недопустимый переход состояния задачи: пропуск этапа, откат больше чем на этап, переход «в себя», выход из этапа без согласования (guard-условие), любой переход из `done`, пауза из `done` и повторная пауза, `advance` и `rollback` на паузе, шаг чужого этапа, несовпадение `to_stage` с целью отката, `resume` не на паузе; цель MCP не разобрана: пустая после обрезки пробелов, URL там, где нужен запуск команды, и наоборот; `POST /mcp/call` — инструмента нет в каталоге сервера или аргументы не подходят по `input_schema` (нет обязательного, лишний, тип не тот); `POST /scheduler/tasks` — инструмент не входит в планировщик дня, лишний/отсутствующий аргумент, значение не того типа или вне границ, `source_url` без `http(s)://`, неразобранное расписание (интервал вне 1…86400, cron не из пяти полей, `date` без `run_date`); неизвестный `status` в фильтрах `/scheduler/tasks` и `/scheduler/reminders`; негодная конфигурация пайплайна (не объект, пустой список `steps`, шагов больше `PIPELINE_STEPS_MAX`, шаг без `tool`, неизвестное условие `op`) и неизвестный `status` в фильтре `/pipelines/runs`; негодный план оркестрации (не объект, пустой список `steps`, шагов больше `ORCH_STEPS_MAX`, шаг без `tool`, `args` не объект, неизвестное условие), невыполнимый сценарий оркестрации (плана нет, а флот не публикует нужных инструментов) неизвестный `status` в фильтре `/orchestration/runs`; неизвестная `strategy` индексации, пустой `query` поиска и отсутствие документов у `/indexing/*`, неизвестный период агрегации расходов у `GET /llm/usage` (не `day`/`week`/`month`/`all`) | `HTTPException` с `detail` (у `POST /tasks/{task_id}/transition` — причина и подсказка) |
+| `400` | RAG: пустой вопрос (`POST /rag/query`, `POST /rag/compare`) и неизвестная стратегия поиска (не `rag_corpus_structural`/`rag_corpus_fixed`); пустой `task_id` после обрезки пробелов в `PUT /memory/task`; недопустимый переход состояния задачи: пропуск этапа, откат больше чем на этап, переход «в себя», выход из этапа без согласования (guard-условие), любой переход из `done`, пауза из `done` и повторная пауза, `advance` и `rollback` на паузе, шаг чужого этапа, несовпадение `to_stage` с целью отката, `resume` не на паузе; цель MCP не разобрана: пустая после обрезки пробелов, URL там, где нужен запуск команды, и наоборот; `POST /mcp/call` — инструмента нет в каталоге сервера или аргументы не подходят по `input_schema` (нет обязательного, лишний, тип не тот); `POST /scheduler/tasks` — инструмент не входит в планировщик дня, лишний/отсутствующий аргумент, значение не того типа или вне границ, `source_url` без `http(s)://`, неразобранное расписание (интервал вне 1…86400, cron не из пяти полей, `date` без `run_date`); неизвестный `status` в фильтрах `/scheduler/tasks` и `/scheduler/reminders`; негодная конфигурация пайплайна (не объект, пустой список `steps`, шагов больше `PIPELINE_STEPS_MAX`, шаг без `tool`, неизвестное условие `op`) и неизвестный `status` в фильтре `/pipelines/runs`; негодный план оркестрации (не объект, пустой список `steps`, шагов больше `ORCH_STEPS_MAX`, шаг без `tool`, `args` не объект, неизвестное условие), невыполнимый сценарий оркестрации (плана нет, а флот не публикует нужных инструментов) неизвестный `status` в фильтре `/orchestration/runs`; неизвестная `strategy` индексации, пустой `query` поиска и отсутствие документов у `/indexing/*`, неизвестный период агрегации расходов у `GET /llm/usage` (не `day`/`week`/`month`/`all`) | `HTTPException` с `detail` (у `POST /tasks/{task_id}/transition` — причина и подсказка) |
 | `404` | неизвестный `agent_id` во всех `/agents/{agent_id}/...` (а для `DELETE /memory/long-term/{id}` — ещё и отсутствующая запись); нет профиля у `GET`/`PUT`/`DELETE /users/{user_id}/profile`; неизвестный `task_id` во всех `/tasks/{task_id}/...`; неизвестный `task_id` у `/scheduler/tasks/{task_id}/...` и `notification_id` у `POST /scheduler/notifications/{id}/read`; неизвестный `run_id` у `/pipelines/runs/{run_id}`, `…/steps` и `DELETE /pipelines/runs/{run_id}`, а также у `/orchestration/runs/{run_id}`, `…/steps` и `DELETE /orchestration/runs/{run_id}` и у `/indexing/runs/{run_id}`; неизвестное имя сервера у `GET /mcp/servers/{name}/tools` | `HTTPException` с `detail` |
-| `409` | профиль с таким `user_id` уже есть (`POST /users/{user_id}/profile`); задача с таким `task_id` уже заведена (`POST /agents/{agent_id}/tasks`); `GET /mcp/tools` и `POST /mcp/call` без соединения с MCP-сервером; пауза не активной задачи и возобновление не стоящей на паузе, запуск уже выполненной задачи планировщика; поиск по непостроенному индексу (`GET /indexing/search` без индексации) | `HTTPException` с `detail` |
+| `409` | корпус RAG не проиндексирован (`POST /rag/query`, `POST /rag/compare` без индексных чанков); профиль с таким `user_id` уже есть (`POST /users/{user_id}/profile`); задача с таким `task_id` уже заведена (`POST /agents/{agent_id}/tasks`); `GET /mcp/tools` и `POST /mcp/call` без соединения с MCP-сервером; пауза не активной задачи и возобновление не стоящей на паузе, запуск уже выполненной задачи планировщика; поиск по непостроенному индексу (`GET /indexing/search` без индексации) | `HTTPException` с `detail` |
 | `422` | невалидное тело запроса (Pydantic/FastAPI): невалидные поля профиля, `initial_stage` вне `planning`/`execution`/`validation`, неизвестный этап/шаг, слишком длинные `expected_action`/`reason`, пустой `task_id`, тело `PATCH /tasks/{task_id}/context` без единого флага, пустая цель или неизвестный транспорт у `POST /mcp/connect`, пустое или длиннее 100 символов имя инструмента у `POST /mcp/call`, `schedule_type` вне `date`/`interval`/`cron`, пустой или длиннее 64 символов `tool`, пустое или длиннее 100 символов `name` у `POST /scheduler/tasks`, не объект `pipeline`/`initial_args`, не булево `background` у `POST /pipelines/run`, нечисловой `limit`/`run_id` в `/pipelines/...`, пустая или длиннее 500 символов `query`, не объект `plan`/`initial_args`, не булево `background`, нечисловой `run_id`/`limit` в `/orchestration/...`, `top_k` вне 1…20, `limit` < 1 и не булево `background` в `/indexing/...` | объект с `detail` — списком ошибок |
-| `502` | сбой генерации `POST /generate` (нет ключа, сеть, лимиты); MCP-сервер недоступен, команда запуска не найдена, таймаут `initialize` или ошибка `tools/list`; `POST /mcp/call` — соединение оборвалось и ответа от инструмента не было | `GenerateResponse` со `status:"error"`; у MCP — `HTTPException` с одной строкой текста и подсказкой |
+| `502` | сбой генерации `POST /generate` (нет ключа, сеть, лимиты); RAG: вызов модели в режиме с контекстом не удался после повторов и откат на ответ без контекста тоже не прошёл (`POST /rag/query`, `POST /rag/compare`); MCP-сервер недоступен, команда запуска не найдена, таймаут `initialize` или ошибка `tools/list`; `POST /mcp/call` — соединение оборвалось и ответа от инструмента не было | `GenerateResponse` со `status:"error"`; у MCP — `HTTPException` с одной строкой текста и подсказкой |
 
 `400` — недопустимый переход состояния задачи. Там, где целевой этап назвал
 пользователь (`POST /tasks/{task_id}/transition`), `detail` — короткая причина

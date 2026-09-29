@@ -189,6 +189,30 @@ def test_error_from_client_is_not_swallowed(client):
     assert client.store.recent() == []
 
 
+# ---------- ответ с контекстом ----------
+def test_generate_with_context_orders_system_then_context(client):
+    """Системный промпт идёт первым: это стабильный префикс запроса (кэш контекста)."""
+    result = client.generate_with_context(system="S", context="CTX", question="Q?")
+    messages = client.stub.calls[-1]["messages"]
+    assert messages[0] == {"role": "system", "content": "S"}
+    assert messages[1]["content"].startswith("CTX")
+    assert messages[1]["content"].endswith("Q?")
+    assert result.response.choices[0].message.content == "Ответ"
+
+
+def test_generate_with_context_without_context_sends_question_only(client):
+    """Пустой контекст — режим без RAG: в сообщении пользователя ровно вопрос."""
+    client.generate_with_context(system="S", context="", question="Q?")
+    assert client.stub.calls[-1]["messages"][1] == {"role": "user", "content": "Q?"}
+
+
+def test_generate_with_context_falls_back_to_task_tokens(client):
+    """Без явного лимита предел ответа берётся из таблицы типа задачи."""
+    client.generate_with_context(system="S", context="", question="Q?",
+                                 task_type=config.LLM_TASK_CHAT)
+    assert client.stub.calls[-1]["max_tokens"] == config.LLM_MAX_RESPONSE_TOKENS
+
+
 # ---------- метрики без данных о кэше ----------
 def test_extract_cache_metrics_without_fields():
     """Провайдер не отдал полей кэша — весь ввод считается промахом."""

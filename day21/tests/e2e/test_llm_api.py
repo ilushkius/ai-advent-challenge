@@ -228,4 +228,4 @@ def test_root_lists_llm_group(client):
     assert "/llm/usage" in body["llm"]
     assert "GET /llm/status" in body["endpoints"]
     assert body["endpoints"].count("POST /llm/estimate") == 1
-    assert len(body["endpoints"]) == 99
+    assert len(body["endpoints"]) == 102

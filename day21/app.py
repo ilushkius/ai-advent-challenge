@@ -71,8 +71,8 @@ import streamlit as st
 
 from frontend import chat_section, common, sidebar
 
-st.set_page_config(page_title="Индексация документов · День 21",
-                   page_icon="📦", layout="wide")
+st.set_page_config(page_title="Индексация документов и RAG · День 22",
+                   page_icon="🔎", layout="wide")
 
 common.init_state()
 sidebar.render_sidebar()

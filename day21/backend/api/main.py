@@ -1,6 +1,6 @@
 """
 FastAPI-приложение дня 21: память, задача, инварианты, MCP-флот, планировщик,
-пайплайн, оркестрация MCP-серверов, ИНДЕКСАЦИЯ документов и РАСХОДЫ на LLM.
+пайплайн, оркестрация MCP-серверов, ИНДЕКСАЦИЯ документов, РАСХОДЫ на LLM и RAG.
 
 Запуск из папки day21/:  uvicorn backend.api.main:app --port 8000
 Swagger-документация:  http://127.0.0.1:8000/docs
@@ -11,15 +11,16 @@ Swagger-документация:  http://127.0.0.1:8000/docs
 прогревается в фоновом потоке; при остановке планировщик встаёт, индексы пишутся
 на диск, а соединения флота и активное MCP-подключение закрываются.
 
-Новое в дне 21 — индексация (``backend/api/indexing.py``, 9 эндпоинтов); роутеры
-дня 20 остаются на месте. Контракт ошибок приложения — в ``backend/api/__init__.py``.
+Новое в дне 22 — режим RAG (``backend/api/rag.py``, 3 эндпоинта): поиск по корпусу
+документов, ответ с контекстом и без него, сравнение двух ответов. Роутеры дня 21
+остаются на месте. Контракт ошибок приложения — в ``backend/api/__init__.py``.
 
 Здесь только сборка приложения: эндпоинты живут в ``backend/api/``, доступ к
 службам — в ``backend/core/dependencies.py``. Функции ``get_manager`` /
 ``get_mcp_registry`` / ``get_scheduler`` / ``get_schedule_service`` /
 ``get_pipeline_service`` / ``get_orchestration_service`` / ``get_indexing_service`` /
-``get_index_service`` / ``get_embedding_service`` / ``get_llm_client`` импортированы
-сюда как точки подмены для тестов.
+``get_index_service`` / ``get_embedding_service`` / ``get_llm_client`` /
+``get_rag_service`` импортированы сюда как точки подмены для тестов.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,11 +34,12 @@ from ..services.llm_client import get_llm_client
 from ..services.mcp_registry import get_mcp_registry
 from ..services.orchestration_service import get_orchestration_service
 from ..services.pipeline_service import get_pipeline_service
+from ..services.rag_service import get_rag_service
 from ..services.schedule_service import get_schedule_service
 from ..services.scheduler import get_scheduler
 from . import (
     agents, context, indexing, invariants, llm, mcp, mcp_servers, memory,
-    orchestration, pipelines, profiles, scheduler, tasks,
+    orchestration, pipelines, profiles, rag, scheduler, tasks,
 )
 from .lifespan import lifespan
 
@@ -68,5 +70,6 @@ app.include_router(memory.router)
 app.include_router(orchestration.router)
 app.include_router(pipelines.router)
 app.include_router(profiles.router)
+app.include_router(rag.router)
 app.include_router(scheduler.router)
 app.include_router(tasks.router)

@@ -236,6 +236,28 @@ class LLMClient:
                              cache_hit_tokens=hit, cache_miss_tokens=miss,
                              cost_estimate=cost, usage_row=row)
 
+    def generate_with_context(self, *, system: str, context: str, question: str,
+                              task_type: Optional[str] = None,
+                              max_tokens: Optional[int] = None,
+                              temperature: Optional[float] = None,
+                              agent_id: Optional[str] = None) -> LLMCallResult:
+        """Ответ на вопрос с блоком контекста: стабильный префикс отделён от динамики.
+
+        Порядок сообщений фиксирован: системное сообщение (одинаковое для всех
+        вопросов режима RAG), затем сообщение пользователя «контекст + вопрос».
+        Кэш контекста DeepSeek работает по префиксу запроса, поэтому системный
+        промпт идёт первым и не меняется от вопроса к вопросу: попадание в кэш
+        окупает повторную отправку инструкции на каждой итерации отчёта.
+
+        Пустой ``context`` даёт сообщение ровно с вопросом — это путь режима без
+        RAG, и он отличается от пути с RAG одной лишь строкой контекста.
+        """
+        messages = [{"role": "system", "content": system}]
+        messages.append({"role": "user",
+                         "content": f"{context}\n\n{question}" if context else question})
+        return self.call(messages=messages, task_type=task_type, max_tokens=max_tokens,
+                         temperature=temperature, agent_id=agent_id)
+
     # ---------- журнал ----------
     def record_usage(self, *, model: str, task_type: str, prompt_tokens: int = 0,
                      completion_tokens: int = 0, cache_hit_tokens: int = 0,
