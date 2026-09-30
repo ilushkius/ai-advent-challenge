@@ -124,6 +124,14 @@ coverage.xml
 day21/index/
 *.index
 
+# Каталог вывода инструмента `save_to_file` (день 21): прогон пайплайна и демо
+# сыплют туда .md/.txt/.json, и на свежем клоне они сразу становятся untracked —
+# `git status` зашумлён, а `git add -A` затянул бы результат прогона в коммит.
+# Уже закоммиченные примеры прогонов (day19–day21: `demo-scenario.md` и др.)
+# остаются в Git: правило действует только на новые файлы. См. day21/README.md
+# («output/, agents.db … оба в .gitignore»).
+output/
+
 # Эмбеддинги и кэш моделей
 embeddings/
 vectors/
