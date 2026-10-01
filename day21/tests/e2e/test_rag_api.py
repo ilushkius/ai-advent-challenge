@@ -11,7 +11,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.domain import rag_filter
+from backend.domain import rag_filter, rag_quotes
 from backend.domain.rag_mode import RAG_DEFAULT_STRATEGY, RAG_LLM_ATTEMPTS
 from backend.services.rag_service import RAGService
 from backend.storage import database
@@ -169,14 +169,49 @@ def test_compare_returns_both_answers(client):
 
 
 def test_root_lists_rag_group(client):
-    """Корневая точка перечисляет группу RAG и все четыре её эндпоинта."""
+    """Корневая точка перечисляет группу RAG и все шесть её эндпоинтов."""
     body = client.get("/").json()
 
     assert "/rag/query" in body["rag"]
     for path in ("POST /rag/query", "GET /rag/config", "POST /rag/compare",
-                 "POST /rag/compare_modes"):
+                 "POST /rag/compare_modes", "GET /rag/demo-questions",
+                 "POST /rag/demo-run"):
         assert body["endpoints"].count(path) == 1
     assert "rag" in body
+
+
+def test_demo_questions_lists_ten(client):
+    """Контрольные вопросы демо: десять записей с ожидаемым режимом каждая."""
+    response = client.get("/rag/demo-questions")
+
+    assert response.status_code == 200, response.text
+    questions = response.json()["questions"]
+    assert len(questions) == 10
+    for item in questions:
+        assert item["question"]
+        assert item["expected_mode"] in {rag_quotes.RAG_MODE_RAG,
+                                        rag_quotes.RAG_MODE_DONT_KNOW}
+
+
+def test_demo_run_returns_rows_and_summary(client):
+    """Прогон демо: строка на вопрос с вердиктом и сводка с полным распределением."""
+    response = client.post("/rag/demo-run", json={})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert len(body["rows"]) == 10
+    assert body["summary"]["total"] == 10
+    assert (body["summary"]["rag"] + body["summary"]["no_rag"]
+            + body["summary"]["dont_know"]) == 10
+    for row in body["rows"]:
+        assert row["question"] and row["verdict"]
+        assert row["mode"] in {rag_quotes.RAG_MODE_RAG, rag_quotes.RAG_MODE_NO_RAG,
+                               rag_quotes.RAG_MODE_DONT_KNOW}
+
+    single = client.post("/rag/demo-run",
+                         json={"question": body["rows"][0]["question"]})
+    assert single.status_code == 200, single.text
+    assert len(single.json()["rows"]) == 1
 
 
 # ---------- режимы отбора (день 23) ----------
@@ -188,16 +223,18 @@ def test_min_score_out_of_range_is_unprocessable(client):
     assert response.status_code == 422
 
 
-def test_min_score_above_every_rerank_score_keeps_answer_without_sources(client):
-    """Порог по шкале реранкера: ответ есть, источников нет, счётчики и предупреждение."""
+def test_min_score_above_every_score_returns_dont_know(client):
+    """Порог отбора срезал все фрагменты: режим «не знаю» вместо ответа без источников."""
     response = client.post("/rag/query",
                            json={"question": QUESTION, "rerank": True,
                                  "min_score": 0.99})
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["answer"]
-    assert body["sources"] == [] and body["chunks_used"] == 0
+    assert body["mode"] == rag_quotes.RAG_MODE_DONT_KNOW
+    assert body["answer"] == rag_quotes.DONT_KNOW_ANSWER
+    assert body["sources"] == [] and body["quotes"] == []
+    assert body["chunks_used"] == 0 and body["confidence"] == 0.0
     assert body["candidates"] > 0 and body["kept"] == 0
     assert body["min_score"] == 0.99
     assert "0.99" in body["filter_warning"]

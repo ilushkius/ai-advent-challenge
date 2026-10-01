@@ -31,7 +31,7 @@ from shared.logging_utils import get_logger
 from shared.token_counter import count_tokens
 
 from ..core import config
-from ..domain import rag_filter, rag_mode
+from ..domain import rag_filter, rag_mode, rag_quotes
 from ..storage.chunk_store import ChunkStore
 from . import rag_corpus_index, rag_llm, rag_records
 from .index_service import IndexService, get_index_service
@@ -222,6 +222,9 @@ class RAGService:
                 "chunks_used": 0,
                 "context_tokens": 0,
                 "grounding": "",
+                "quotes": [],
+                "quotes_verified": False,
+                "confidence": 0.0,
             })
             result["duration_ms"] = int((time.perf_counter() - started) * 1000)
             return result
@@ -233,6 +236,10 @@ class RAGService:
         контекста, иначе сравнение мерило бы ещё и разные инструкции.
         """
         return self._answer(question, use_rag=False)
+
+    def verify_citations(self, answer: str, quotes: list[dict]) -> bool:
+        """Проверяет, опирается ли ответ на цитаты контекста."""
+        return rag_quotes.verify_citations(answer, quotes)
 
     def compare(self, question: str, top_k: Optional[int] = None,
                 strategy: Optional[str] = None,
@@ -300,6 +307,14 @@ class RAGService:
                                   min_score=min_score,
                                   top_k_candidates=top_k_candidates,
                                   rerank=rerank, rewrite=rewrite)
+            # Слабый контекст — режим «не знаю» без вызова модели. Порог сравнивается с
+            # косинусом лучшего из рассмотренных кандидатов, а не только с итоговыми
+            # фрагментами: гибридный отбор ранжирует буквальные совпадения выше
+            # векторных, и максимум по пяти фрагментам падает до нуля у вопросов,
+            # ответ на которые в корпусе есть (замер: 0.0 против 0.62 по пулу).
+            if not stages.hits or rag_quotes.is_weak(stages.candidates):
+                return rag_records.dont_know(
+                    text, stages, int((time.perf_counter() - started) * 1000))
             items = rag_mode.fit_context(rag_mode.render_context(stages.hits))
             context_block = rag_mode.render_rag_block(items)
         context_tokens = count_tokens(context_block) if context_block else 0
@@ -339,6 +354,7 @@ class RAGService:
             "warning": "",
         }
         record.update(rag_records.selection(stages))
+        record.update(rag_quotes.citation_block(answer, items, name))
         return record
 
     # ---------- корпус и конфигурация ----------
@@ -362,6 +378,7 @@ class RAGService:
             "rerank_model": rag_filter.RAG_RERANK_MODEL,
             "min_score_default": rag_filter.RAG_FILTER_MIN_SCORE,
             "candidates_max": rag_filter.RAG_MAX_CANDIDATES,
+            "relevance_threshold": rag_quotes.RAG_RELEVANCE_THRESHOLD,
         }
 
 

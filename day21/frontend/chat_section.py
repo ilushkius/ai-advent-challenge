@@ -19,8 +19,8 @@ import streamlit as st
 from . import (
     api_client, common, context_panels, cost_section, indexing_section,
     invariant_panel, mcp_section, memory_panels, notifications,
-    orchestration_section, pipeline_section, profile_section, rag_section,
-    scheduler_section, task_panel,
+    orchestration_section, pipeline_section, profile_section,
+    rag_demo_section, rag_section, scheduler_section, task_panel,
 )
 
 
@@ -79,7 +79,8 @@ def render_main_area() -> None:
             "Раздел",
             ["💬 Чат и память", "👤 Профиль пользователя", "🧭 Состояние задачи",
              "📏 Инварианты", "🔌 MCP", "🗓 Планировщик", "🔀 Пайплайны",
-             "🌐 Оркестрация", "📦 Индексация", "💰 Расходы", "🆚 RAG-сравнение"],
+             "🌐 Оркестрация", "📦 Индексация", "💰 Расходы", "🆚 RAG-сравнение",
+             "🧪 RAG-демо"],
             horizontal=True, key="main_section", label_visibility="collapsed",
         )
         if section.startswith("👤"):
@@ -114,6 +115,10 @@ def render_main_area() -> None:
             # Сравнение ответов с корпусом и без него (день 22): корпус и индекс —
             # тоже служба процесса, а не свойство агента.
             rag_section.render_rag_compare_section()
+        elif section.startswith("🧪"):
+            # Демо дня 24: десять контрольных вопросов, источники, цитаты и режим
+            # «не знаю» — тоже про корпус процесса, а не про агента.
+            rag_demo_section.render_rag_demo_section()
         else:
             if not agents:
                 st.info("Агентов пока нет — создайте первого в боковой панели. "

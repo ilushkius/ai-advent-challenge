@@ -296,4 +296,4 @@ def test_root_lists_indexing(client):
     body = client.get("/").json()
     assert "/indexing/demo" in body["indexing"]
     assert "POST /indexing/clear" in body["endpoints"]
-    assert body["name"].endswith("День 23")
+    assert body["name"].endswith("День 24")

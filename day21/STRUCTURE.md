@@ -1,6 +1,6 @@
-# Структура дня 23
+# Структура дня 24
 
-Карта модулей дня 23: что где лежит и за что отвечает. Правила структуры — в
+Карта модулей дня 24: что где лежит и за что отвечает. Правила структуры — в
 [`../docs/project-rules.md`](../docs/project-rules.md) и
 [`../docs/architecture.md`](../docs/architecture.md).
 
@@ -11,9 +11,9 @@
 Pydantic-схемы — в `schemas/`, HTTP — в `api/`. Сваливать файлы в корень
 `backend/` нельзя.
 
-**Что такое день 23.** Проект дня 21 (копия дня 20 — агент DeepSeek с памятью, FSM,
+**Что такое день 24.** Проект дня 21 (копия дня 20 — агент DeepSeek с памятью, FSM,
 инвариантами, профилем, MCP-клиентом и флотом серверов, планировщиком, пайплайном и
-оркестрацией) плюс три новые подсистемы — две дня 21 и одна дней 22–23:
+оркестрацией) плюс три новые подсистемы — две дня 21 и одна дней 22–24:
 
 1. **Индексация документов** — сборка набора документов из источников репозитория в
    `documents/`, две стратегии чанкинга (фиксированное окно по токенам и структурная —
@@ -31,19 +31,24 @@ Pydantic-схемы — в `schemas/`, HTTP — в `api/`. Сваливать ф
 3. **RAG-режим** — отдельный корпус документов `documents/rag_corpus/` (36 источников
    дня 21), загрузчик корпуса, гибридный отбор фрагментов (кандидаты FAISS плюс
    словесные веса запроса), бюджет контекста в промпте (`fit_context`), ответ по
-   фрагментам с оценкой опоры на контекст, роутер `/rag` (4 эндпоинта), панель
-   «🔍 RAG-запрос по корпусу» в разделе чата и раздел «🆚 RAG-сравнение». День 23
-   добавил второй этап отбора: переформулировку вопроса моделью, пересортировку
-   кандидатов кросс-энкодером (`RAG_RERANK_MODEL`), порог отсечения слабых
-   фрагментов (`RAG_FILTER_MIN_SCORE`) и сравнение четырёх режимов отбора
-   (`POST /rag/compare_modes`); отчёт — `docs/reports/rag_modes.md` по 10
-   контрольным вопросам.
+   фрагментам с оценкой опоры на контекст, роутер `/rag` (6 эндпоинтов), панель
+   «🔍 RAG-запрос по корпусу» в разделе чата, раздел «🆚 RAG-сравнение» и раздел
+   «🧪 RAG-демо». День 23 добавил второй этап отбора: переформулировку вопроса
+   моделью, пересортировку кандидатов кросс-энкодером (`RAG_RERANK_MODEL`), порог
+   отсечения слабых фрагментов (`RAG_FILTER_MIN_SCORE`) и сравнение четырёх режимов
+   отбора (`POST /rag/compare_modes`); отчёт — `docs/reports/rag_modes.md` по 10
+   контрольным вопросам. День 24 сделал источники и цитаты обязательными, добавил
+   проверку опоры ответа на цитаты (`backend/domain/rag_quotes.py`), порог
+   релевантности с режимом «не знаю» (`RAG_RELEVANCE_THRESHOLD`) и демо-прогон
+   десяти контрольных вопросов (`backend/data/demo_questions.json`,
+   `GET /rag/demo-questions`, `POST /rag/demo-run`); отчёт —
+   `docs/reports/rag_quotes_eval.md`.
 
 Унаследовано из дня 20 — одной строкой: **остальное дерево, включая `mcp_server/`,
 `mcp_servers/` с `mcp_servers.json`, память, профиль, состояние задачи, инварианты,
 планировщик, пайплайн и оркестрацию, — копия дня 20 без изменений**; карта этих
 модулей построчно — в [`day20/STRUCTURE.md`](../day20/STRUCTURE.md). Ниже описано
-только то, что дни 21–23 добавили или изменили.
+только то, что дни 21–24 добавили или изменили.
 
 ## Почему сделано так (решения дня 21)
 
@@ -274,31 +279,37 @@ tiktoken-счётчиком, скидка непика — тариф прова
 допущениях), а предел длины ответа показан отдельной строкой как оценка **сверху** и в
 итог не входит, потому что фактическая длина ответа от потолка не зависит.
 
-### RAG-режим (дни 22–23): `backend/domain/`, `services/`, `schemas/`, `api/`, `frontend/`, `scripts/`
+### RAG-режим (дни 22–24): `backend/domain/`, `services/`, `schemas/`, `api/`, `frontend/`, `scripts/`
 
 | Модуль | Назначение |
 |---|---|
-| `backend/domain/rag_mode.py` | Промпт и лимиты режима: `RAG_SYSTEM_PROMPT` (ответ только по контексту), `RAG_DEFAULT_TOP_K = 5`/`RAG_MAX_TOP_K = 10`, `RAG_CONTEXT_MAX_TOKENS = 3000`, `RAG_CHUNK_MAX_CHARS = 2000`, `RAG_GROUNDING_MIN_SHARE = 0.5`/`RAG_GROUNDING_MIN_WORD = 5`, `RAG_LLM_ATTEMPTS = 3` c паузой `RAG_RETRY_SECONDS`/`RAG_RETRY_BACKOFF`, `RAG_CANDIDATE_POOL = 30`, `RAG_VECTOR_WEIGHT = 0.2`; `resolve_rag_strategy`, `render_context`/`render_rag_block` (заголовок `## Контекст из корпуса RAG`), `fit_context` (жадный бюджет), `content_words`/`query_weights`/`lexical_score` (вклад слова = 1 / число фрагментов с ним), `grounding_share`/`grounding_verdict`; `rank_candidates` отдаёт вместе с гибридным `score` и `lexical_score` |
+| `backend/domain/rag_mode.py` | Промпт и лимиты режима: `RAG_SYSTEM_PROMPT` (ответ только по контексту, прямые цитаты в кавычках, «Не знаю» при отсутствии ответа), `RAG_DEFAULT_TOP_K = 5`/`RAG_MAX_TOP_K = 10`, `RAG_CONTEXT_MAX_TOKENS = 3000`, `RAG_CHUNK_MAX_CHARS = 2000`, `RAG_GROUNDING_MIN_SHARE = 0.5`/`RAG_GROUNDING_MIN_WORD = 5`, `RAG_LLM_ATTEMPTS = 3` c паузой `RAG_RETRY_SECONDS`/`RAG_RETRY_BACKOFF`, `RAG_CANDIDATE_POOL = 30`, `RAG_VECTOR_WEIGHT = 0.2`; `resolve_rag_strategy`, `render_context`/`render_rag_block` (заголовок `## Контекст из корпуса RAG`), `fit_context` (жадный бюджет), `content_words`/`query_weights`/`lexical_score` (вклад слова = 1 / число фрагментов с ним), `grounding_share`/`grounding_verdict`; `rank_candidates` отдаёт вместе с гибридным `score` и `lexical_score` |
+| `backend/domain/rag_quotes.py` | Домен дня 24 — порог релевантности, цитаты и уверенность: `RAG_RELEVANCE_THRESHOLD` (резолв при импорте: `RAG_RELEVANCE_ENV` → `.env` → `RAG_RELEVANCE_THRESHOLD_DEFAULT = 0.6`), `resolve_relevance_threshold`, `best_vector_score`/`is_weak` (максимум косинуса по пулу кандидатов), `dont_know_warning`, режимы `RAG_MODE_RAG`/`RAG_MODE_NO_RAG`/`RAG_MODE_DONT_KNOW`, `quote_of` (выдержка ≤ `QUOTE_MAX_CHARS = 200` по границе предложения), `quotes_from_items` (по цитате на фрагмент, детерминированно), `normalize`, `citation_share`, `verify_citations` (подстрока или доля ключевых слов ≥ `CITATION_MIN_SHARE = 0.3`), `confidence` (`CONFIDENCE_HIGH = 1.0`/`CONFIDENCE_LOW = 0.3`/`CONFIDENCE_NONE = 0.0`), `citation_block` |
+| `backend/domain/rag_demo.py` | Контрольные вопросы демо: `DEMO_QUESTIONS_PATH` (`backend/data/demo_questions.json`), `DemoQuestion` (вопрос, ожидание, ожидаемый режим, ожидаемые источники), `load_questions` (битый или пропавший файл — пустой список с предупреждением), `question_as_dict`, `expected_found` (через `rag_eval.source_matches`), `verdict` и тексты вердиктов (`VERDICT_OK`, `VERDICT_DONT_KNOW_OK`, `VERDICT_MODE_MISMATCH`, `VERDICT_SOURCE_MISS`, `VERDICT_UNCITED`, `VERDICT_FALLBACK`, `VERDICT_NONE`) |
 | `backend/domain/rag_filter.py` | Домен дня 23 — режимы и порог: `RAG_MODE_BASELINE`/`RAG_MODE_REWRITE`/`RAG_MODE_RERANK`/`RAG_MODE_RERANK_FILTER` с подписями и рычагами (`RAG_MODE_KNOBS`), `resolve_rag_mode`, `mode_knobs`, `mode_catalog`, `normalize_rerank_scores` (баллы в `[0, 1]`), `candidate_text` (обрезка фрагмента до `RAG_RERANK_MAX_CHARS = 1000`), `apply_rerank` (поле `rerank_score`, стабильная сортировка), `filter_hits` (порог `min_score`), `RAG_RERANK_MODEL` (`cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`), `RAG_RERANK_BATCH_SIZE = 32`/`RAG_RERANK_MAX_LENGTH = 512`, `RAG_FILTER_MIN_SCORE`, `RAG_MAX_CANDIDATES = 60`, `RAG_THRESHOLD_GRID`, тексты предупреждений этапов |
 | `backend/domain/rag_corpus_spec.py` | Состав корпуса: `RAG_CORPUS_SOURCES` (36 источников дня 21), `RAG_CORPUS_SUBDIR = "rag_corpus"`, минимумы `RAG_CORPUS_MIN_PAGES = 25`/`RAG_CORPUS_MIN_CHUNKS = 50`, `corpus_pages`, `validate_sources` (пропавший файл или суффикс вне `DOCUMENT_SUFFIXES` — проблема) |
 | `backend/domain/rag_eval.py` | Оценка: `RagQuestion` (вопрос, `key_facts`, `expected_sources`, `note`), `RAG_QUESTIONS` (10 записей), `question_as_dict`, `facts_found`, `fact_score` (доля найденных фактов), `verdict` («лучше»/«хуже»/«равно» по долям), `expected_found` (найден ли ожидаемый источник в выдаче) |
+| `backend/data/demo_questions.json` | Данные демо дня 24: 10 контрольных вопросов с ожидаемым режимом (`rag`/`dont_know`), ожидаемыми источниками (слаги файлов корпуса) и пояснением; правится без кода |
 | `backend/services/rag_corpus_loader.py` | `RagCorpusLoader(DocumentLoader)`: подкаталог `documents/rag_corpus/` и источники дня 21, `status` (документы, символы, страницы, готовность), `validate`; синглтон `get_rag_corpus_loader` |
 | `backend/services/rag_errors.py` | Исключения режима: `RAGError`, `RAGRejected` (код причины и сообщение), `RAGUpstreamError` — вынесены из службы, чтобы их импортировали и роутер, и этапы поиска без цикла |
 | `backend/services/rag_corpus_index.py` | Подготовка корпуса: `CHUNK_STRATEGIES`, `prepare_corpus(loader, index_service)` (пересборка корпуса и обоих индексов, проверка минимума чанков), `corpus_config(loader, store)` (состояние корпуса и индексов для `GET /rag/config`) |
 | `backend/services/rag_retrieval.py` | Этапы отбора дня 23: `RAGStages` (запрос, режим, стратегия, пул, порог, поле сортировки, кандидаты до и после отсечения, флаг реранка, предупреждение) и `RAGRetrieval.run` — поиск (сырая близость в `vector_score`), гибридный отбор, `_rerank`, `filter_hits`, обрезка до `top_k`; `_limit`/`_candidate_limit` держат границы дня 22 |
 | `backend/services/rerank_service.py` | `RerankService`: ленивая загрузка `CrossEncoder(RAG_RERANK_MODEL)` в кэш `INDEX_MODELS_DIR`, `score(query, texts)` с партией `RAG_RERANK_BATCH_SIZE`, `warmup`, `reset`, `RerankError`; синглтон `get_rerank_service`; модель грузится только внутри `_load`, поэтому тесты идут на стабе |
-| `backend/services/rag_records.py` | Сборка полей ответа: `source(hit)` (восемь полей фрагмента, `score` = балл отбора) и `selection(stages)` (метрики отбора и предупреждения для `RagQueryOut`) |
+| `backend/services/rag_records.py` | Сборка полей ответа: `source(hit)` (восемь полей фрагмента, `score` = балл отбора), `selection(stages)` (метрики отбора и предупреждения для `RagQueryOut`) и `dont_know(question, stages, duration_ms)` — запись режима «не знаю» без вызова модели |
+| `backend/services/rag_demo_service.py` | Прогон демо: `questions` (для API), `run_demo(service, questions)` — строка на вопрос плюс сводка, `demo_row` (режим, `top_score`, ответ, источники, цитаты, уверенность, вердикт), `summary` (распределение режимов, источников, цитат и расхождений); падение одного вопроса — строка с `fallback`, а не срыв прогона |
 | `backend/services/rag_llm.py` | Повторы вызова модели: `call_with_retry` (попытки `RAG_LLM_ATTEMPTS`, паузы `RAG_RETRY_SECONDS`/`RAG_RETRY_BACKOFF`), `response_text`, `usage_dict` |
-| `backend/services/rag_service.py` | `RAGService`: `retrieve`/`_stages` (режим → переформулировка → этапы поиска), `_rewrite` (запрос моделью с `RAG_REWRITE_SYSTEM_PROMPT`), `_answer` (общий путь с контекстом и без), `rag_query`/`no_rag_query` (единый `RAG_SYSTEM_PROMPT`, различие — блок контекста), `compare`, `compare_modes` (четыре режима на одном вопросе), `prepare_corpus`, `config`; повторы вызова, откат на ответ без RAG, `RAGRejected`/`RAGUpstreamError` с кодами причин, синглтон `get_rag_service` |
-| `backend/schemas/rag.py` | Pydantic-схемы: `RagQueryIn`/`RagQueryOut` (рычаги `rewrite`/`rerank`/`min_score`/`top_k_candidates` и метрики отбора), `RagSourceOut` (четыре балла), `RagTokensOut`, `RagCompareIn`/`RagCompareOut`, `RagModesIn`/`RagModeOut`/`RagModesOut`, `RagCorpusOut`, `RagIndexOut`, `RagConfigOut` (`modes`, `rerank_model`, `min_score_default`, `candidates_max`) |
-| `backend/api/rag.py` | Роутер `/rag`, четыре эндпоинта; коды: 400 (пустой вопрос, неизвестная стратегия или режим), 422 (порог вне 0…1, пул вне 1…60), 409 (корпус не проиндексирован), 502 (сбой вызова модели) |
-| `frontend/rag_api.py` | HTTP-запросы RAG поверх общего `request_json`: `api_rag_query` (рычаги `rewrite`/`rerank`/`min_score`/`top_k_candidates`), `api_rag_compare`, `api_rag_compare_modes`, `api_rag_config` |
-| `frontend/rag_section.py` | Панель «🔍 RAG-запрос по корпусу» (тумблер, `top_k` 1–10, стратегия, тумблеры переформулировки и реранкера, слайдер порога, форма вопроса, метрики времени/токенов/фрагментов до и после фильтра/порога/кэша, предупреждения этапов, expander «📚 Использованные источники» со четырьмя баллами, строка опоры) и раздел «🆚 RAG-сравнение» (столбцы «🚫 Без RAG» / «✅ С RAG» плюс мультиселект режимов и сравнение четырёх режимов отбора) |
+| `backend/services/rag_service.py` | `RAGService`: `retrieve`/`_stages` (режим → переформулировка → этапы поиска), `_rewrite` (запрос моделью с `RAG_REWRITE_SYSTEM_PROMPT`), `_answer` (гейт порога релевантности → общий путь с контекстом и без), `rag_query`/`no_rag_query` (единый `RAG_SYSTEM_PROMPT`, различие — блок контекста), `verify_citations`, `compare`, `compare_modes` (четыре режима на одном вопросе), `prepare_corpus`, `config` (включая `relevance_threshold`); повторы вызова, откат на ответ без RAG, `RAGRejected`/`RAGUpstreamError` с кодами причин, синглтон `get_rag_service` |
+| `backend/schemas/rag.py` | Pydantic-схемы: `RagQueryIn`/`RagQueryOut` (рычаги `rewrite`/`rerank`/`min_score`/`top_k_candidates`, метрики отбора, `quotes`/`quotes_verified`/`confidence`), `RagSourceOut` (четыре балла), `RagQuoteOut`, `RagTokensOut`, `RagCompareIn`/`RagCompareOut`, `RagModesIn`/`RagModeOut`/`RagModesOut`, `RagCorpusOut`, `RagIndexOut`, `RagConfigOut` (`modes`, `rerank_model`, `min_score_default`, `candidates_max`, `relevance_threshold`), схемы демо `RagDemoQuestionOut`/`RagDemoQuestionsOut`/`RagDemoIn`/`RagDemoRowOut`/`RagDemoSummaryOut`/`RagDemoOut` |
+| `backend/api/rag.py` | Роутер `/rag`, шесть эндпоинтов (запрос, конфигурация, сравнение, сравнение режимов, `GET /rag/demo-questions`, `POST /rag/demo-run`); коды: 400 (пустой вопрос, неизвестная стратегия или режим), 422 (порог вне 0…1, пул вне 1…60), 409 (корпус не проиндексирован), 502 (сбой вызова модели) |
+| `frontend/rag_api.py` | HTTP-запросы RAG поверх общего `request_json`: `api_rag_query` (рычаги `rewrite`/`rerank`/`min_score`/`top_k_candidates`), `api_rag_compare`, `api_rag_compare_modes`, `api_rag_config`, `api_rag_demo_questions`, `api_rag_demo_run` |
+| `frontend/rag_section.py` | Панель «🔍 RAG-запрос по корпусу» (тумблер, `top_k` 1–10, стратегия, тумблеры переформулировки и реранкера, слайдер порога, форма вопроса, метрики времени/токенов/фрагментов до и после фильтра/порога/кэша, предупреждения этапов, expander «📝 Цитаты из корпуса», expander «📚 Использованные источники» со четырьмя баллами, строка опоры и уверенности) и раздел «🆚 RAG-сравнение» (столбцы «🚫 Без RAG» / «✅ С RAG» плюс мультиселект режимов и сравнение четырёх режимов отбора) |
+| `frontend/rag_demo_section.py` | Раздел «🧪 RAG-демо»: таблица контрольных вопросов, кнопка «🚀 Прогнать демо», прогресс «i/10», таблица результатов (режим, ответ, источники, цитаты, вердикт) и сводка; результат хранится в сессии, поэтому переживает перерисовку |
 | `scripts/prepare_rag_corpus.py` | CLI сборки корпуса: `--list`, `--force`, `--validate`; печатает документы, символы, страницы против минимума и ожидаемое число чанков по стратегиям |
 | `scripts/index_rag_corpus.py` | `RAGService.prepare_corpus()`: строит оба индекса RAG, печатает чанки, векторы и тайминги, проверяет минимум чанков на стратегию |
 | `scripts/rag_eval_cells.py` | Клетки markdown-таблицы отчёта: `cell` (экранирование и обрезка до `REPORT_CELL_CHARS`), `expectation`, `verdicts_cell`, `answer_cell`, `sources_cell`, `source_line`, `misses`, `metrics_line`; вынесены из `rag_eval_report.py` по лимиту 400 строк |
 | `scripts/rag_eval_report.py` | Чистый рендер отчёта и подсчёт итогов: `render_report`, `render_sweep`, `choose_threshold` (правило выбора порога), `summary_lines`, `step_check` (сверка ступени отсечения с `rerank`), `counts`, `appendix`; отделён от прогона, чтобы печать правилась без вызовов модели |
 | `scripts/run_rag_eval.py` | Прогон 10 контрольных вопросов через 4 режима отбора и ответ без RAG: `fact_score`, вердикты против «без RAG» и против `baseline`, метрики «до/после фильтра», свип порога офлайн по баллам реранкера, запись `docs/reports/rag_modes.md`; флаги `--top-k`, `--strategy`, `--report`, `--limit`, `--threshold`, `--sweep` |
+| `scripts/run_rag_quotes_eval.py` | Прогон демо дня 24: таблица десяти вопросов (режим, ответ, источники, цитаты, `max v`, авто- и ручной смысл, вердикт), распределение `max v` и итог, запись `docs/reports/rag_quotes_eval.md`; флаги `--out`, `--limit`, `--threshold`, `--sweep` (замер без вызовов модели), `--json`; код возврата 1 при расхождениях |
 
 Корпус — производные данные: `documents/rag_corpus/` собирается из источников дня 21, а
 индексы `index/rag_corpus_fixed.index`/`rag_corpus_structural.index` строятся заново
@@ -428,21 +439,22 @@ singleton протекал бы между тестами вместе с фаб
 | Планировщик и непик | `integration/test_scheduler_off_peak.py` (114) | Флаг `prefer_off_peak` переносит первый запуск в дешёвое окно, статус планировщика показывает `off_peak`/`next_off_peak`/`discount_percent`, задачи без флага не сдвигаются |
 | API | `e2e/test_llm_api.py` (230) | Пять эндпоинтов `/llm`: журнал с раздельными `cache_hit`/`cache_miss`, состояние рычагов, прогноз, справка по моделям и правило окон; контракт ошибок (400 на неизвестный период, 422 на `off_peak_share` вне границ), поле `llm` ответа генерации |
 
-### RAG-режим (дни 22–23)
+### RAG-режим (дни 22–24)
 
 | Группа | Файлы (строк) | Что проверяют |
 |---|---|---|
-| Фейки и фикстуры | `tests/rag_fakes.py` (169), `tests/fixtures_rag.py` (95) | Стаб-клиент DeepSeek (пишет вызовы, отвечает по сценарию `replies`, умеет падать первые N раз), стаб-реранкер (балл по словам запроса), два markdown-документа с редкими литералами; фикстуры тестового корпуса, службы поиска, реранкера и службы RAG без пауз |
+| Фейки и фикстуры | `tests/rag_fakes.py` (169), `tests/fixtures_rag.py` (104) | Стаб-клиент DeepSeek (пишет вызовы, отвечает по сценарию `replies`, умеет падать первые N раз), стаб-реранкер (балл по словам запроса), два markdown-документа с редкими литералами; фикстуры тестового корпуса, службы поиска, реранкера и службы RAG без пауз (порог дня 24 в фикстуре опущен до 0, потому что заглушечные эмбеддинги дают нулевой косинус) |
 | Домен отбора | `unit/test_rag_filter.py` (112) | Таблица четырёх режимов и родство режима с ручками (`RAG_MODE_KNOBS`), неизвестное имя режима, нормализация баллов кросс-энкодера (логистика вне 0…1, порядок сохраняется), текст пары для кросс-энкодера с усечением, `apply_rerank` (добавляет балл, сортирует, при рассинхроне — `ValueError`), `filter_hits` (`None` — тот же список, отсутствующий балл = 0.0), текст предупреждения о пустом результате |
+| Домен цитат | `unit/test_rag_quotes.py` (109) | День 24: ответ с источниками и цитатами при рабочем пороге (полный набор полей цитаты, обрезка до 200 символов, уверенность 1.0 и подтверждённые цитаты); детерминированные выдержки (`quote_of`, `quotes_from_items`); режим «не знаю» при недостижимом пороге (нет источников и цитат, модель не вызывалась, `tokens` пуст) и режим `rag` при нулевом пороге; `is_weak` берёт максимум по фрагментам, а не первый; порядок резолва порога (переменная окружения → `.env` с кавычками и комментарием → значение по умолчанию, мусор и выход за границы); `verify_citations` (подстрока, пересечение слов, чужой ответ, пустой ответ); ответ без RAG не несёт ни цитат, ни уверенности |
 | Реранкер | `unit/test_rerank_service.py` (167) | Ленивая загрузка под локом, `score` без текстов не грузит модель, порядок пар и `batch_size`, ошибка загрузки → `RerankError` с подсказкой про `RAG_RERANK_MODEL`, `reset`, синглтон; пакет `sentence_transformers` подменён заглушкой |
 | Сервис RAG | `unit/test_rag_service.py` (395) | Поиск `top_k` с метаданными восьми полей и порядком по score; гибридный балл и видимые `vector_score`/`lexical_score`; сборка промпта, бюджет контекста, опора на источники; `compare` зовёт оба режима; отвержение пустого вопроса, неизвестной стратегии и режима; отказ на пустом индексе; повтор сбойного вызова и откат на ответ без контекста |
-| Режимы отбора | `unit/test_rag_modes.py` (187) | Режимы дня 23 на заглушке реранкера: три балла без реранка и связь `score` с `lexical_score`/`vector_score`; `rewrite` делает второй вызов модели и ищет по переформулировке, пустая переформулировка и сбой возвращают исходный вопрос; `rerank` сортирует по баллу кросс-энкодера, `min_score` отсекает всё с предупреждением, сбой реранкера не стоит ответа; `top_k_candidates` урезает пул; неизвестный режим отвергается; `compare_modes` собирает записи по режимам |
-| Полный цикл (slow) | `integration/test_rag_flow.py` (135) | Сборка корпуса из 36 реальных источников и обоих индексов, минимумы страниц и чанков на стратегию; `rag_query` находит нужный фрагмент и отдаёт источники с восемью полями; реранк стабом переставляет кандидатов на реальном корпусе и порог оставляет хотя бы один фрагмент |
-| API | `e2e/test_rag_api.py` (290) | Четыре эндпоинта `/rag`: запрос с RAG и без, конфигурация корпуса, режимы и эхо-поля отбора, `POST /rag/compare_modes`, коды 400 (пустой вопрос, неизвестная стратегия, неизвестный режим), 409 (пустой индекс), 422 (`min_score` вне 0…1, `top_k_candidates` вне 1…60), 502 (сбой клиента); `POST /rag/compare` |
+| Режимы отбора | `unit/test_rag_modes.py` (194) | Режимы дня 23 на заглушке реранкера: три балла без реранка и связь `score` с `lexical_score`/`vector_score`; `rewrite` делает второй вызов модели и ищет по переформулировке, пустая переформулировка и сбой возвращают исходный вопрос; `rerank` сортирует по баллу кросс-энкодера, сбой реранкера не стоит ответа; `top_k_candidates` урезает пул; неизвестный режим отвергается; `compare_modes` собирает записи по режимам; `min_score`, срезавший все фрагменты, даёт режим «не знаю» (`test_min_score_dropping_all_fragments_gives_dont_know`) — ответа без источников больше нет |
+| Полный цикл (slow) | `integration/test_rag_flow.py` (141), `integration/test_rag_quotes_flow.py` (112) | Сборка корпуса из 36 реальных источников и обоих индексов, минимумы страниц и чанков на стратегию; `rag_query` находит нужный фрагмент и отдаёт источники с восемью полями; реранк стабом переставляет кандидатов на реальном корпусе и порог оставляет хотя бы один фрагмент; день 24 — `run_demo` на десяти вопросах из `backend/data/demo_questions.json`: режимы, источники и цитаты у `rag`-строк, пустые источники и текст «не знаю» у `dont_know`-строк, сводка; при недостижимом пороге все десять строк становятся «не знаю» без единого вызова модели |
+| API | `e2e/test_rag_api.py` (327) | Шесть эндпоинтов `/rag`: запрос с RAG и без, конфигурация корпуса, режимы и эхо-поля отбора, `POST /rag/compare_modes`, `GET /rag/demo-questions` (десять вопросов), `POST /rag/demo-run` (все вопросы или один), коды 400 (пустой вопрос, неизвестная стратегия, неизвестный режим), 409 (пустой индекс), 422 (`min_score` вне 0…1, `top_k_candidates` вне 1…60), 502 (сбой клиента), `POST /rag/compare`; порог, срезавший все фрагменты, возвращает «не знаю» |
 
 ## Что изменилось относительно дня 20
 
-Новые модули дней 21–23 перечислены выше. Здесь — только правки **унаследованного** кода
+Новые модули дней 21–24 перечислены выше. Здесь — только правки **унаследованного** кода
 (проверены сравнением с `day20/`; в скобках — было → стало строк):
 
 | Модуль | Строк | Что изменилось |
@@ -450,15 +462,15 @@ singleton протекал бы между тестами вместе с фаб
 | `backend/agents/agent.py` | 2284 (2094) | Два шага дня 21: поиск по индексу (`_empty_indexing_report`, свойство `indexing_service`, `apply_index_context`, поле `record["indexing"]`) и вызов модели через `LLMClient` + сборка промпта `PromptBuilder` со сжатием блоков (`_make_client` остаётся точкой подмены в тестах); реплика, занятая пайплайном или оркестрацией, поиск по индексу не делает |
 | `backend/agents/agent_manager.py` | 110 (105) | Параметры `indexing_service` и `llm_client`/`prompt_builder` — службы передаются агентам |
 | `backend/agents/manager_agents.py` | 257 (255) | Передача новых служб в обоих местах создания `Agent` |
-| `backend/core/config.py` | 400 (291) | Два новых раздела: «Индексация документов и поиск» (каталоги, модель эмбеддингов, чанкинг, границы топ-k, длины полей) и «Оптимизация затрат на LLM» (`MODEL_PRICES`, `LLM_CACHE_INPUT_RATIO`, типы задач и маршрутизация `LLM_TASK_MODELS`, пределы ответа `LLM_TASK_MAX_TOKENS`, `OFF_PEAK_WEEKDAY_HOURS_UTC`/`PEAK_WEEKDAY_HOURS_UTC`/`OFF_PEAK_DISCOUNT_PERCENT`, параметры журнала `LLM_USAGE_*`); `API_TITLE`/`API_DESCRIPTION`/`API_VERSION` дня 23 (в описании — второй этап отбора RAG и четыре эндпоинта `/rag/*`). Ровно на границе лимита 400 строк |
+| `backend/core/config.py` | 400 (291) | Два новых раздела: «Индексация документов и поиск» (каталоги, модель эмбеддингов, чанкинг, границы топ-k, длины полей) и «Оптимизация затрат на LLM» (`MODEL_PRICES`, `LLM_CACHE_INPUT_RATIO`, типы задач и маршрутизация `LLM_TASK_MODELS`, пределы ответа `LLM_TASK_MAX_TOKENS`, `OFF_PEAK_WEEKDAY_HOURS_UTC`/`PEAK_WEEKDAY_HOURS_UTC`); заголовок и описание API дня 24 — «ОБЯЗАТЕЛЬНЫЕ ИСТОЧНИКИ, ЦИТАТЫ И РЕЖИМ «НЕ ЗНАЮ»», счётчик `/rag/... (6)`, `API_VERSION = "17.0.0"` |
 | `backend/core/dependencies.py` | 208 (115) | `get_indexing_service`, `get_index_service`, `get_embedding_service`, `get_prompt_builder`, `get_llm_client`, `get_rag_service`, `get_rerank_service` |
-| `backend/api/main.py` | 79 (66) | Подключены роутеры `indexing`, `llm` и `rag` и точки подмены служб индексации, клиента LLM, службы RAG и реранкера |
+| `backend/api/main.py` | 80 (66) | Подключены роутеры `indexing`, `llm` и `rag` и точки подмены служб индексации, клиента LLM, службы RAG и реранкера |
 | `backend/api/__init__.py` | 69 (56) | Реэкспорт роутеров `indexing`, `llm` и `rag`; контракт ошибок дня (409 на пустой индекс, 400 на стратегию/запрос/документы, неизвестный период расходов, пустой вопрос RAG и неизвестный режим отбора, 422 на порог вне 0…1 и пул вне 1…60, 502 на сбой LLM-вызова RAG) |
 | `backend/api/lifespan.py` | 88 (60) | Пятый и шестой шаги старта — `get_index_service().load_all()` и прогрев моделей демон-потоком `model-warmup` (эмбеддинги, затем реранкер); остановка пишет индексы (`save_all`) |
-| `backend/api/agents.py` | 341 (314) | В инвентаре `GET /` — группы `indexing` (9), `llm` (5) и `rag` (4, включая `POST /rag/compare_modes`) и имя приложения дня 23; всего 103 записи, из них четыре `/rag/*` |
+| `backend/api/agents.py` | 345 (314) | В инвентаре `GET /` — группы `indexing` (9), `llm` (5) и `rag` (6, включая `POST /rag/compare_modes` и эндпоинты демо `GET /rag/demo-questions`/`POST /rag/demo-run`) и имя приложения дня 24 |
 | `backend/api/scheduler.py` | 361 (355) | Описание флага `prefer_off_peak` и полей `off_peak`/`next_off_peak`/`discount_percent` в ответе `GET /scheduler/status` |
 | `backend/domain/__init__.py` | 400 (395) | Импорт модулей индексации, стоимости, непика и RAG как модулей; исторические абзацы докстринга сжаты, чтобы файл остался в лимите |
-| `backend/services/__init__.py` | 256 (165) | Реэкспорт чанкера, эмбеддингов, индекса, загрузчика документов, службы индексации и её кодов отказа, `LLMClient`/`get_llm_client`, `PromptCompressor`, `shift_to_off_peak`, `RagCorpusLoader`/`get_rag_corpus_loader`, `RAGService`/`get_rag_service`, ошибок RAG и модулей дня 23 (`rag_errors`, `rag_corpus_index`, `rag_llm`, `rag_records`, `rag_retrieval`, `rerank_service`) |
+| `backend/services/__init__.py` | 257 (165) | Реэкспорт чанкера, эмбеддингов, индекса, загрузчика документов, службы индексации и её кодов отказа, `LLMClient`/`get_llm_client`, `PromptCompressor`, `shift_to_off_peak`, `RagCorpusLoader`/`get_rag_corpus_loader`, `RAGService`/`get_rag_service`, ошибок RAG и модулей дня 23 (`rag_errors`, `rag_corpus_index`, `rag_llm`, `rag_records`, `rag_retrieval`, `rerank_service`) |
 | `backend/services/compressor.py` | 330 (329) | Вызов LLM идёт с `task_type=config.LLM_TASK_SUMMARY` — работа сжатия контекста попадает под маршрутизацию моделей и журнал |
 | `backend/services/invariant_checker.py` | 305 (296) | `task_type=config.LLM_TASK_CLASSIFY` при вызове модели и текст ошибки про `day21/.env` |
 | `backend/services/orchestration_planner.py` | 98 (94) | Клиент вызова — `LLMClient` (`call` с `task_type`), фабрика вынесена в свойство |
@@ -469,14 +481,14 @@ singleton протекал бы между тестами вместе с фаб
 | `backend/storage/__init__.py` | 189 (155) | `ChunkStore`, `IndexRunStore`, `IndexRunNotFoundError`, `chunk_dict`, `index_run_dict`, `LLMUsageStore`, `llm_usage_dict` |
 | `backend/storage/database.py` | 63 (59) | Реэкспорт ORM-таблиц индексации и журнала расходов |
 | `backend/models/__init__.py` | 87 (77) | `DocumentChunk`, `IndexRun`, `LLMUsage` |
-| `backend/schemas/__init__.py` | 356 (269) | Реэкспорт схем индексации, расходов и RAG (включая `RagModeOut`/`RagModesIn`/`RagModesOut`) |
+| `backend/schemas/__init__.py` | 370 (269) | Реэкспорт схем индексации, расходов и RAG (включая `RagModeOut`/`RagModesIn`/`RagModesOut`, `RagQuoteOut` и схемы демо дня 24) |
 | `backend/schemas/agent.py` | 362 (352) | Поля `indexing` и `llm` ответа генерации |
-| `frontend/chat_section.py` | 381 (346) | Девятый раздел «📦 Индексация», десятый «💰 Расходы» и одиннадцатый «🆚 RAG-сравнение»; панель «🔍 RAG-запрос по корпусу» в конце ветки чата; строки `indexing_note` и сводка расходов в отчёте хода |
+| `frontend/chat_section.py` | 386 (346) | Девятый раздел «📦 Индексация», десятый «💰 Расходы», одиннадцатый «🆚 RAG-сравнение» и двенадцатый «🧪 RAG-демо»; панель «🔍 RAG-запрос по корпусу» в конце ветки чата; строки `indexing_note` и сводка расходов в отчёте хода |
 | `tests/conftest.py` | 273 (228) | Общие фикстуры (`schema_template`, `no_real_network`); фикстуры индексации и RAG (включая стаб-реранкер) вынесены в `fixtures_indexing.py` и `fixtures_rag.py` и импортируются обратно |
-| `app.py` | 79 (67) | Заголовок страницы и описание разделов дня 23 |
-| `README.md`, `docs/architecture.md`, `docs/usage.md`, `docs/api.md` | 570, 736, 293, 6407 | Документация дня переписана под текущее состояние: `README` и `architecture` описывают день 23 (реранкер, порог, rewrite, сравнение режимов), `usage.md` — инструкция дня, в `api.md` есть разделы индексации, расходов на LLM и RAG |
+| `app.py` | 85 (67) | Заголовок страницы и описание двенадцати разделов дня 24 |
+| `README.md`, `docs/architecture.md`, `docs/usage.md`, `docs/api.md` | 673, 851, 382, 6637 | Документация дня переписана под текущее состояние: `README` и `architecture` описывают день 24 (источники и цитаты, проверка опоры, порог с режимом «не знаю», демо-прогон), `usage.md` — инструкция дня, в `api.md` есть разделы индексации, расходов на LLM и RAG |
 | `pyproject.toml` | 30 (24) | Имя `day21` и описание дня; добавлены `sentence-transformers`, `faiss-cpu`, `numpy` |
-| `.env.example` | 25 (15) | `DAY21_BACKEND_URL` вместо `DAY20_BACKEND_URL`, добавлены `DAY21_EMBEDDING_MODEL` и закомментированный `RAG_RERANK_MODEL` |
+| `.env.example` | 31 (15) | `DAY21_BACKEND_URL` вместо `DAY20_BACKEND_URL`, добавлены `DAY21_EMBEDDING_MODEL`, закомментированный `RAG_RERANK_MODEL` и порог дня 24 `RAG_RELEVANCE_THRESHOLD=0.6` |
 | `pytest.ini` | — | Комментарий про день 21 |
 
 Остальные файлы отличаются только идентичностью дня (`day20` → `day21`,
@@ -556,19 +568,26 @@ uv run python -c "from pathlib import Path; print([(str(p), len(p.read_text(enco
 [('backend\\agents\\agent.py', 2284)]
 ```
 
-`app.py` (79 ≤ 100) и `backend/api/main.py` (79 ≤ 80) в лимитах; `frontend/common.py`,
+`app.py` (85 ≤ 100) и `backend/api/main.py` (80 ≤ 80) в лимитах; `frontend/common.py`,
 `backend/core/config.py` и `backend/domain/__init__.py` (по 400) — ровно на границе,
 в пределах лимита. Скрипт отчёта об оптимизации тоже перестал быть превышением: замер
 (`scripts/cost_optimization_measure.py`, 382) вынесен из рендера
-(`scripts/cost_optimization_report.py`, 285) — вместе они были длиннее 400. Файлы дня 23
-лимит не нарушают: `backend/services/rag_service.py` (380) — самый длинный, за ним
-`frontend/rag_section.py` (358), `backend/domain/rag_mode.py` (310),
-`scripts/run_rag_eval.py` (303), `scripts/rag_eval_report.py` (286),
-`backend/schemas/rag.py` (246), `backend/domain/rag_filter.py` (219),
-`tests/unit/test_rag_modes.py` (187), `backend/services/rag_retrieval.py` (186),
+(`scripts/cost_optimization_report.py`, 285) — вместе они были длиннее 400. Самый
+длинный файл дня 24 — `backend/services/rag_service.py` (397): правки дня 24 (гейт
+порога в `_answer`, `citation_block`, `verify_citations`, `relevance_threshold` в
+`config()`) держатся в лимите за счёт того, что запись режима «не знаю» живёт в
+`backend/services/rag_records.py` (87). Дальше идут `frontend/rag_section.py` (391),
+`backend/schemas/rag.py` (356), `scripts/run_rag_quotes_eval.py` (326),
+`backend/domain/rag_mode.py` (310), `backend/domain/rag_quotes.py` (287),
+`backend/api/rag.py` (186), `frontend/rag_demo_section.py` (176),
+`backend/domain/rag_demo.py` (148), `backend/services/rag_demo_service.py` (100),
+`frontend/rag_api.py` (96), `tests/unit/test_rag_quotes.py` (109),
+`tests/integration/test_rag_quotes_flow.py` (112),
+`tests/unit/test_rag_modes.py` (194), `backend/services/rag_retrieval.py` (186),
+`backend/domain/rag_filter.py` (219), `scripts/rag_eval_report.py` (286),
 `backend/services/rerank_service.py` (139), `scripts/rag_eval_cells.py` (140),
 `backend/services/rag_corpus_index.py` (89), `backend/services/rag_llm.py` (63),
-`backend/services/rag_records.py` (60), `backend/services/rag_errors.py` (27).
+`backend/services/rag_errors.py` (27).
 `tests/unit/test_rag_service.py` после выноса режимов ушёл с 567 строк до 395 —
 лимит держится и в тестах.
 Каталог `.agents/` исключён не для красоты: в этой копии скиллы библиотек скопированы

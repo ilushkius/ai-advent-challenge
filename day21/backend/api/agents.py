@@ -205,7 +205,7 @@ def get_usage_graph(agent_id: str):
 @router.get("/", summary="О приложении")
 def root():
     return {
-        "name": "Агенты DeepSeek с индексацией документов и RAG — День 23",
+        "name": "Агенты DeepSeek с индексацией документов и RAG — День 24",
         "docs": "/docs",
         "memory": "/agents/{agent_id}/memory/... (short-term | working | long-term)",
         "personalization": "/users, /users/{user_id}/profile, /agents/{agent_id}/profile",
@@ -234,8 +234,10 @@ def root():
         "llm": ("/llm/usage, /llm/status, /llm/estimate, /llm/models, /llm/peak "
                 "(5 эндпоинтов — журнал расходов, кэш контекста, непиковые часы)"),
         "rag": ("POST /rag/query, GET /rag/config, POST /rag/compare, "
-                "POST /rag/compare_modes (4 эндпоинта — поиск по корпусу, режим без "
-                "RAG, сравнение ответов, сравнение режимов отбора)"),
+                "POST /rag/compare_modes, GET /rag/demo-questions, POST /rag/demo-run "
+                "(6 эндпоинтов — поиск по корпусу, режим без "
+                "RAG, сравнение ответов, сравнение режимов отбора, вопросы демо, "
+                "прогон демо)"),
         "endpoints": [
             "POST /agents", "GET /agents", "GET /agents/{agent_id}",
             "PATCH /agents/{agent_id}", "DELETE /agents/{agent_id}",
@@ -337,5 +339,7 @@ def root():
             "GET /rag/config",
             "POST /rag/compare",
             "POST /rag/compare_modes",
+            "GET /rag/demo-questions",
+            "POST /rag/demo-run",
         ],
     }

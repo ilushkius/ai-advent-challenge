@@ -1,5 +1,5 @@
 """
-FastAPI-приложение дня 21: память, задача, инварианты, MCP-флот, планировщик,
+FastAPI-приложение дня 24: память, задача, инварианты, MCP-флот, планировщик,
 пайплайн, оркестрация MCP-серверов, ИНДЕКСАЦИЯ документов, РАСХОДЫ на LLM и RAG.
 
 Запуск из папки day21/:  uvicorn backend.api.main:app --port 8000
@@ -13,17 +13,18 @@ Swagger-документация:  http://127.0.0.1:8000/docs
 
 Новое в дне 22 — режим RAG (``backend/api/rag.py``): поиск по корпусу документов,
 ответ с контекстом и без него, сравнение двух ответов. День 23 добавил второй этап
-отбора — переформулировку вопроса, кросс-энкодер и порог отсечения, а вместе с ним
-сравнение режимов отбора (``POST /rag/compare_modes``, 4 эндпоинта). Роутеры дня 21
-остаются на месте. Контракт ошибок приложения — в ``backend/api/__init__.py``.
+отбора — переформулировку вопроса, кросс-энкодер и порог отсечения, а с ним сравнение
+режимов отбора (``POST /rag/compare_modes``). День 24 закрыл контур доверия к ответу:
+обязательные источники и цитаты, проверку опоры ответа на цитаты, порог релевантности
+с режимом «не знаю» (``RAG_RELEVANCE_THRESHOLD``) и демо-прогон десяти контрольных
+вопросов (``GET /rag/demo-questions``, ``POST /rag/demo-run``, 6 эндпоинтов).
 
-Здесь только сборка приложения: эндпоинты живут в ``backend/api/``, доступ к
-службам — в ``backend/core/dependencies.py``. Функции ``get_manager`` /
-``get_mcp_registry`` / ``get_scheduler`` / ``get_schedule_service`` /
-``get_pipeline_service`` / ``get_orchestration_service`` / ``get_indexing_service`` /
-``get_index_service`` / ``get_embedding_service`` / ``get_llm_client`` /
-``get_rag_service`` / ``get_rerank_service`` импортированы сюда как точки подмены
-для тестов.
+Здесь только сборка приложения: эндпоинты живут в ``backend/api/``, доступ к службам —
+в ``backend/core/dependencies.py``; функции ``get_manager``, ``get_mcp_registry``,
+``get_scheduler``, ``get_schedule_service``, ``get_pipeline_service``,
+``get_orchestration_service``, ``get_indexing_service``, ``get_index_service``,
+``get_embedding_service``, ``get_llm_client``, ``get_rag_service`` и
+``get_rerank_service`` импортированы сюда как точки подмены для тестов.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

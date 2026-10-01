@@ -7,7 +7,7 @@
 """
 import pytest
 
-from backend.domain import rag_filter, rag_mode
+from backend.domain import rag_filter, rag_mode, rag_quotes
 from backend.domain.rag_mode import RAG_STRATEGY_STRUCTURAL
 from backend.services.rag_errors import RAGRejected
 from backend.services.rag_service import RAGService
@@ -107,17 +107,24 @@ def test_mode_rerank_sorts_by_rerank_score(rag_service, rag_reranker):
     assert record["rerank_warning"] == ""
 
 
-def test_min_score_drops_every_fragment_with_warning(rag_service):
-    """Порог выше любого балла: ответ есть, источников нет, предупреждение на месте."""
+def test_min_score_dropping_all_fragments_gives_dont_know(rag_service, rag_stub):
+    """Порог выше любого балла отрезает все фрагменты — это режим «не знаю».
+
+    Ответа без источников больше не бывает: инвариант дня 24 — у каждого
+    ``rag``-ответа есть хотя бы один источник и одна цитата.
+    """
     record = rag_service.rag_query(QUESTION, mode=rag_filter.RAG_MODE_RERANK_FILTER,
                                    min_score=0.99)
 
     assert record["candidates"] > 0
-    assert record["kept"] == 0 and record["sources"] == []
+    assert record["kept"] == 0
+    assert record["mode"] == rag_quotes.RAG_MODE_DONT_KNOW
+    assert record["answer"] == rag_quotes.DONT_KNOW_ANSWER
+    assert record["sources"] == [] and record["quotes"] == []
     assert record["chunks_used"] == 0
     assert record["min_score"] == 0.99
     assert "0.99" in record["filter_warning"]
-    assert record["answer"] == GROUNDED_REPLY
+    assert rag_stub.calls == []
 
 
 def test_reranker_failure_keeps_day22_order(rag_service, rag_reranker):

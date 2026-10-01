@@ -5,6 +5,84 @@
 структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
 `chore` (прочее: инфраструктура, скиллы, служебные изменения).
 
+## 2026-10-01 — feat — день 24: обязательные источники и цитаты, режим «не знаю» и демо-прогон в UI
+
+Каждый ответ режима RAG обязан нести источники и цитаты: цитаты собирает бэкенд из
+текста использованных фрагментов, ответ проверяется на опору в них
+(`quotes_verified`, `confidence`), а при слабом контексте модель не вызывается вовсе —
+приходит режим `dont_know` с фиксированным ответом и предупреждением с баллом и
+порогом. Добавлены демо-раздел из десяти контрольных вопросов, скрипт прогона и отчёт.
+
+* Домен: `backend/domain/rag_quotes.py` — `RAG_RELEVANCE_THRESHOLD` (порядок
+  env → `.env` → 0.6, резолв на импорте), `is_weak`/`best_vector_score` (порог
+  сравнивается с максимумом косинуса по пулу кандидатов), детерминированные цитаты
+  (`quote_of`/`quotes_from_items`, до 200 символов), проверка опоры
+  (`citation_share` ≥ 0.3 ключевых слов или дословная подстрока), шкала
+  `confidence` 1.0/0.3/0.0; `backend/domain/rag_demo.py` — вопросы демо, ожидания,
+  `expected_found` и вердикты; `rag_filter.RAG_FILTER_EMPTY_WARNING` переписан:
+  отброшенные порогом фрагменты теперь дают «ответ уходит в режим «не знаю»»,
+  а не ответ без контекста.
+* Сервисы: `RAGService._answer` после ступеней отбора уходит в `dont_know` без
+  вызова модели (`not stages.hits or rag_quotes.is_weak(stages.candidates)`), запись
+  ответа дополняется `citation_block`, новый метод `verify_citations`, `config()`
+  отдаёт `relevance_threshold`; `rag_records.dont_know` — запись режима (пустые
+  источники и цитаты, `tokens: null`, поля отбора как в дне 23);
+  `rag_demo_service.py` — `questions()`/`run_demo()` со строкой-ошибкой вместо
+  падения прогона.
+* HTTP: `POST /rag/query` отвечает `quotes`, `quotes_verified`, `confidence`; новые
+  `GET /rag/demo-questions` и `POST /rag/demo-run` (пустое тело — все вопросы,
+  `{"question": …}` — один); список эндпоинтов вырос до 105 записей; схемы
+  `RagQuoteOut`, `RagDemoQuestionOut`, `RagDemoQuestionsOut`, `RagDemoIn`,
+  `RagDemoRowOut`, `RagDemoSummaryOut`, `RagDemoOut` в `backend/schemas/rag.py`.
+* Данные: `backend/data/demo_questions.json` — десять вопросов (пять с ответом, три
+  частичных, два вне корпуса) с ожидаемым режимом и слагами источников; набор
+  откалиброван замером по пулу кандидатов.
+* Промпт: `rag_mode.RAG_SYSTEM_PROMPT` требует прямых цитат из контекста и ответа
+  «Не знаю» с просьбой уточнить, если ответа в контексте нет.
+* Фронтенд: раздел «🧪 RAG-демо» (`frontend/rag_demo_section.py`) с таблицей
+  вопросов, кнопкой «🚀 Прогнать демо», прогрессом `i/10`, таблицей результатов
+  (режим, ответ, источники, цитаты, вердикт) и сводкой; в панели чата — expander
+  «📝 Цитаты из корпуса», подпись низкой уверенности, предупреждение режима
+  «не знаю» и объяснение пустых источников по режиму; `frontend/rag_api.py` —
+  `api_rag_demo_questions`/`api_rag_demo_run`; раздел в `chat_section.py`.
+* Скрипт и отчёт: `scripts/run_rag_quotes_eval.py` (`--out`, `--limit`,
+  `--threshold`, `--sweep`, `--json`; метрика — максимум косинуса по пулу
+  кандидатов; код возврата 1 при расхождениях) и
+  `docs/reports/rag_quotes_eval.md` с таблицей десяти вопросов, распределением
+  `max v`, итогом и ручной проверкой.
+* Измерение: порог 0.6 отбирает 8 вопросов из 10 (`max v` 0.608…0.734 против 0.172 у
+  «погоды» и 0.215 у «борща»); во всех восьми строках режима `rag` по пять источников
+  и пять цитат; у части строк `quotes_verified = false` и `confidence` 0.3 — модель
+  пересказывает другое место того же чанка, а отчётная цитата берётся из его начала
+  (детерминированно); дословная проверка меняется от прогона к прогону (4–5 из 8),
+  распределение режимов и число источников с цитатами устойчивы. Проверено, что
+  порог настраивается: `RAG_RELEVANCE_THRESHOLD=0.95` в `.env` переводит вопрос с
+  ответом в корпусе в `dont_know` без вызова модели.
+* Тесты: `unit/test_rag_quotes.py` (8), `integration/test_rag_quotes_flow.py` (2,
+  slow), новые e2e-проверки двух демо-эндпоинтов и порога; тесты дня 23 на
+  отрезанный `min_score` переписаны под режим «не знаю»; набор дня — 2613 тестов
+  (быстрый прогон 2532), покрытие `backend/services/rag_service.py` 99 %.
+* Документация: раздел «Цитаты и анти-галлюцинации (день 24)» в
+  `docs/architecture.md` и «RAG-демо (день 24)» в `docs/usage.md`, обновлены
+  `README.md`, `STRUCTURE.md`, `docs/api.md` (две новые записи и новые схемы),
+  `.env.example` (`RAG_RELEVANCE_THRESHOLD=0.6`), заголовки дня 24 в `app.py`,
+  `backend/core/config.py`, `backend/api/agents.py`, `backend/api/main.py`;
+  корневой `README.md`.
+
+**Затронуто:** `day21/backend/domain/` (`rag_quotes.py`, `rag_demo.py`,
+`rag_filter.py`, `rag_mode.py`, `__init__.py`), `day21/backend/services/`
+(`rag_service.py`, `rag_records.py`, `rag_demo_service.py`, `__init__.py`),
+`day21/backend/schemas/` (`rag.py`, `__init__.py`), `day21/backend/api/` (`rag.py`,
+`agents.py`, `main.py`), `day21/backend/core/config.py`, `day21/backend/data/`,
+`day21/frontend/` (`rag_demo_section.py`, `rag_section.py`, `rag_api.py`,
+`chat_section.py`), `day21/scripts/run_rag_quotes_eval.py`,
+`day21/docs/reports/rag_quotes_eval.md`, документация `day21/` (`README.md`,
+`STRUCTURE.md`, `docs/architecture.md`, `docs/usage.md`, `docs/api.md`),
+`day21/tests/` (`unit/test_rag_quotes.py`, `unit/test_rag_modes.py`,
+`integration/test_rag_quotes_flow.py`, `integration/test_rag_flow.py`,
+`e2e/test_rag_api.py`, `e2e/test_indexing_api.py`, `fixtures_rag.py`),
+`day21/.env.example`, `day21/app.py`, корневой `CHANGELOG.md`.
+
 ## 2026-10-01 — feat — день 23: реранкинг, порог отсечения и переформулировка запроса в RAG
 
 Второй этап отбора после гибридного поиска: кандидатов пересортировывает

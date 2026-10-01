@@ -2,8 +2,9 @@
 
 Транспорт общий — ``frontend/api_client.py`` (``request_json``, ``BackendError``);
 здесь лежат только запросы RAG: ответ по корпусу (с контекстом и без него),
-сравнение двух ответов на один вопрос, сравнение режимов отбора (день 23) и
-состояние корпуса с лимитами режима.
+сравнение двух ответов на один вопрос, сравнение режимов отбора (день 23),
+состояние корпуса с лимитами режима и демо-сценарий дня 24 (контрольные вопросы и
+их прогон с источниками, цитатами и режимом «не знаю»).
 
 Отдельный модуль, а не дополнение ``api_client``, по той же причине, что у
 ``indexing_api.py``, ``mcp_api.py`` и ``cost_api.py``: ``api_client`` держит
@@ -77,3 +78,19 @@ def api_rag_compare_modes(question, top_k=None, strategy=None, modes=None, min_s
 def api_rag_config():
     """GET /rag/config -> готовность корпуса, чанки стратегий и лимиты режима."""
     return request_json("GET", "/rag/config")
+
+
+def api_rag_demo_questions():
+    """GET /rag/demo-questions -> контрольные вопросы демо-сценария (день 24)."""
+    return request_json("GET", "/rag/demo-questions")
+
+
+def api_rag_demo_run(question=None):
+    """POST /rag/demo-run -> прогон демо: все вопросы или один (пустое тело — все).
+
+    Ответ: ``rows`` (вопрос, режим, ответ, источники, цитаты, вердикт) и ``summary``
+    (распределение режимов и вердиктов). Сбой одного вопроса приходит строкой с
+    вердиктом «ошибка модели», а не отказом всего прогона.
+    """
+    return request_json("POST", "/rag/demo-run",
+                        json={"question": question} if question else {})

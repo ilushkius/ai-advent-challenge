@@ -125,8 +125,14 @@ def test_rerank_reorders_real_corpus_candidates(corpus_service):
     # Вторая ступень видна: заглушка ранжирует по словам вопроса, и её порядок
     # отличается от гибридного — иначе реранкер в отчёте мерил бы сам себя.
     assert [hit["chunk_id"] for hit in reranked] != [hit["chunk_id"] for hit in baseline]
-    # Обрезка до top-K идёт ПОСЛЕ реранка, поэтому меняется и сам состав контекста.
-    assert {hit["chunk_id"] for hit in reranked} != {hit["chunk_id"] for hit in baseline}
+    # Обрезка до top-K идёт ПОСЛЕ реранка: меньший лимит — префикс большего. Сравнение
+    # составов тут не годится — на пересобранном корпусе верхние десять кандидатов
+    # совпадают как множества, хотя порядок разный; проверяем свойство обрезки.
+    narrow = corpus_service.retrieve(question.question,
+                                     top_k=rag_mode.RAG_DEFAULT_TOP_K,
+                                     mode=rag_filter.RAG_MODE_RERANK)
+    assert [hit["chunk_id"] for hit in narrow] == \
+        [hit["chunk_id"] for hit in reranked][:len(narrow)]
 
     filtered = corpus_service.retrieve(question.question, top_k=rag_mode.RAG_MAX_TOP_K,
                                        mode=rag_filter.RAG_MODE_RERANK_FILTER)

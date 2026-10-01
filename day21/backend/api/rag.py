@@ -1,10 +1,12 @@
 """Роутер API: режим RAG — поиск по корпусу, ответ с контекстом и без.
 
-Четыре эндпоинта: ``POST /rag/query`` (ответ по корпусу или без него — переключатель
+Шесть эндпоинтов: ``POST /rag/query`` (ответ по корпусу или без него — переключатель
 ``use_rag``), ``POST /rag/compare`` (оба ответа на один вопрос), ``POST
 /rag/compare_modes`` (тот же вопрос по нескольким режимам отбора: базовый гибридный
-поиск, переформулировка, реранкер, реранкер с порогом) и ``GET /rag/config``
-(готовность корпуса, лимиты режима и каталог режимов). Отдельного эндпоинта поиска
+поиск, переформулировка, реранкер, реранкер с порогом), ``GET /rag/config``
+(готовность корпуса, лимиты режима и каталог режимов), ``GET /rag/demo-questions``
+(контрольные вопросы демо) и ``POST /rag/demo-run`` (прогон демо с источниками,
+цитатами и режимом «не знаю»). Отдельного эндпоинта поиска
 нет: интерфейсу нужен ответ модели, а выдача поиска приходит в нём же полем ``sources``.
 
 Перевод отказов в коды ответов: ``RAGRejected`` с кодом ``bad_strategy``,
@@ -14,19 +16,25 @@
 """
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException
 
 from ..core import dependencies
-from ..domain import rag_filter, rag_mode
+from ..domain import rag_demo, rag_filter, rag_mode
 from ..schemas import (
     RagCompareIn,
     RagCompareOut,
     RagConfigOut,
+    RagDemoIn,
+    RagDemoOut,
+    RagDemoQuestionsOut,
     RagModesIn,
     RagModesOut,
     RagQueryIn,
     RagQueryOut,
 )
+from ..services import rag_demo_service
 from ..services.rag_errors import RAGRejected, RAGUpstreamError
 
 router = APIRouter()
@@ -138,3 +146,41 @@ def rag_compare_modes(payload: RagModesIn) -> RagModesOut:
     except RAGUpstreamError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return RagModesOut(**result)
+
+
+@router.get(
+    "/rag/demo-questions",
+    response_model=RagDemoQuestionsOut,
+    summary="Контрольные вопросы RAG-демо",
+    description=(
+        "Десять вопросов демо-сценария: у каждого ожидаемый режим и, для вопросов "
+        "с ответом в корпусе, ожидаемые источники. Список читает раздел «RAG-демо» "
+        "интерфейса и скрипт отчёта."
+    ),
+)
+def rag_demo_questions() -> RagDemoQuestionsOut:
+    """Контрольные вопросы демо-сценария."""
+    return RagDemoQuestionsOut(questions=rag_demo_service.questions())
+
+
+@router.post(
+    "/rag/demo-run",
+    response_model=RagDemoOut,
+    summary="Прогон RAG-демо: источники, цитаты, режим «не знаю»",
+    description=(
+        "Прогон контрольных вопросов через режим RAG: на каждый вопрос — режим, "
+        "ответ, источники, цитаты, уверенность и вердикт «совпало ли с ожиданием», "
+        "плюс сводка по набору. Пустое тело — прогнать все вопросы, тело с "
+        "``question`` — только один. Сбой одного вопроса становится строкой с "
+        "вердиктом «ошибка модели», остальные вопросы всё равно отвечаются."
+    ),
+)
+def rag_demo_run(payload: Optional[RagDemoIn] = None) -> RagDemoOut:
+    """Прогон демо-вопросов: все или один по полю ``question``."""
+    service = dependencies.get_rag_service()
+    if payload is not None and payload.question:
+        items = [item for item in rag_demo.load_questions()
+                 if item.question == payload.question]
+    else:
+        items = None
+    return RagDemoOut(**rag_demo_service.run_demo(service, items))

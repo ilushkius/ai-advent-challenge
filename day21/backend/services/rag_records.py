@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from ..domain import rag_filter
+from ..domain import rag_filter, rag_quotes
 from .rag_retrieval import RAGStages
 
-__all__ = ["selection", "source"]
+__all__ = ["dont_know", "selection", "source"]
 
 
 def source(hit: Dict[str, Any]) -> dict:
@@ -58,3 +58,30 @@ def selection(stages: Optional[RAGStages]) -> dict:
         "filter_warning": (rag_filter.filtered_empty_warning(stages.min_score)
                            if empty else ""),
     }
+
+
+def dont_know(question: str, stages: Optional[RAGStages], duration_ms: int) -> dict:
+    """Запись режима «не знаю»: модель не вызывается, источников и цитат нет.
+
+    Контекст оказался слабым — лучший фрагмент не дотянул до порога
+    релевантности либо порог отбора отрезал все фрагменты. Поля отбора берутся из
+    ``stages``, чтобы клиент видел балл, на котором сработал порог.
+    """
+    record = {
+        "mode": rag_quotes.RAG_MODE_DONT_KNOW,
+        "question": question,
+        "answer": rag_quotes.DONT_KNOW_ANSWER,
+        "sources": [],
+        "quotes": [],
+        "quotes_verified": False,
+        "confidence": rag_quotes.CONFIDENCE_NONE,
+        "chunks_used": 0,
+        "context_tokens": 0,
+        "tokens": None,
+        "duration_ms": duration_ms,
+        "grounding": "",
+        "fallback": False,
+        "warning": rag_quotes.dont_know_warning(stages.candidates if stages else []),
+    }
+    record.update(selection(stages))
+    return record

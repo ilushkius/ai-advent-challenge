@@ -80,8 +80,8 @@ from . import (
     off_peak, orchestration_planner,
     orchestration_service, orchestrator, pipeline, pipeline_service,
     schedule_service, scheduled_jobs, scheduler, source_fetch, task_state,
-    rag_corpus_index, rag_corpus_loader, rag_errors, rag_llm, rag_records,
-    rag_retrieval, rag_service, rerank_service,
+    rag_corpus_index, rag_corpus_loader, rag_demo_service, rag_errors, rag_llm,
+    rag_records, rag_retrieval, rag_service, rerank_service,
 )
 from .apscheduler_bridge import RECONCILE_JOB_ID, TASK_JOB_PREFIX
 from .compressor import SUMMARY_SYSTEM_PROMPT, CompressionError, ContextCompressor
@@ -239,6 +239,7 @@ __all__ = [
     "pipeline_service",
     "rag_corpus_index",
     "rag_corpus_loader",
+    "rag_demo_service",
     "rag_errors",
     "rag_llm",
     "rag_records",

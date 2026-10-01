@@ -92,7 +92,7 @@ RAG_REWRITE_WARNING = "Переформулировка не удалась: {er
 RAG_REWRITE_EMPTY_WARNING = "Переформулировка вернула пустой запрос: поиск по исходному вопросу"
 RAG_RERANK_WARNING = "Реранкер недоступен: {error}; порядок фрагментов как в дне 22"
 RAG_FILTER_EMPTY_WARNING = ("Порог отсечения {min_score:.2f} отбросил все фрагменты: "
-                            "ответ получен без контекста")
+                            "ответ уходит в режим «не знаю»")
 
 
 def resolve_rag_mode(value: Optional[str]) -> Optional[str]:

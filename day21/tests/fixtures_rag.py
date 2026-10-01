@@ -7,6 +7,7 @@
 """
 import pytest
 
+from backend.domain import rag_quotes
 from backend.domain.rag_mode import RAG_STRATEGIES
 from backend.services.chunker import chunk_document
 from backend.services.index_service import IndexService
@@ -88,8 +89,16 @@ def rag_client(rag_usage_store, rag_stub):
 
 
 @pytest.fixture
-def rag_service(rag_loader, rag_index_service, chunk_store, rag_client, rag_reranker):
-    """Служба RAG на тестовом корпусе: без пауз между попытками."""
+def rag_service(rag_loader, rag_index_service, chunk_store, rag_client, rag_reranker,
+                monkeypatch):
+    """Служба RAG на тестовом корпусе: без пауз между попытками.
+
+    Порог релевантности обнуляется: заглушечный эмбеддер даёт косинус ниже
+    дефолтных 0.6, поэтому любой вопрос уходил бы в режим «не знаю» и тесты дня 22
+    потеряли бы смысл. Сам порог и режим ``dont_know`` проверяет
+    ``tests/unit/test_rag_quotes.py``, где порог подменяется явно.
+    """
+    monkeypatch.setattr(rag_quotes, "RAG_RELEVANCE_THRESHOLD", 0.0)
     return RAGService(index_service=rag_index_service, loader=rag_loader,
                       store=chunk_store, llm_client=rag_client,
                       rerank_service=rag_reranker, sleep=lambda _seconds: None)

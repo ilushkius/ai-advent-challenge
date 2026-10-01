@@ -1,11 +1,11 @@
-"""Панель «🔍 RAG-запрос по корпусу» и раздел «🆚 RAG-сравнение» (день 22, день 23).
+"""Панель «🔍 RAG-запрос по корпусу» и раздел «🆚 RAG-сравнение» (дни 22–24).
 
 RAG живёт в процессе бэкенда: интерфейс задаёт вопрос, показывает ответ, метрики
 (время, токены, число фрагментов до и после отсечения, порог, доля ввода из кэша
 контекста) и использованные фрагменты корпуса — источник, заголовок, раздел,
 ``chunk_id`` и все четыре балла отбора: гибридный, векторный, лексический и от
-кросс-энкодера. Разметку ответа и работу с индексом интерфейс не повторяет: он
-только показывает то, что вернул ``POST /rag/query``.
+кросс-энкодера, а также цитаты фрагментов и уверенность ответа (день 24). Разметку
+ответа и работу с индексом он не повторяет: только то, что вернул ``POST /rag/query``.
 
 Два места использования одного и того же отображения:
 
@@ -61,6 +61,14 @@ METRICS = {
     "cache": ("Кэш контекста",
               lambda record, tokens: f"{float(tokens.get('cache_hit_percent') or 0):.1f} %"
               if tokens else "—"),
+}
+
+#: Пустой блок источников: причина зависит от режима (``""`` — прочие случаи).
+NO_SOURCES_HINTS = {
+    "dont_know": ("Источников нет: контекст слабее порога релевантности, ответ в режиме "
+                  "«не знаю» — модель не вызывалась."),
+    "no_rag": "Поиск не дал источников: включите RAG или проиндексируйте корпус.",
+    "": "Поиск не дал источников: проиндексируйте корпус.",
 }
 
 
@@ -234,9 +242,30 @@ def _render_result(record: dict, show_sources: bool = False,
             st.warning(record[key])
     if record.get("grounding"):
         st.caption(f"Опора в контексте: {record['grounding']}")
+    if record.get("mode") == "dont_know":
+        st.warning(record.get("warning") or "Недостаточно контекста в корпусе.")
+    if record.get("mode") == "rag" and float(record.get("confidence") or 0.0) < 1.0:
+        st.caption(f"⚠️ Уверенность {float(record.get('confidence') or 0.0):.1f}: "
+                   "ответ не подтверждён цитатами")
+    _render_quotes(record.get("quotes") or [])
     _render_metrics(record, keys)
     if show_sources:
-        _render_sources(record.get("sources") or [])
+        _render_sources(record.get("sources") or [], record.get("mode") or "")
+
+
+def _render_quotes(quotes: list) -> None:
+    """Цитаты из использованных фрагментов: источник, раздел, id и текст (день 24).
+
+    Цитаты собирает бэкенд из текста фрагментов, а не модель: показывать их пусто
+    нечем, поэтому при отсутствии цитат блок не выводится вовсе.
+    """
+    if not quotes:
+        return
+    with st.expander("📝 Цитаты из корпуса", expanded=False):
+        for quote in quotes:
+            st.caption(f"{quote.get('source') or '—'} · {quote.get('section') or '—'} · "
+                       f"{quote.get('chunk_id') or '—'}")
+            st.markdown(f"> {common.esc(quote.get('quote') or '')}")
 
 
 def _render_metrics(record: dict, keys) -> None:
@@ -248,11 +277,15 @@ def _render_metrics(record: dict, keys) -> None:
         column.metric(label, builder(record, tokens))
 
 
-def _render_sources(sources: list) -> None:
-    """Использованные фрагменты корпуса: источник, заголовок, раздел, id, оценка."""
+def _render_sources(sources: list, mode: str = "") -> None:
+    """Использованные фрагменты корпуса: источник, заголовок, раздел, id, оценка.
+
+    Пустой блок объясняется по режиму: в ``dont_know`` поиск шёл, но контекст слабее
+    порога, а совет включить RAG или проиндексировать корпус там просто неверен.
+    """
     with st.expander("📚 Использованные источники", expanded=False):
         if not sources:
-            st.info("Поиск не дал источников: включите RAG или проиндексируйте корпус.")
+            st.info(NO_SOURCES_HINTS.get(mode, NO_SOURCES_HINTS[""]))
             return
         st.dataframe([_source_row(source) for source in sources],
                      width="stretch", hide_index=True)

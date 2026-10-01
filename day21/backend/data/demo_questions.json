@@ -1,0 +1,74 @@
+{
+  "questions": [
+    {
+      "question": "Чему равен CHARS_PER_PAGE в document_loader?",
+      "expectation": "ответ есть в корпусе",
+      "expected_mode": "rag",
+      "expected_sources": ["day21-backend-services-document_loader.py"],
+      "note": "константа и её назначение описаны в модуле целиком"
+    },
+    {
+      "question": "Чему равен PREVIEW_CHARS в выдаче поиска?",
+      "expectation": "ответ есть в корпусе",
+      "expected_mode": "rag",
+      "expected_sources": ["day21-backend-services-index_service.py"],
+      "note": "поиск по индексу отдаёт превью фиксированной длины"
+    },
+    {
+      "question": "Зачем нужен CYRILLIC_RATIO в document_sources?",
+      "expectation": "ответ есть в корпусе",
+      "expected_mode": "rag",
+      "expected_sources": ["day21-backend-domain-document_sources.py"],
+      "note": "доля кириллицы в поле «страницы документа»"
+    },
+    {
+      "question": "Как работает ChunkStore.add_chunks?",
+      "expectation": "ответ есть в корпусе",
+      "expected_mode": "rag",
+      "expected_sources": ["day21-backend-storage-chunk_store.py"],
+      "note": "запись чанков и журнала индексации в одной транзакции"
+    },
+    {
+      "question": "Чему равен EXCERPT_CHARS в блоке индекса?",
+      "expectation": "ответ есть в корпусе",
+      "expected_mode": "rag",
+      "expected_sources": ["day21-backend-domain-indexing_prompt.py"],
+      "note": "длина выдержки из фрагмента в промпте шага поиска"
+    },
+    {
+      "question": "Что делает функция load_documents в document_loader?",
+      "expectation": "частичный ответ",
+      "expected_mode": "rag",
+      "expected_sources": ["day21-backend-services-document_loader.py"],
+      "note": "в корпусе описан сбор и загрузка документов, тонкости разбора страниц — кратко"
+    },
+    {
+      "question": "Какая модель эмбеддингов по умолчанию в embedding_service?",
+      "expectation": "частичный ответ",
+      "expected_mode": "rag",
+      "expected_sources": ["day21-backend-services-embedding_service.py"],
+      "note": "имя модели приходит из config, в модуле виден только резолв"
+    },
+    {
+      "question": "Что проверяет TestQuery в indexing_scenarios?",
+      "expectation": "частичный ответ",
+      "expected_mode": "rag",
+      "expected_sources": ["day21-scripts-indexing_scenarios.py"],
+      "note": "сценарный тест описан в скрипте, детали проверок — в его же коде"
+    },
+    {
+      "question": "Какая погода будет в Москве в выходные?",
+      "expectation": "ответа в корпусе нет",
+      "expected_mode": "dont_know",
+      "expected_sources": [],
+      "note": "вопрос вне корпуса проекта"
+    },
+    {
+      "question": "Как приготовить борщ на ужин?",
+      "expectation": "ответа в корпусе нет",
+      "expected_mode": "dont_know",
+      "expected_sources": [],
+      "note": "вопрос вне корпуса проекта"
+    }
+  ]
+}

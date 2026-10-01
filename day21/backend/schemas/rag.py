@@ -94,10 +94,30 @@ class RagTokensOut(BaseModel):
     cost_estimate: float = Field(0.0, description="Оценка стоимости запроса, в валюте дня")
 
 
+class RagQuoteOut(BaseModel):
+    """Цитата из использованного фрагмента корпуса (день 24).
+
+    Цитата берётся из чанка детерминированно — начало фрагмента до конца первого
+    предложения, не длиннее 200 символов, — и не зависит от того, обернула ли
+    модель текст в кавычки.
+    """
+
+    source: str = Field("", description="Файл корпуса, откуда взята цитата")
+    section: str = Field("", description="Заголовок раздела (пусто у стратегии fixed)")
+    chunk_id: str = Field(..., description="Идентификатор чанка внутри стратегии")
+    quote: str = Field("", description="Текст цитаты — начало фрагмента")
+
+
 class RagQueryOut(BaseModel):
     """Ответ режима RAG: режим, текст, источники, расход и оценка опоры."""
 
-    mode: str = Field(..., description="rag — ответ с контекстом корпуса, no_rag — без него")
+    mode: str = Field(
+        ...,
+        description=(
+            "rag — ответ с контекстом корпуса, no_rag — без него, "
+            "dont_know — контекста не хватило, модель не вызывалась (день 24)"
+        ),
+    )
     question: str = Field(..., description="Вопрос, на который отвечали")
     answer: str = Field(..., description="Текст ответа модели")
     fallback: bool = Field(
@@ -109,6 +129,16 @@ class RagQueryOut(BaseModel):
     )
     sources: List[RagSourceOut] = Field(
         default_factory=list, description="Чанки, попавшие в контекст, по убыванию близости"
+    )
+    quotes: List[RagQuoteOut] = Field(
+        default_factory=list, description="Цитаты использованных фрагментов (день 24)"
+    )
+    confidence: float = Field(
+        0.0,
+        description="Уверенность: 1.0 с подтверждёнными цитатами, 0.3 без, 0.0 без RAG",
+    )
+    quotes_verified: bool = Field(
+        False, description="true — ответ опирается хотя бы на одну цитату контекста"
     )
     chunks_used: int = Field(0, description="Сколько фрагментов ушло в промпт")
     context_tokens: int = Field(0, description="Размер блока контекста в токенах")
@@ -187,6 +217,76 @@ class RagModesOut(BaseModel):
     )
 
 
+class RagDemoQuestionOut(BaseModel):
+    """Один контрольный вопрос демо: текст, ожидание и ожидаемые источники."""
+
+    question: str = Field(..., description="Текст вопроса")
+    expectation: str = Field("", description="Словами: что ждём от ответа")
+    expected_mode: str = Field("", description="Ожидаемый режим: rag | dont_know")
+    expected_sources: List[str] = Field(
+        default_factory=list, description="Слаги файлов корпуса, где лежит ответ"
+    )
+
+
+class RagDemoQuestionsOut(BaseModel):
+    """GET /rag/demo-questions — список контрольных вопросов демо."""
+
+    questions: List[RagDemoQuestionOut] = Field(
+        default_factory=list, description="Вопросы демо в порядке из файла"
+    )
+
+
+class RagDemoIn(BaseModel):
+    """Прогон одного вопроса демо; пустой вопрос — прогнать все."""
+
+    question: Optional[str] = Field(
+        None, description="Вопрос из списка демо (None — прогнать все вопросы)"
+    )
+
+
+class RagDemoRowOut(BaseModel):
+    """Строка таблицы демо: вопрос, ожидание, ответ, источники, цитаты и вердикт."""
+
+    question: str = Field(..., description="Текст вопроса")
+    expectation: str = Field("", description="Ожидание словами")
+    expected_mode: str = Field("", description="Ожидаемый режим")
+    mode: str = Field(..., description="Фактический режим: rag | no_rag | dont_know")
+    top_score: float = Field(0.0, description="Косинус лучшего источника (0 — источников нет)")
+    answer: str = Field("", description="Текст ответа")
+    sources: List[RagSourceOut] = Field(
+        default_factory=list, description="Использованные фрагменты"
+    )
+    quotes: List[RagQuoteOut] = Field(default_factory=list, description="Цитаты фрагментов")
+    confidence: float = Field(0.0, description="Уверенность ответа")
+    quotes_verified: bool = Field(False, description="Подтверждают ли цитаты ответ")
+    sources_expected: bool = Field(
+        False, description="Найден ли хотя бы один ожидаемый источник"
+    )
+    verdict: str = Field("", description="Итог строки словами (совпадает, расхождение и т. п.)")
+
+
+class RagDemoSummaryOut(BaseModel):
+    """Сводка демо: распределение по режимам, источникам, цитатам и вердиктам."""
+
+    total: int = Field(0, description="Всего строк")
+    rag: int = Field(0, description="Строк в режиме rag")
+    no_rag: int = Field(0, description="Строк в режиме no_rag")
+    dont_know: int = Field(0, description="Строк в режиме dont_know")
+    with_sources: int = Field(0, description="Ответов с источниками")
+    with_quotes: int = Field(0, description="Ответов с цитатами")
+    verified: int = Field(0, description="Ответов с подтверждёнными цитатами")
+    mismatches: int = Field(0, description="Строк, разошедшихся с ожиданием")
+
+
+class RagDemoOut(BaseModel):
+    """POST /rag/demo-run — строки прогона и сводка по ним."""
+
+    rows: List[RagDemoRowOut] = Field(default_factory=list, description="Строки прогона")
+    summary: RagDemoSummaryOut = Field(
+        default_factory=RagDemoSummaryOut, description="Сводка по строкам"
+    )
+
+
 class RagCorpusOut(BaseModel):
     """Состояние корпуса: папка, объём в страницах и готовность к отчёту."""
     corpus_dir: str = Field(..., description="Папка собранного корпуса")
@@ -228,6 +328,9 @@ class RagConfigOut(BaseModel):
     rerank_model: str = Field("", description="Модель кросс-энкодера реранкера")
     min_score_default: float = Field(0.0, description="Порог отсечения по умолчанию")
     candidates_max: int = Field(0, description="Верхняя граница top_k_candidates")
+    relevance_threshold: float = Field(
+        0.0, description="Порог релевантности: ниже него ответ уходит в режим «не знаю»"
+    )
 
 
 __all__ = [
@@ -235,12 +338,19 @@ __all__ = [
     "RagCompareOut",
     "RagConfigOut",
     "RagCorpusOut",
+    "RagDemoIn",
+    "RagDemoOut",
+    "RagDemoQuestionOut",
+    "RagDemoQuestionsOut",
+    "RagDemoRowOut",
+    "RagDemoSummaryOut",
     "RagIndexOut",
     "RagModeOut",
     "RagModesIn",
     "RagModesOut",
     "RagQueryIn",
     "RagQueryOut",
+    "RagQuoteOut",
     "RagSourceOut",
     "RagTokensOut",
 ]
