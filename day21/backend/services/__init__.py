@@ -57,8 +57,17 @@
   синхронно), прогресс, поиск, статистика и очистка индекса (день 21);
 - ``rag_corpus_loader`` — ``RagCorpusLoader``: корпус режима RAG дня 22 — файлы
   дня 21 в ``documents/rag_corpus/``, объём в страницах и проверка состава;
-- ``rag_service`` — ``RAGService``: режим RAG дня 22 — поиск по корпусу, ответ с
-  контекстом и без него, бюджет контекста, откат и оценка опоры на фрагменты.
+- ``rag_service`` — ``RAGService``: режим RAG — поиск по корпусу, ответ с
+  контекстом и без него, бюджет контекста, откат и оценка опоры на фрагменты,
+  переформулировка вопроса и сравнение режимов отбора (день 23);
+- ``rag_retrieval`` — ``RAGRetrieval``: ступени отбора одного запроса — поиск,
+  реранк кросс-энкодером, порог отсечения и отчёт ``RAGStages`` (день 23);
+- ``rerank_service`` — ``RerankService``: кросс-энкодер реранкера — ленивая
+  загрузка, баллы пары «запрос — фрагмент», прогрев (день 23);
+- ``rag_llm`` — ``call_with_retry``/``response_text``/``usage_dict``: повторы
+  вызова модели, текст ответа и расход без службы и без домена (день 23);
+- ``rag_records`` — форма ответа: фрагмент с баллами отбора и отчёт о ступенях
+  отбора в словарях, которые читают схемы API, отчётный скрипт и интерфейс (день 23).
 
 Сервисы знают про домен и хранилище, но не про HTTP и не про Streamlit.
 """
@@ -71,8 +80,8 @@ from . import (
     off_peak, orchestration_planner,
     orchestration_service, orchestrator, pipeline, pipeline_service,
     schedule_service, scheduled_jobs, scheduler, source_fetch, task_state,
-    rag_corpus_loader,
-    rag_service,
+    rag_corpus_index, rag_corpus_loader, rag_errors, rag_llm, rag_records,
+    rag_retrieval, rag_service, rerank_service,
 )
 from .apscheduler_bridge import RECONCILE_JOB_ID, TASK_JOB_PREFIX
 from .compressor import SUMMARY_SYSTEM_PROMPT, CompressionError, ContextCompressor
@@ -115,13 +124,9 @@ from .orchestrator import Orchestrator
 from .pipeline import Pipeline
 from .pipeline_service import PipelineService, get_pipeline_service
 from .rag_corpus_loader import RagCorpusLoader, get_rag_corpus_loader
-from .rag_service import (
-    RAGError,
-    RAGRejected,
-    RAGService,
-    RAGUpstreamError,
-    get_rag_service,
-)
+from .rag_errors import RAGError, RAGRejected, RAGUpstreamError
+from .rag_service import RAGService, get_rag_service
+from .rerank_service import RerankError, RerankService, get_rerank_service
 from .schedule_service import ScheduleService, get_schedule_service
 from .scheduled_jobs import prepare, tick, tool_names
 from .scheduler import TaskScheduler, get_scheduler
@@ -193,6 +198,8 @@ __all__ = [
     "RAGService",
     "RAGUpstreamError",
     "RagCorpusLoader",
+    "RerankError",
+    "RerankService",
     "SUBMIT_GRACE",
     "ScheduleService",
     "SourceFetchError",
@@ -215,6 +222,7 @@ __all__ = [
     "get_pipeline_service",
     "get_rag_corpus_loader",
     "get_rag_service",
+    "get_rerank_service",
     "get_schedule_service",
     "get_scheduler",
     "index_service",
@@ -229,8 +237,14 @@ __all__ = [
     "mcp_transport",
     "pipeline",
     "pipeline_service",
+    "rag_corpus_index",
     "rag_corpus_loader",
+    "rag_errors",
+    "rag_llm",
+    "rag_records",
+    "rag_retrieval",
     "rag_service",
+    "rerank_service",
     "prepare",
     "schedule_service",
     "scheduled_jobs",

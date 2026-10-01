@@ -232,7 +232,8 @@ def rank_candidates(question: str, vector_hits: Sequence[dict],
             candidates[key] = [row, lexical]
     ranked = [
         {**hit, "score": round(lexical
-                               + RAG_VECTOR_WEIGHT * float(hit.get("score") or 0.0), 4)}
+                               + RAG_VECTOR_WEIGHT * float(hit.get("score") or 0.0), 4),
+         "lexical_score": round(lexical, 4)}
         for hit, lexical in candidates.values()
     ]
     ranked.sort(key=lambda item: item["score"], reverse=True)

@@ -20,8 +20,8 @@ ORM-таблицы — отдельный пакет ``backend/models/``.
 - ``llm.py`` — расходы на LLM дня 21: журнал, статистика кэша, состояние непиковых
   часов, прогноз экономии и таблица «тип задачи → модель»;
 - ``profile.py`` — профиль пользователя и его вклад в промпт;
-- ``rag.py`` — RAG дня 22: запрос по корпусу с RAG и без него, сравнение двух
-  ответов, состояние корпуса и лимиты контекста;
+- ``rag.py`` — RAG: запрос по корпусу с RAG и без него, сравнение двух ответов,
+  сравнение режимов отбора, состояние корпуса, лимиты контекста и каталог режимов;
 - ``task.py``    — состояние задачи: этап, шаг, контролируемые переходы (день 15),
   флаги-согласования и журнал попыток.
 """
@@ -170,6 +170,9 @@ from .rag import (
     RagConfigOut,
     RagCorpusOut,
     RagIndexOut,
+    RagModeOut,
+    RagModesIn,
+    RagModesOut,
     RagQueryIn,
     RagQueryOut,
     RagSourceOut,
@@ -297,6 +300,9 @@ __all__ = [
     "RagConfigOut",
     "RagCorpusOut",
     "RagIndexOut",
+    "RagModeOut",
+    "RagModesIn",
+    "RagModesOut",
     "RagQueryIn",
     "RagQueryOut",
     "RagSourceOut",

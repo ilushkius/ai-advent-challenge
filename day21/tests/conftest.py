@@ -62,6 +62,7 @@ from fixtures_rag import (  # noqa: F401  (фикстуры: pytest читает
     rag_documents,
     rag_index_service,
     rag_loader,
+    rag_reranker,
     rag_service,
     rag_stub,
     rag_usage_store,

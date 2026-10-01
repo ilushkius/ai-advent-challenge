@@ -5,6 +5,71 @@
 структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
 `chore` (прочее: инфраструктура, скиллы, служебные изменения).
 
+## 2026-10-01 — feat — день 23: реранкинг, порог отсечения и переформулировка запроса в RAG
+
+Второй этап отбора после гибридного поиска: кандидатов пересортировывает
+кросс-энкодер, слабые отсекаются порогом, вопрос по желанию переформулируется
+моделью. Отбор собран четырьмя режимами (`baseline`, `rewrite`, `rerank`,
+`rerank_filter`) и измерен на тех же 10 контрольных вопросах.
+
+* Домен: `backend/domain/rag_filter.py` — режимы и их рычаги (`RAG_MODE_KNOBS`),
+  `resolve_rag_mode`, `mode_catalog`, `normalize_rerank_scores`, `candidate_text`,
+  `apply_rerank`, `filter_hits`, порог `RAG_FILTER_MIN_SCORE = 0.05` (измерен
+  свипом), сетка `RAG_THRESHOLD_GRID`; `rag_mode.rank_candidates` теперь отдаёт
+  `lexical_score` рядом с гибридным баллом.
+* Сервисы: `rerank_service.py` (кросс-энкодер `RAG_RERANK_MODEL`, ленивая загрузка,
+  кэш весов в `index/models`, синглтон `get_rerank_service`), `rag_retrieval.py`
+  (ступени «поиск → реранк → порог» и `RAGStages` с кандидатами до и после
+  отсечения); из `rag_service.py` вынесены `rag_errors.py`, `rag_corpus_index.py`,
+  `rag_records.py`, `rag_llm.py`; `RAGService` получил режимы (`_stages`,
+  `_rewrite`, `compare_modes`).
+* HTTP: `POST /rag/query` принимает `rewrite`, `rerank`, `min_score`,
+  `top_k_candidates` и отвечает `query_used`, `rewritten`, `reranked`,
+  `candidates`, `kept`, предупреждениями этапов; источники несут четыре балла
+  (`score`, `vector_score`, `lexical_score`, `rerank_score`); новый
+  `POST /rag/compare_modes`; `GET /rag/config` отдаёт каталог режимов, модель
+  реранкера, порог по умолчанию и границу пула. Коды: 400 (неизвестный режим),
+  422 (порог вне 0…1, пул вне 1…60); список эндпоинтов вырос до 103 записей.
+* Старт приложения: поток `model-warmup` прогревает эмбеддер и реранкер;
+  `dependencies.get_rerank_service()` — точка подмены в тестах.
+* Фронтенд: `frontend/rag_section.py` — тумблеры переформулировки и реранкера,
+  слайдер порога, метрики «фрагментов до/после фильтра», предупреждения этапов,
+  четыре балла в источниках, мультиселект режимов в разделе сравнения;
+  `frontend/rag_api.py` — новые параметры и `api_rag_compare_modes`.
+* Скрипты: `scripts/run_rag_eval.py` (пять прогонов на вопрос, свип порога офлайн
+  по баллам реранкера, кэш пар) и чистый рендер `scripts/rag_eval_report.py` с
+  `scripts/rag_eval_cells.py`; отчёт `docs/reports/rag_modes.md` заменил
+  `docs/reports/rag_eval.md` (режим `baseline` повторяет отбор дня 22).
+* Измерение: свип выбрал порог 0.05; против ответа без RAG — `baseline` 7/0/3,
+  `rewrite` 8/0/2, `rerank` 7/0/3, `rerank_filter` 5/0/5 (лучше/хуже/равно), откатов
+  и сбоев нет; ступень отсечения экономит контекст (4.4 фрагмента против 5), но
+  ответы ухудшила (`rerank_filter` против `rerank` — лучше 1, хуже 3) — это
+  записано в отчёте, домене и документации. Контрольный вопрос 5 приведён к факту
+  `model-warmup` (был `embedding-warmup`).
+* Тесты: `unit/test_rag_filter.py` (10), `unit/test_rerank_service.py` (9),
+  `unit/test_rag_modes.py` (11, вынесены из `test_rag_service.py` по лимиту 400
+  строк), `unit/test_rag_service.py` (24), `integration/test_rag_flow.py` (4, один
+  slow), `e2e/test_rag_api.py` (19); стаб реранкера `RagStubReranker` и запрет
+  загрузки настоящих весов в `tests/fixtures_indexing.py`. Набор дня — 2601 тест
+  (быстрый прогон 2522).
+
+**Затронуто:** `day21/backend/domain/` (`rag_filter.py`, `rag_mode.py`,
+`rag_eval.py`), `day21/backend/services/` (`rerank_service.py`, `rag_retrieval.py`,
+`rag_errors.py`, `rag_corpus_index.py`, `rag_records.py`, `rag_llm.py`,
+`rag_service.py`, `__init__.py`), `day21/backend/schemas/` (`rag.py`,
+`__init__.py`), `day21/backend/api/` (`rag.py`, `lifespan.py`, `main.py`,
+`agents.py`), `day21/backend/core/` (`config.py`, `dependencies.py`),
+`day21/frontend/` (`rag_api.py`, `rag_section.py`), `day21/scripts/`
+(`run_rag_eval.py`, `rag_eval_report.py`, `rag_eval_cells.py`,
+`index_rag_corpus.py`, `prepare_rag_corpus.py`), `day21/tests/` (`rag_fakes.py`,
+`fixtures_rag.py`, `fixtures_indexing.py`, `unit/test_rag_filter.py`,
+`unit/test_rerank_service.py`, `unit/test_rag_modes.py`,
+`unit/test_rag_service.py`, `integration/test_rag_flow.py`,
+`e2e/test_rag_api.py`, `e2e/test_indexing_api.py`, `e2e/test_llm_api.py`),
+`day21/docs/reports/rag_modes.md` (вместо `rag_eval.md`), документация `day21/`
+(`README.md`, `STRUCTURE.md`, `docs/architecture.md`, `docs/usage.md`,
+`docs/api.md`), `day21/.env.example`, `CHANGELOG.md`.
+
 ## 2026-09-29 — feat — день 22: RAG-режим с корпусом документов, 10 контрольных вопросов и сравнением с ответом без RAG
 
 Режим RAG: вопрос → гибридный поиск по корпусу (вектор FAISS плюс словесные веса)

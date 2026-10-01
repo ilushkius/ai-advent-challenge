@@ -31,8 +31,8 @@ from backend.domain import rag_corpus_spec  # noqa: E402
 from backend.domain.rag_mode import RAG_STRATEGIES  # noqa: E402
 from backend.services.chunker import chunk_document  # noqa: E402
 from backend.services.document_loader import CHARS_PER_PAGE  # noqa: E402
+from backend.services.rag_corpus_index import CHUNK_STRATEGIES  # noqa: E402
 from backend.services.rag_corpus_loader import RagCorpusLoader  # noqa: E402
-from backend.services.rag_service import CHUNK_STRATEGIES  # noqa: E402
 
 #: Сколько «страниц» (по 1800 символов) в корпусе — привычная мера объёма текста.
 PAGE = CHARS_PER_PAGE

@@ -27,6 +27,7 @@ if TYPE_CHECKING:  # только для аннотаций
     from ..services.orchestration_service import OrchestrationService
     from ..services.pipeline_service import PipelineService
     from ..services.rag_service import RAGService
+    from ..services.rerank_service import RerankService
     from ..services.scheduler import TaskScheduler
 
 
@@ -149,6 +150,18 @@ def get_rag_service() -> "RAGService":
     from ..api import main
 
     return main.get_rag_service()
+
+
+def get_rerank_service() -> "RerankService":
+    """Служба реранкера процесса (день 23): кросс-энкодер для второго этапа отбора.
+
+    Та же точка подмены, что у остальных служб: тесты подменяют
+    ``monkeypatch.setattr(main, "get_rerank_service", ...)``, и подмену видят и
+    роутер ``/rag``, и прогрев моделей в ``lifespan``.
+    """
+    from ..api import main
+
+    return main.get_rerank_service()
 
 
 def get_prompt_builder() -> "PromptBuilder":

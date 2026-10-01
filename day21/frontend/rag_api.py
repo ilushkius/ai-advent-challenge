@@ -2,7 +2,8 @@
 
 Транспорт общий — ``frontend/api_client.py`` (``request_json``, ``BackendError``);
 здесь лежат только запросы RAG: ответ по корпусу (с контекстом и без него),
-сравнение двух ответов на один вопрос и состояние корпуса с лимитами режима.
+сравнение двух ответов на один вопрос, сравнение режимов отбора (день 23) и
+состояние корпуса с лимитами режима.
 
 Отдельный модуль, а не дополнение ``api_client``, по той же причине, что у
 ``indexing_api.py``, ``mcp_api.py`` и ``cost_api.py``: ``api_client`` держит
@@ -14,17 +15,29 @@
 from .api_client import request_json
 
 
-def api_rag_query(question, top_k=None, strategy=None, use_rag=True):
+def api_rag_query(question, top_k=None, strategy=None, use_rag=True, rewrite=False,
+                  rerank=False, min_score=None, top_k_candidates=None):
     """POST /rag/query -> ответ по корпусу (``use_rag``) или ответ без контекста.
 
-    400 — пустой вопрос и неизвестная стратегия, 409 — корпус не проиндексирован,
-    502 — сбой вызова модели, когда откат на ответ без RAG тоже не удался.
+    ``rewrite``/``rerank`` — ступени отбора дня 23: переформулировка вопроса моделью
+    и пересортировка кандидатов кросс-энкодером; ``min_score`` — порог отсечения,
+    ``top_k_candidates`` — сколько кандидатов запросить у поиска. Нулевой порог и
+    пустой ``top_k_candidates`` не отправляются: это значения дня 22 по умолчанию.
+
+    400 — пустой вопрос, неизвестная стратегия и неизвестный режим, 422 — порог вне
+    диапазона, 409 — корпус не проиндексирован, 502 — сбой вызова модели, когда
+    откат на ответ без RAG тоже не удался.
     """
-    payload = {"question": question, "use_rag": bool(use_rag)}
+    payload = {"question": question, "use_rag": bool(use_rag),
+               "rewrite": bool(rewrite), "rerank": bool(rerank)}
     if top_k:
         payload["top_k"] = int(top_k)
     if strategy:
         payload["strategy"] = strategy
+    if min_score not in (None, 0):
+        payload["min_score"] = float(min_score)
+    if top_k_candidates:
+        payload["top_k_candidates"] = int(top_k_candidates)
     return request_json("POST", "/rag/query", json=payload)
 
 
@@ -36,6 +49,29 @@ def api_rag_compare(question, top_k=None, strategy=None):
     if strategy:
         payload["strategy"] = strategy
     return request_json("POST", "/rag/compare", json=payload)
+
+
+def api_rag_compare_modes(question, top_k=None, strategy=None, modes=None, min_score=None,
+                          top_k_candidates=None):
+    """POST /rag/compare_modes -> ответы каждого режима отбора на один вопрос.
+
+    Режимы приходят списком имён (``baseline``/``rewrite``/``rerank``/
+    ``rerank_filter``); неизвестные имена бэкенд отбрасывает, а если не осталось ни
+    одного — отвечает 400 ``bad_mode``. Поле ``modes`` в ответе содержит по записи
+    на режим: ``mode``, ``label`` и ``result`` формы ``RagQueryOut``.
+    """
+    payload = {"question": question}
+    if top_k:
+        payload["top_k"] = int(top_k)
+    if strategy:
+        payload["strategy"] = strategy
+    if modes:
+        payload["modes"] = list(modes)
+    if min_score not in (None, 0):
+        payload["min_score"] = float(min_score)
+    if top_k_candidates:
+        payload["top_k_candidates"] = int(top_k_candidates)
+    return request_json("POST", "/rag/compare_modes", json=payload)
 
 
 def api_rag_config():

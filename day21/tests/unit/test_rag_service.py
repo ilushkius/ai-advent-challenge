@@ -1,11 +1,13 @@
-"""Служба режима RAG: поиск, ответ с контекстом и без, отказы (день 22).
+"""Служба режима RAG: поиск, промпт, ответы с контекстом и без, отказы.
 
-Проверяется контракт ``RAGService``: поиск отдаёт интерфейсу пять полей на
-источник, промпт собирается как «системное сообщение → блок контекста → вопрос»,
-пустой вопрос и незнакомая стратегия отвергаются кодом причины, сбойный вызов
-повторяется и откатывается на ответ без контекста, а полный сбой даёт
-``RAGUpstreamError``. Сеть и модель подменены (`tests/rag_fakes.py`), корпус —
-два документа, индекс — фейковый эмбеддер.
+Проверяется контракт ``RAGService``: поиск отдаёт интерфейсу восемь полей на
+источник (три балла отбора плюс балл реранкера), промпт собирается как «системное
+сообщение → блок контекста → вопрос», пустой вопрос и незнакомая стратегия
+отвергаются кодом причины, сбойный вызов повторяется и откатывается на ответ без
+контекста, а полный сбой даёт ``RAGUpstreamError``. Режимы дня 23 — переформулировка
+вопроса, реранк кросс-энкодером, порог отсечения и сравнение режимов — живут в
+``tests/unit/test_rag_modes.py`` (лимит 400 строк на файл). Сеть и модели подменены
+(``tests/rag_fakes.py``), корпус — два документа, индекс — фейковый эмбеддер.
 """
 import pytest
 
@@ -27,17 +29,14 @@ from backend.domain.rag_mode import (
 )
 from backend.services import rag_service as rag_service_module
 from backend.services.rag_corpus_loader import RagCorpusLoader
-from backend.services.rag_service import (
-    RAGError,
-    RAGRejected,
-    RAGService,
-    RAGUpstreamError,
-)
+from backend.services.rag_errors import RAGError, RAGRejected, RAGUpstreamError
+from backend.services.rag_service import RAGService
 
 from rag_fakes import GROUNDED_REPLY, UNGROUNDED_REPLY
 
 #: Ровно те поля, которые служба показывает интерфейсу: текст фрагмента не уходит.
-SOURCE_KEYS = {"source", "title", "section", "chunk_id", "score"}
+SOURCE_KEYS = {"source", "title", "section", "chunk_id", "score", "vector_score",
+               "lexical_score", "rerank_score"}
 
 QUESTION = "Чему равен CHARS_PER_PAGE?"
 
@@ -369,3 +368,28 @@ def test_rank_candidates_keeps_store_chunk_without_vector_hit():
     ranked = rag_mode.rank_candidates("Где описан CHARS_PER_PAGE?", [], chunks, 5)
 
     assert [hit["chunk_id"] for hit in ranked] == ["c1"]
+
+
+def test_rank_candidates_exposes_lexical_and_vector_scores():
+    """Гибридный балл и балл слов отдаются наружу: видно, чем фрагмент обошёл соседа."""
+    vector_hits = [
+        {"chunk_id": "v1", "source": "a.md", "title": "A", "section": "a",
+         "content": "CHARS_PER_PAGE равен 1800", "score": 0.1},
+        {"chunk_id": "v2", "source": "b.md", "title": "B", "section": "b",
+         "content": "Совсем другой текст", "score": 0.9},
+    ]
+    chunks = [{"chunk_id": "c1", "source": "a.md", "title": "A", "section": "a",
+               "content": "CHARS_PER_PAGE равен 1800", "score": 0.0}]
+
+    ranked = rag_mode.rank_candidates("CHARS_PER_PAGE", vector_hits, chunks, 3)
+
+    weights = rag_mode.query_weights("CHARS_PER_PAGE", ["CHARS_PER_PAGE равен 1800"])
+    by_id = {hit["chunk_id"]: hit for hit in ranked}
+    assert {"score", "lexical_score"} <= set(by_id["v1"])
+    # Балл слов — та же величина, что считает домен: не украшение, а число отбора.
+    assert by_id["v1"]["lexical_score"] == rag_mode.lexical_score(
+        "CHARS_PER_PAGE равен 1800 a A", weights)
+    assert by_id["v2"]["lexical_score"] == 0.0
+    # Гибридная формула дня 22 не изменилась: слова плюс 0.2 от близости.
+    assert by_id["v1"]["score"] == round(
+        by_id["v1"]["lexical_score"] + rag_mode.RAG_VECTOR_WEIGHT * 0.1, 4)

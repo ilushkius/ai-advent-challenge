@@ -7,12 +7,14 @@ Swagger-документация:  http://127.0.0.1:8000/docs
 
 При старте (``backend/api/lifespan.py``) создаются таблицы SQLite, агенты
 восстанавливаются из базы, поднимается планировщик и ФЛОТ из трёх MCP-серверов
-(``mcp_servers.json``), читаются оба индекса FAISS с диска, а модель эмбеддингов
-прогревается в фоновом потоке; при остановке планировщик встаёт, индексы пишутся
-на диск, а соединения флота и активное MCP-подключение закрываются.
+(``mcp_servers.json``), читаются оба индекса FAISS с диска, а модели эмбеддингов
+и реранкера прогреваются в фоновом потоке; при остановке планировщик встаёт,
+индексы пишутся на диск, а соединения флота и активное MCP-подключение закрываются.
 
-Новое в дне 22 — режим RAG (``backend/api/rag.py``, 3 эндпоинта): поиск по корпусу
-документов, ответ с контекстом и без него, сравнение двух ответов. Роутеры дня 21
+Новое в дне 22 — режим RAG (``backend/api/rag.py``): поиск по корпусу документов,
+ответ с контекстом и без него, сравнение двух ответов. День 23 добавил второй этап
+отбора — переформулировку вопроса, кросс-энкодер и порог отсечения, а вместе с ним
+сравнение режимов отбора (``POST /rag/compare_modes``, 4 эндпоинта). Роутеры дня 21
 остаются на месте. Контракт ошибок приложения — в ``backend/api/__init__.py``.
 
 Здесь только сборка приложения: эндпоинты живут в ``backend/api/``, доступ к
@@ -20,7 +22,8 @@ Swagger-документация:  http://127.0.0.1:8000/docs
 ``get_mcp_registry`` / ``get_scheduler`` / ``get_schedule_service`` /
 ``get_pipeline_service`` / ``get_orchestration_service`` / ``get_indexing_service`` /
 ``get_index_service`` / ``get_embedding_service`` / ``get_llm_client`` /
-``get_rag_service`` импортированы сюда как точки подмены для тестов.
+``get_rag_service`` / ``get_rerank_service`` импортированы сюда как точки подмены
+для тестов.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,6 +38,7 @@ from ..services.mcp_registry import get_mcp_registry
 from ..services.orchestration_service import get_orchestration_service
 from ..services.pipeline_service import get_pipeline_service
 from ..services.rag_service import get_rag_service
+from ..services.rerank_service import get_rerank_service
 from ..services.schedule_service import get_schedule_service
 from ..services.scheduler import get_scheduler
 from . import (

@@ -1,13 +1,15 @@
-"""Роутер API дня 22: режим RAG — поиск по корпусу, ответ с контекстом и без.
+"""Роутер API: режим RAG — поиск по корпусу, ответ с контекстом и без.
 
-Три эндпоинта: ``POST /rag/query`` (ответ по корпусу или без него — переключатель
-``use_rag``), ``POST /rag/compare`` (оба ответа на один вопрос) и ``GET /rag/config``
-(готовность корпуса и лимиты режима). Отдельного эндпоинта поиска нет: интерфейсу
-нужен ответ модели, а выдача поиска приходит в нём же полем ``sources``.
+Четыре эндпоинта: ``POST /rag/query`` (ответ по корпусу или без него — переключатель
+``use_rag``), ``POST /rag/compare`` (оба ответа на один вопрос), ``POST
+/rag/compare_modes`` (тот же вопрос по нескольким режимам отбора: базовый гибридный
+поиск, переформулировка, реранкер, реранкер с порогом) и ``GET /rag/config``
+(готовность корпуса, лимиты режима и каталог режимов). Отдельного эндпоинта поиска
+нет: интерфейсу нужен ответ модели, а выдача поиска приходит в нём же полем ``sources``.
 
-Перевод отказов в коды ответов: ``RAGRejected`` с кодом ``bad_strategy`` или
-``empty_query`` — 400 (ошибка запроса), ``index_empty`` — 409 (корпус ещё не
-проиндексирован), ``RAGUpstreamError`` — 502 (вызов модели не удался после всех
+Перевод отказов в коды ответов: ``RAGRejected`` с кодом ``bad_strategy``,
+``empty_query`` или ``bad_mode`` — 400 (ошибка запроса), ``index_empty`` — 409 (корпус
+ещё не проиндексирован), ``RAGUpstreamError`` — 502 (вызов модели не удался после всех
 повторов и откат на ответ без RAG тоже).
 """
 from __future__ import annotations
@@ -15,21 +17,24 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from ..core import dependencies
-from ..domain import rag_mode
+from ..domain import rag_filter, rag_mode
 from ..schemas import (
     RagCompareIn,
     RagCompareOut,
     RagConfigOut,
+    RagModesIn,
+    RagModesOut,
     RagQueryIn,
     RagQueryOut,
 )
-from ..services.rag_service import RAGRejected, RAGUpstreamError
+from ..services.rag_errors import RAGRejected, RAGUpstreamError
 
 router = APIRouter()
 
 #: Коды причин, которые говорят про сам запрос, а не про состояние корпуса.
 _BAD_REQUEST_REASONS = (rag_mode.REASON_RAG_BAD_STRATEGY,
-                        rag_mode.REASON_RAG_EMPTY_QUERY)
+                        rag_mode.REASON_RAG_EMPTY_QUERY,
+                        rag_filter.REASON_RAG_BAD_MODE)
 
 
 def _rejected(exc: RAGRejected) -> HTTPException:
@@ -57,7 +62,11 @@ def rag_query(payload: RagQueryIn) -> RagQueryOut:
     try:
         if payload.use_rag:
             result = service.rag_query(payload.question, payload.top_k,
-                                       payload.strategy)
+                                       payload.strategy,
+                                       rewrite=payload.rewrite,
+                                       rerank=payload.rerank,
+                                       min_score=payload.min_score,
+                                       top_k_candidates=payload.top_k_candidates)
         else:
             result = service.no_rag_query(payload.question)
     except RAGRejected as exc:
@@ -102,3 +111,30 @@ def rag_compare(payload: RagCompareIn) -> RagCompareOut:
     except RAGUpstreamError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return RagCompareOut(**result)
+
+
+@router.post(
+    "/rag/compare_modes",
+    response_model=RagModesOut,
+    summary="Сравнение режимов отбора на одном вопросе",
+    description=(
+        "Один вопрос — до четырёх записей: базовый гибридный поиск дня 22, "
+        "переформулировка запроса моделью, реранкер кросс-энкодером и реранкер с "
+        "порогом отсечения. У каждой записи свои источники, баллы отбора и числа "
+        "«сколько кандидатов было до фильтра / сколько осталось»: интерфейс и отчёт "
+        "показывают, что именно добавляет каждая ступень."
+    ),
+)
+def rag_compare_modes(payload: RagModesIn) -> RagModesOut:
+    """Ответы по нескольким режимам отбора: одна ступень отбора на запись."""
+    service = dependencies.get_rag_service()
+    try:
+        result = service.compare_modes(
+            payload.question, top_k=payload.top_k, strategy=payload.strategy,
+            min_score=payload.min_score,
+            top_k_candidates=payload.top_k_candidates, modes=payload.modes)
+    except RAGRejected as exc:
+        raise _rejected(exc) from exc
+    except RAGUpstreamError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return RagModesOut(**result)

@@ -17,9 +17,9 @@ from indexing_fakes import FakeEmbedder, make_documents
 
 @pytest.fixture(autouse=True)
 def isolated_indexing(tmp_path, monkeypatch):
-    """Уводит индексацию от рабочих файлов дня и запрещает загрузку модели.
+    """Уводит индексацию от рабочих файлов дня и запрещает загрузку моделей.
 
-    Две ловушки, которые эта фикстура закрывает для ВСЕХ тестов дня:
+    Три ловушки, которые эта фикстура закрывает для ВСЕХ тестов дня:
 
     * ``lifespan`` приложения зовёт ``load_all``/``save_all`` у службы индексов
       процесса — то есть читал и писал бы рабочие ``day21/index/*.index`` и держал
@@ -28,25 +28,36 @@ def isolated_indexing(tmp_path, monkeypatch):
     * модель эмбеддингов весит сотни мегабайт и требует сети. ``warmup`` в
       демон-потоке старта попытался бы её загрузить, поэтому ``EmbeddingService._load``
       заменён функцией-ошибкой: случайная загрузка настоящей модели = падение теста
-      (у ``warmup`` исключение ловится, поэтому старт приложения не ломается).
+      (у ``warmup`` исключение ловится, поэтому старт приложения не ломается);
+    * та же ловушка — для кросс-энкодера реранкера (день 23): ``RerankService._load``
+      тоже заменён ошибкой, чтобы ``warmup`` не тянул вторую модель из сети.
     """
     import backend.api.main as main
 
     from backend.services import embedding_service as embedding_module
     from backend.services import index_service as index_module
     from backend.services import indexing_service as indexing_module
+    from backend.services import rerank_service as rerank_module
     from backend.services.embedding_service import EmbeddingService
     from backend.services.index_service import IndexService
+    from backend.services.rerank_service import RerankService
 
     monkeypatch.setattr(indexing_module, "_service", None)
     monkeypatch.setattr(index_module, "_service", None)
     monkeypatch.setattr(embedding_module, "_service", None)
+    monkeypatch.setattr(rerank_module, "_service", None)
 
     def no_real_model(_self):
         """Настоящая модель в тестах не загружается (сеть и сотни мегабайт)."""
         raise AssertionError("тест попытался загрузить настоящую модель эмбеддингов")
 
     monkeypatch.setattr(EmbeddingService, "_load", no_real_model)
+
+    def no_real_rerank(_self):
+        """Кросс-энкодер реранкера в тестах тоже не загружается."""
+        raise AssertionError("тест попытался загрузить настоящую модель реранкера")
+
+    monkeypatch.setattr(RerankService, "_load", no_real_rerank)
 
     isolated = IndexService(embedder=EmbeddingService(),
                             index_dir=tmp_path / "index-isolated")

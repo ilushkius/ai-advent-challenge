@@ -1,6 +1,6 @@
 """Оценка RAG (день 22): 10 контрольных вопросов и правило вердикта.
 
-Вопросы — измерительный инструмент отчёта ``docs/reports/rag_eval.md``, а не
+Вопросы — измерительный инструмент отчёта ``docs/reports/rag_modes.md``, а не
 демонстрация: каждый спрашивает про ФАКТ ИЗ ФАЙЛА дня 21, которого нет в общих
 знаниях модели (имя константы, её значение, порядок вызовов, точный текст ошибки).
 Если модель отвечает такой факт без контекста — значит, она отвечала по памяти
@@ -70,14 +70,15 @@ RAG_QUESTIONS: tuple[RagQuestion, ...] = (
         note="CYRILLIC_RATIO = 0.15; в таблице DOCUMENT_SOURCES 25 записей",
     ),
     RagQuestion(
-        question="Какой поток прогрева модели эмбеддингов создаёт при старте "
+        question="Какой поток прогрева моделей создаёт при старте "
                  "day21/backend/api/lifespan.py (threading.Thread, daemon=True, name=) "
                  "и что запускается до этого потока?",
-        key_facts=("init_db", "restore_from_db", "embedding-warmup"),
+        key_facts=("init_db", "restore_from_db", "model-warmup"),
         expected_sources=("day21/backend/api/lifespan.py",),
         note="database.init_db() → get_manager().restore_from_db() → "
              "get_scheduler().start() → get_mcp_registry().connect_all() → "
-             "get_index_service().load_all(); поток name=«embedding-warmup»",
+             "get_index_service().load_all(); поток name=«model-warmup» прогревает "
+             "эмбеддер и реранкер (день 23)",
     ),
     RagQuestion(
         question="Как ChunkStore.add_chunks проставляет embedding_id и какие id "

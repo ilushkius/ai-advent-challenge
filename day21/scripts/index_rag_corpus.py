@@ -24,7 +24,8 @@ for _path in (DAY_ROOT, SCRIPT_DIR):
 from backend.domain import rag_corpus_spec  # noqa: E402
 from backend.domain.rag_mode import RAG_STRATEGIES  # noqa: E402
 from backend.services.document_loader import CHARS_PER_PAGE  # noqa: E402
-from backend.services.rag_service import RAGError, RAGService  # noqa: E402
+from backend.services.rag_errors import RAGError  # noqa: E402
+from backend.services.rag_service import RAGService  # noqa: E402
 
 
 def main(argv=None) -> int:

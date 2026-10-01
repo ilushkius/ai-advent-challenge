@@ -20,10 +20,13 @@
 5. **индексы документов** — ``get_index_service().load_all()`` читает
    ``index/fixed.index`` и ``index/structural.index`` с диска, поэтому поиск по
    документам работает сразу после перезапуска, без повторной индексации;
-6. **прогрев модели эмбеддингов** — ``get_embedding_service().warmup()`` в
-   ДЕМОН-ПОТОКЕ. Блокирующий прогрев занял бы десятки секунд, а на первой загрузке
-   — минуты (скачивание весов в ``index/models``), и бэкенд всё это время не отвечал
-   бы; неудача прогрева видна как ``failed`` первого прогона индексации.
+6. **прогрев моделей** — ``_warmup_models()`` в ДЕМОН-ПОТОКЕ прогревает эмбеддер
+   (``get_embedding_service().warmup()``) и реранкер
+   (``get_rerank_service().warmup()``, день 23). Блокирующий прогрев занял бы
+   десятки секунд, а на первой загрузке — минуты (скачивание весов в
+   ``index/models``), и бэкенд всё это время не отвечал бы; неудача прогрева видна
+   как ``failed`` первого прогона индексации, а недоступный реранкер даёт
+   предупреждение в ответе вместо отказа.
 
 Останавливаются службы в обратном порядке: сначала планировщик (чтобы фон не
 трогал БД на выходе), затем MCP-подключения — ``close()`` закрывает и активное
@@ -50,6 +53,17 @@ from ..storage import database
 logger = get_logger(__name__)
 
 
+def _warmup_models() -> None:
+    """Прогревает обе модели отбора в одном демон-потоке: эмбеддер, затем реранкер.
+
+    Функция локальная, потому что ``dependencies`` резолвит службы по атрибутам
+    ``backend.api.main`` в момент вызова: тест, подменивший сервис, подмену увидит
+    и отсюда.
+    """
+    dependencies.get_embedding_service().warmup()
+    dependencies.get_rerank_service().warmup()
+
+
 @asynccontextmanager
 async def lifespan(_app):
     """Старт: таблицы, агенты, планировщик, флот и индексы; остановка: всё обратно."""
@@ -58,12 +72,11 @@ async def lifespan(_app):
     dependencies.get_scheduler().start()
     dependencies.get_mcp_registry().connect_all()
     dependencies.get_index_service().load_all()
-    threading.Thread(target=dependencies.get_embedding_service().warmup,
-                     daemon=True, name="embedding-warmup").start()
+    threading.Thread(target=_warmup_models, daemon=True, name="model-warmup").start()
     logger.debug(
         "Старт бэкенда: таблицы созданы, агенты и планировщик восстановлены, "
         "флот MCP-серверов подключён, индексы документов прочитаны, "
-        "прогрев модели эмбеддингов запущен"
+        "прогрев моделей эмбеддингов и реранкера запущен"
     )
     yield
     dependencies.get_scheduler().shutdown()

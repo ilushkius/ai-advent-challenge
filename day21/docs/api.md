@@ -1,7 +1,7 @@
-# API дня 22 — агенты DeepSeek с индексацией документов, RAG и оптимизацией затрат на LLM: оркестрация флота MCP-серверов, декларативный пайплайн, планировщик фоновых задач, контролируемые переходы, инварианты, состояние задачи, память, профиль, журнал расходов и поиск по корпусу документов
+# API дня 23 — агенты DeepSeek с индексацией документов, RAG и оптимизацией затрат на LLM: второй этап отбора (реранкер, порог отсечения, переформулировка запроса), оркестрация флота MCP-серверов, декларативный пайплайн, планировщик фоновых задач, контролируемые переходы, инварианты, состояние задачи, память, профиль и журнал расходов
 
 Бэкенд — FastAPI-приложение `day21/backend/api/main.py`. Заголовок приложения —
-«Агенты DeepSeek + индексация документов и RAG — День 22», версия схемы — `16.0.0`
+«Агенты DeepSeek + индексация документов и RAG — День 23», версия схемы — `16.0.0`
 (видны в Swagger UI и `GET /openapi.json`). Базовый адрес после запуска
 (из папки `day21`):
 
@@ -5550,10 +5550,24 @@ curl.exe -X POST http://127.0.0.1:8000/mcp/servers/refresh \
 | `top_k` | int | сколько фрагментов корпуса подмешать в контекст, 1…10 (по умолчанию 5) |
 | `strategy` | строка/null | стратегия поиска: `rag_corpus_structural` (по умолчанию) или `rag_corpus_fixed` |
 | `use_rag` | bool | `true` — ответ с контекстом корпуса, `false` — тот же вопрос без него |
+| `rewrite` | bool | `true` — сначала переформулировать вопрос моделью и искать по переформулировке (день 23) |
+| `rerank` | bool | `true` — пересортировать кандидатов кросс-энкодером (день 23) |
+| `min_score` | float/null | порог отсечения фрагментов, 0.0…1.0; `null` — без отсечения (день 23) |
+| `top_k_candidates` | int/null | сколько кандидатов запросить у поиска (1…60); `null` — как в дне 22 (`RAG_CANDIDATE_POOL` = 30) |
+
+Без новых полей (`rewrite`, `rerank`, `min_score`, `top_k_candidates`) ответ и
+числа совпадают с днём 22: гибридный порядок, отсечения нет, пул 30 кандидатов.
+Порог `min_score` трактуется по той шкале, по которой шла сортировка: с `rerank`
+это балл кросс-энкодера (0…1), без него — гибридный балл (`score`, практически
+0…1.2), поэтому `min_score` = 1.0 такой режим обнулит.
 
 ### RagSourceOut
 
-Один использованный фрагмент корпуса.
+Один использованный фрагмент корпуса. Баллы видны все четыре: `score` — тот, по
+которому фрагмент отобран (при `rerank` это `rerank_score`), `vector_score` —
+сырая косинусная близость FAISS (сохраняется до гибридного ранжирования),
+`lexical_score` — доля весовых совпадений слов вопроса, `rerank_score` — оценка
+кросс-энкодера (`null`, если реранкер не применялся).
 
 | Поле | Тип | Пояснение |
 |---|---|---|
@@ -5561,7 +5575,10 @@ curl.exe -X POST http://127.0.0.1:8000/mcp/servers/refresh \
 | `title` | строка | заголовок документа |
 | `section` | строка | заголовок раздела (пусто у стратегии `fixed`) |
 | `chunk_id` | строка | идентификатор чанка внутри стратегии |
-| `score` | float | близость к вопросу (больше — ближе) |
+| `score` | float | балл, по которому фрагмент отобран и отсортирован (больше — ближе) |
+| `vector_score` | float | косинусная близость векторного поиска |
+| `lexical_score` | float | доля весов слов вопроса, найденных в тексте фрагмента |
+| `rerank_score` | float/null | оценка кросс-энкодера, `null` без реранкера |
 
 ### RagTokensOut
 
@@ -5594,6 +5611,42 @@ curl.exe -X POST http://127.0.0.1:8000/mcp/servers/refresh \
 | `context_tokens` | int | размер блока контекста в токенах |
 | `duration_ms` | int | сколько занял запрос целиком |
 | `tokens` | RagTokensOut/null | расход вызова (`null` — вызова не было) |
+| `query_used` | строка | текст, по которому реально шёл поиск (переформулировка или вопрос; пусто в режиме без RAG) |
+| `rewritten` | bool | поиск шёл по переформулированному запросу |
+| `reranked` | bool | пересортировка кросс-энкодером состоялась (сбой реранкера даёт `false` и текст в `rerank_warning`) |
+| `candidates` | int | сколько фрагментов было ДО отсечения (весь пул) |
+| `kept` | int | сколько осталось ПОСЛЕ отсечения (и ушло в контекст) |
+| `min_score` | float/null | применённый порог отсечения (`null` — отсечения не было) |
+| `top_k_candidates` | int | размер запрошенного пула кандидатов |
+| `rewrite_warning` | строка | почему переформулировка не применилась (пусто — применилась или не запрашивалась) |
+| `rerank_warning` | строка | почему реранкер не применился (пусто — применился или не запрашивался) |
+| `filter_warning` | строка | порог отбросил все фрагменты: ответ получен без контекста (пусто — иначе) |
+
+### RagModesIn
+
+Тело `POST /rag/compare_modes` (день 23): один вопрос, прогнанный через несколько
+режимов отбора.
+
+| Поле | Тип | Пояснение |
+|---|---|---|
+| `question` | строка | вопрос к корпусу (до 500 символов) |
+| `top_k` | int | сколько фрагментов берётся после отбора, 1…10 (по умолчанию 5) |
+| `strategy` | строка/null | стратегия поиска (`rag_corpus_structural` по умолчанию) |
+| `modes` | [строка]/null | режимы из `RagConfigOut.modes`; `null` — все четыре; неизвестные имена отбрасываются, пустой список — `400` |
+| `min_score` | float/null | порог, перекрывающий порог режима (0.0…1.0) |
+| `top_k_candidates` | int/null | размер пула кандидатов (1…60) |
+
+### RagModeOut
+
+Один режим в ответе сравнения: `mode` (имя), `label` (подпись для интерфейса) и
+`result` — обычный [RagQueryOut](#ragqueryout) с ответом, источниками и метриками
+отбора этого режима.
+
+### RagModesOut
+
+Ответ `POST /rag/compare_modes`: `question` и `modes` — список `RagModeOut` в
+порядке, в котором режимы перечислены в запросе (или в порядке дня:
+`baseline`, `rewrite`, `rerank`, `rerank_filter`).
 
 ### RagCompareOut
 
@@ -5621,6 +5674,10 @@ curl.exe -X POST http://127.0.0.1:8000/mcp/servers/refresh \
 | `top_k_max` | int | верхняя граница `top_k` |
 | `context_max_tokens` | int | бюджет блока контекста в промпте |
 | `chunk_max_chars` | int | предел длины одного фрагмента в символах |
+| `modes` | [объект] | режимы отбора дня 23: `name`, `label`, `rewrite`, `rerank`, `min_score` |
+| `rerank_model` | строка | кросс-энкодер реранкера (кэш весов — `index/models/`) |
+| `min_score_default` | float | измеренный порог отсечения `RAG_FILTER_MIN_SCORE` |
+| `candidates_max` | int | верхняя граница `top_k_candidates` (`RAG_MAX_CANDIDATES` = 60) |
 
 ## Расходы на LLM
 
@@ -5844,35 +5901,45 @@ curl -X POST http://127.0.0.1:8000/llm/estimate -H "Content-Type: application/js
 
 ## RAG-режим
 
-RAG-режим — подсистема дня 22: «вопрос → поиск релевантных фрагментов корпуса →
-блок контекста плюс вопрос → ответ модели». Три эндпоинта с абсолютными путями
-(`/rag...`; префиксов нет). Логику держит `backend/services/rag_service.py`
-(`RAGService`): гибридный поиск по индексу корпуса (`rag_corpus_structural` |
-`rag_corpus_fixed`), сборка блока контекста с бюджетом `RAG_CONTEXT_MAX_TOKENS`
-(лишние фрагменты отбрасывает `fit_context`), ответ через
+RAG-режим — подсистема дня 22, дополненная в дне 23 вторым этапом отбора:
+«вопрос → поиск релевантных фрагментов корпуса → блок контекста плюс вопрос →
+ответ модели». Четыре эндпоинта с абсолютными путями (`/rag...`; префиксов нет).
+Логику держит `backend/services/rag_service.py` (`RAGService`): переформулировка
+вопроса моделью (необязательно), гибридный поиск по индексу корпуса
+(`rag_corpus_structural` | `rag_corpus_fixed`), пересортировка кандидатов
+кросс-энкодером (`backend/services/rerank_service.py`), отсечение по порогу
+(`backend/domain/rag_filter.py`), сборка блока контекста с бюджетом
+`RAG_CONTEXT_MAX_TOKENS` (лишние фрагменты отбрасывает `fit_context`), ответ через
 `LLMClient.generate_with_context` (стабильный системный префикс → блок контекста и
-вопрос) и оценка опоры ответа на контекст. Корпус собирают
-`scripts/prepare_rag_corpus.py` и индексируют `scripts/index_rag_corpus.py`,
-сравнение ответов пишет `scripts/run_rag_eval.py` в
-`docs/reports/rag_eval.md`. Оба индекса живут в тех же таблицах `document_chunks`
-(колонка `strategy`), что и индексация дня 21, — новых таблиц режим не заводит;
-лимиты перечислены в разделе [«Формы данных»](#формы-данных).
+вопрос) и оценка опоры ответа на контекст. Этапы поиска держит
+`backend/services/rag_retrieval.py` (`RAGRetrieval`), сборку полей ответа —
+`backend/services/rag_records.py`. Корпус собирают `scripts/prepare_rag_corpus.py` и
+индексируют `scripts/index_rag_corpus.py`, сравнение режимов пишет
+`scripts/run_rag_eval.py` в `docs/reports/rag_modes.md`. Оба индекса живут в тех же
+таблицах `document_chunks` (колонка `strategy`), что и индексация дня 21, — новых
+таблиц режим не заводит; лимиты перечислены в разделе
+[«Формы данных»](#формы-данных).
 
 ### POST /rag/query
 
 Тело — `RagQueryIn`: `question`, `top_k` (1…10, по умолчанию 5), `strategy`
-(`rag_corpus_structural` по умолчанию | `rag_corpus_fixed`) и `use_rag`
+(`rag_corpus_structural` по умолчанию | `rag_corpus_fixed`), `use_rag`
 (`true` — ответ с контекстом корпуса, `false` — тот же вопрос без него; различие
-запросов ровно одно — наличие блока контекста). Ответ — `RagQueryOut`: `mode`,
-`answer`, `sources` (пять полей фрагмента), `chunks_used`, `context_tokens`,
-`duration_ms`, `tokens` и `grounding`. Если вызов модели с контекстом не удался
-после повторов, сервис сам отвечает без RAG и помечает ответ `fallback: true` с
-текстом `warning`.
+запросов ровно одно — наличие блока контекста) и рычаги дня 23: `rewrite`,
+`rerank`, `min_score`, `top_k_candidates`. Ответ — `RagQueryOut`: `mode`, `answer`,
+`sources` (восемь полей фрагмента с четырьмя баллами), `chunks_used`,
+`context_tokens`, `duration_ms`, `tokens`, `grounding` и метрики отбора
+`query_used`, `rewritten`, `reranked`, `candidates`, `kept`, `min_score`,
+`top_k_candidates` с тремя предупреждениями. Если вызов модели с контекстом не
+удался после повторов, сервис сам отвечает без RAG и помечает ответ
+`fallback: true` с текстом `warning`. Сбой необязательного этапа (переформулировка
+или реранкер) не роняет ответ: он возвращается с предупреждением, а поиск идёт по
+исходному вопросу и в порядке дня 22.
 
 ```bash
 curl.exe -X POST http://127.0.0.1:8000/rag/query ^
   -H "Content-Type: application/json" ^
-  -d "{\"question\":\"Чему равен CHARS_PER_PAGE в day21/backend/services/document_loader.py?\",\"top_k\":5}"
+  -d "{\"question\":\"Чему равен CHARS_PER_PAGE в day21/backend/services/document_loader.py?\",\"top_k\":5,\"rerank\":true}"
 ```
 
 ```json
@@ -5889,12 +5956,25 @@ curl.exe -X POST http://127.0.0.1:8000/rag/query ^
       "title": "Сборка набора документов дня 21 в папку documents/ (день 21).",
       "section": "module",
       "chunk_id": "structural:day21-backend-services-document_loader.py:0000",
-      "score": 0.6406
+      "score": 0.9855,
+      "vector_score": 0.5312,
+      "lexical_score": 0.5344,
+      "rerank_score": 0.9855
     }
   ],
   "chunks_used": 5,
   "context_tokens": 2811,
-  "duration_ms": 931,
+  "duration_ms": 1420,
+  "query_used": "Чему равен CHARS_PER_PAGE в day21/backend/services/document_loader.py?",
+  "rewritten": false,
+  "reranked": true,
+  "candidates": 30,
+  "kept": 5,
+  "min_score": null,
+  "top_k_candidates": 30,
+  "rewrite_warning": "",
+  "rerank_warning": "",
+  "filter_warning": "",
   "tokens": {
     "model": "deepseek-chat",
     "prompt_tokens": 2400,
@@ -5907,18 +5987,22 @@ curl.exe -X POST http://127.0.0.1:8000/rag/query ^
 }
 ```
 
-Коды: `200`, `400` (пустой `question` или неизвестная `strategy`), `409` (корпус
-RAG не проиндексирован), `502` (сбой вызова модели в режиме RAG и неудавшийся
-откат на ответ без контекста).
+Коды: `200`, `400` (пустой `question`, неизвестная `strategy` или неизвестный
+режим отбора), `422` (`min_score` вне 0…1, `top_k_candidates` вне 1…60),
+`409` (корпус RAG не проиндексирован), `502` (сбой вызова модели в режиме RAG и
+неудавшийся откат на ответ без контекста).
 
 ### GET /rag/config
 
 Готовность режима и его лимиты — `RagConfigOut`: `ready`, состав корпуса `corpus`
 (`documents`, `chars`, `pages`, `min_pages`, `ready`), чанки по стратегиям
 `indexes`, `chunks_total`, `strategies`, `default_strategy`, `top_k_default`,
-`top_k_max`, `context_max_tokens`, `chunk_max_chars`. Состояние корпуса читается из
-каталога `documents/rag_corpus/`, счётчики чанков — из таблицы `document_chunks`.
-Этим ответом пользуется панель «🔍 RAG-запрос по корпусу» в интерфейсе.
+`top_k_max`, `context_max_tokens`, `chunk_max_chars`, а также параметры дня 23:
+`modes` (режимы отбора с их рычагами), `rerank_model` (кросс-энкодер),
+`min_score_default` (измеренный порог) и `candidates_max`. Состояние корпуса
+читается из каталога `documents/rag_corpus/`, счётчики чанков — из таблицы
+`document_chunks`. Этим ответом пользуется панель «🔍 RAG-запрос по корпусу» в
+интерфейсе: список режимов и стартовое значение порога берутся отсюда.
 
 ```bash
 curl.exe http://127.0.0.1:8000/rag/config
@@ -5946,7 +6030,16 @@ curl.exe http://127.0.0.1:8000/rag/config
   "top_k_default": 5,
   "top_k_max": 10,
   "context_max_tokens": 3000,
-  "chunk_max_chars": 2000
+  "chunk_max_chars": 2000,
+  "modes": [
+    {"name": "baseline", "label": "как в дне 22: гибридный поиск без отсечения", "rewrite": false, "rerank": false, "min_score": null},
+    {"name": "rewrite", "label": "переформулировка запроса моделью", "rewrite": true, "rerank": false, "min_score": null},
+    {"name": "rerank", "label": "кросс-энкодер пересортировывает кандидатов", "rewrite": false, "rerank": true, "min_score": null},
+    {"name": "rerank_filter", "label": "кросс-энкодер и порог отсечения", "rewrite": false, "rerank": true, "min_score": 0.05}
+  ],
+  "rerank_model": "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1",
+  "min_score_default": 0.05,
+  "candidates_max": 60
 }
 ```
 
@@ -5988,6 +6081,63 @@ curl.exe -X POST http://127.0.0.1:8000/rag/compare ^
 ```
 
 Коды: `200`, `400`, `409`, `502` — те же условия, что у `POST /rag/query`.
+
+### POST /rag/compare_modes
+
+Тело — `RagModesIn` (`question`, `top_k`, `strategy`, `modes`, `min_score`,
+`top_k_candidates`). Один вопрос прогоняется через каждый запрошенный режим отбора
+и возвращается `RagModesOut` — по записи на режим с полным `RagQueryOut`. Режимы
+по умолчанию (поле `modes` не задано) — все четыре в порядке дня: `baseline`,
+`rewrite`, `rerank`, `rerank_filter`; неизвестные имена отбрасываются, а если после
+этого список пуст, приходит `400` с `detail` «Неизвестный режим отбора». Записи
+идут в порядке запроса (для `null` — в порядке дня).
+
+```bash
+curl.exe -X POST http://127.0.0.1:8000/rag/compare_modes ^
+  -H "Content-Type: application/json" ^
+  -d "{\"question\":\"Чему равен CHARS_PER_PAGE в day21/backend/services/document_loader.py?\",\"modes\":[\"baseline\",\"rerank_filter\"]}"
+```
+
+```json
+{
+  "question": "Чему равен CHARS_PER_PAGE в day21/backend/services/document_loader.py?",
+  "modes": [
+    {
+      "mode": "baseline",
+      "label": "как в дне 22: гибридный поиск без отсечения",
+      "result": {
+        "mode": "rag",
+        "answer": "В контексте указано, что CHARS_PER_PAGE = 1800.",
+        "sources": [{"source": "day21-backend-services-document_loader.py", "section": "module", "chunk_id": "structural:day21-backend-services-document_loader.py:0000", "score": 0.6406, "vector_score": 0.5312, "lexical_score": 0.5344, "rerank_score": null}],
+        "candidates": 30,
+        "kept": 5,
+        "min_score": null,
+        "reranked": false,
+        "rerank_warning": "",
+        "filter_warning": ""
+      }
+    },
+    {
+      "mode": "rerank_filter",
+      "label": "кросс-энкодер и порог отсечения",
+      "result": {
+        "mode": "rag",
+        "answer": "В контексте указано, что CHARS_PER_PAGE = 1800.",
+        "sources": [{"source": "day21-backend-services-document_loader.py", "section": "module", "chunk_id": "structural:day21-backend-services-document_loader.py:0000", "score": 0.9855, "vector_score": 0.5312, "lexical_score": 0.5344, "rerank_score": 0.9855}],
+        "candidates": 30,
+        "kept": 3,
+        "min_score": 0.5,
+        "reranked": true,
+        "rerank_warning": "",
+        "filter_warning": ""
+      }
+    }
+  ]
+}
+```
+
+Коды: `200`, `400` (пустой `question`, неизвестная `strategy`, ни одного известного
+режима в `modes`), `409`, `502` — те же условия, что у `POST /rag/query`.
 
 ## Коды ошибок
 

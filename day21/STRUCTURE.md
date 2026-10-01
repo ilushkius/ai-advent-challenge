@@ -1,6 +1,6 @@
-# Структура дня 22
+# Структура дня 23
 
-Карта модулей дня 22: что где лежит и за что отвечает. Правила структуры — в
+Карта модулей дня 23: что где лежит и за что отвечает. Правила структуры — в
 [`../docs/project-rules.md`](../docs/project-rules.md) и
 [`../docs/architecture.md`](../docs/architecture.md).
 
@@ -11,9 +11,9 @@
 Pydantic-схемы — в `schemas/`, HTTP — в `api/`. Сваливать файлы в корень
 `backend/` нельзя.
 
-**Что такое день 22.** Проект дня 21 (копия дня 20 — агент DeepSeek с памятью, FSM,
+**Что такое день 23.** Проект дня 21 (копия дня 20 — агент DeepSeek с памятью, FSM,
 инвариантами, профилем, MCP-клиентом и флотом серверов, планировщиком, пайплайном и
-оркестрацией) плюс три новые подсистемы — две дня 21 и одна дня 22:
+оркестрацией) плюс три новые подсистемы — две дня 21 и одна дней 22–23:
 
 1. **Индексация документов** — сборка набора документов из источников репозитория в
    `documents/`, две стратегии чанкинга (фиксированное окно по токенам и структурная —
@@ -31,15 +31,19 @@ Pydantic-схемы — в `schemas/`, HTTP — в `api/`. Сваливать ф
 3. **RAG-режим** — отдельный корпус документов `documents/rag_corpus/` (36 источников
    дня 21), загрузчик корпуса, гибридный отбор фрагментов (кандидаты FAISS плюс
    словесные веса запроса), бюджет контекста в промпте (`fit_context`), ответ по
-   фрагментам с оценкой опоры на контекст, роутер `/rag` (3 эндпоинта), панель
-   «🔍 RAG-запрос по корпусу» в разделе чата и раздел «🆚 RAG-сравнение», отчёт
-   `docs/reports/rag_eval.md` по 10 контрольным вопросам.
+   фрагментам с оценкой опоры на контекст, роутер `/rag` (4 эндпоинта), панель
+   «🔍 RAG-запрос по корпусу» в разделе чата и раздел «🆚 RAG-сравнение». День 23
+   добавил второй этап отбора: переформулировку вопроса моделью, пересортировку
+   кандидатов кросс-энкодером (`RAG_RERANK_MODEL`), порог отсечения слабых
+   фрагментов (`RAG_FILTER_MIN_SCORE`) и сравнение четырёх режимов отбора
+   (`POST /rag/compare_modes`); отчёт — `docs/reports/rag_modes.md` по 10
+   контрольным вопросам.
 
 Унаследовано из дня 20 — одной строкой: **остальное дерево, включая `mcp_server/`,
 `mcp_servers/` с `mcp_servers.json`, память, профиль, состояние задачи, инварианты,
 планировщик, пайплайн и оркестрацию, — копия дня 20 без изменений**; карта этих
 модулей построчно — в [`day20/STRUCTURE.md`](../day20/STRUCTURE.md). Ниже описано
-только то, что дни 21–22 добавили или изменили.
+только то, что дни 21–23 добавили или изменили.
 
 ## Почему сделано так (решения дня 21)
 
@@ -122,20 +126,21 @@ day21/
 │   ├── indexing_search.py    # форма ручного поиска по построенному индексу
 │   ├── cost_api.py           # HTTP-запросы вкладки «💰 Расходы» (/llm/...) поверх api_client
 │   ├── cost_section.py       # вкладка «💰 Расходы»: пик/непик, кэш и сжатие, расход по дням, журнал запросов
-│   ├── rag_api.py            # HTTP-запросы RAG (/rag/...) поверх api_client
-│   ├── rag_section.py        # панель «🔍 RAG-запрос по корпусу» и раздел «🆚 RAG-сравнение»
+│   ├── rag_api.py            # HTTP-запросы RAG (/rag/...): query, compare, compare_modes, config
+│   ├── rag_section.py        # панель «🔍 RAG-запрос по корпусу» и раздел «🆚 RAG-сравнение» (включая сравнение режимов)
 │   └── …                     # остальные секции унаследованы от дня 20
 ├── backend/                  # FastAPI-бэкенд, домен и доступ к данным (девять слоёв, в каждом __init__.py)
 │   ├── __init__.py           # описание пакета + корень репозитория в sys.path (для shared/)
 │   ├── api/                  # 17 модулей: 14 роутеров по доменам (в том числе indexing.py, llm.py и rag.py), main.py, lifespan.py
 │   ├── core/                 # 5 модулей: config (в том числе раздел оптимизации затрат), dependencies,
 │   │                         # mcp_server_config и prompt_builder (строитель промптов с кэшем префикса)
-│   ├── domain/               # 53 модуля: чистые правила и данные — индексация (chunking, document_sources,
+│   ├── domain/               # 54 модуля: чистые правила и данные — индексация (chunking, document_sources,
 │   │                         # index_metrics, index_scenarios, indexing_fsm, indexing_prompt), стоимость и непик
-│   │                         # (llm_cost, peak_hours), RAG (rag_mode, rag_corpus_spec, rag_eval) и унаследованные домены
-│   ├── services/             # 33 модуля: индексация (chunker, embedding_service, index_service, document_loader,
+│   │                         # (llm_cost, peak_hours), RAG (rag_mode, rag_filter, rag_corpus_spec, rag_eval) и унаследованные домены
+│   ├── services/             # 39 модулей: индексация (chunker, embedding_service, index_service, document_loader,
 │   │                         # index_runner, index_comparison, indexing_service), затраты (llm_client,
-│   │                         # prompt_compressor, off_peak) и RAG (rag_corpus_loader, rag_service) плюс унаследованные
+│   │                         # prompt_compressor, off_peak) и RAG (rag_corpus_loader, rag_service, rag_retrieval,
+│   │                         # rag_records, rag_llm, rag_errors, rag_corpus_index, rerank_service) плюс унаследованные
 │   ├── storage/              # 17 модулей: chunk_store и index_run_store (журнал прогонов индексации),
 │   │                         # llm_usage_store и llm_usage_rows (журнал расходов) плюс унаследованные хранилища
 │   ├── agents/               # Agent (в generate — шаг поиска по индексу, клиент LLM и строитель промптов),
@@ -144,7 +149,7 @@ day21/
 │   │                         # и llm_usage.py (журнал расходов)
 │   ├── schemas/              # Pydantic-схемы API: 15 модулей, в том числе indexing.py, llm.py и rag.py
 │   └── utils/                # своего кода нет (общий — в repo-level shared/)
-├── tests/                    # pytest: 2560 тестов (unit/ — 1750, integration/ — 581, e2e/ — 229); по умолчанию 2482 (78 slow отложены)
+├── tests/                    # pytest: 2601 тест (unit/ — 1781, integration/ — 582, e2e/ — 238); по умолчанию 2522 (79 slow отложены)
 │   ├── conftest.py           # общие фикстуры (session-scoped schema_template для схемы БД) + autouse no_real_network
 │   ├── fixtures_fleet.py     # фикстуры флота MCP-серверов и оркестрации (вынесены из conftest: лимит 400 строк)
 │   ├── fixtures_indexing.py  # фикстуры индексации документов (тоже вынесены из conftest)
@@ -153,7 +158,7 @@ day21/
 │   ├── rag_fakes.py          # фейки RAG: стаб-клиент DeepSeek и тексты тестового корпуса
 │   └── …                     # унаследованные помощники тестов дня 20 (orchestration_fakes, mcp_fakes, stub_api, support…)
 ├── docs/                     # architecture.md, usage.md, api.md, reports/
-├── scripts/                  # прогоны демонстраций и сборка отчётов (43 модуля, не пакет)
+├── scripts/                  # прогоны демонстраций и сборка отчётов (44 модуля, не пакет)
 │   ├── prepare_documents.py  # сборка набора документов: --force (пересобрать), --list (показать манифест)
 │   ├── indexing_scenarios.py # пять сценариев индексации (демо, одиночная стратегия, поиск, качество, рестарт) + стенд
 │   ├── indexing_demo.py      # точка входа дня: пять сценариев, сборка данных и отчёта, --stub-embedder
@@ -163,7 +168,9 @@ day21/
 │   ├── cost_optimization_report.py  # рендер docs/reports/cost_optimization.md из данных замера + CLI
 │   ├── prepare_rag_corpus.py # сборка корпуса RAG: --list, --force, --validate
 │   ├── index_rag_corpus.py   # построение обоих индексов RAG (prepare_corpus через RAGService)
-│   ├── run_rag_eval.py       # прогон 10 контрольных вопросов и запись docs/reports/rag_eval.md
+│   ├── rag_eval_cells.py     # клетки markdown-таблицы отчёта (экранирование, обрезка, строки источников)
+│   ├── rag_eval_report.py    # рендер docs/reports/rag_modes.md: таблица режимов, свип порога, вердикты
+│   ├── run_rag_eval.py       # прогон 10 контрольных вопросов через 4 режима и запись docs/reports/rag_modes.md
 │   └── …                     # унаследованные скрипты дней 18–20 (orchestration_*, pipeline_*, scheduler_*, video_*)
 ├── invariants_demo.md        # отчёт дня 14 (унаследован; лежит в корне дня — путь задан заданием дня 14)
 ├── conftest.py, pytest.ini   # конфигурация pytest (pythonpath = . tests)
@@ -196,7 +203,7 @@ day21/
 что запускаются отдельным процессом, где ни корень дня, ни корень репозитория в
 `sys.path` не попадают.
 
-## Новые модули дня 21 и дня 22
+## Новые модули дней 21–23
 
 ### Индексация документов: `backend/domain/`, `services/`, `storage/`, `api/`
 
@@ -267,27 +274,41 @@ tiktoken-счётчиком, скидка непика — тариф прова
 допущениях), а предел длины ответа показан отдельной строкой как оценка **сверху** и в
 итог не входит, потому что фактическая длина ответа от потолка не зависит.
 
-### RAG-режим (день 22): `backend/domain/`, `services/`, `schemas/`, `api/`, `frontend/`, `scripts/`
+### RAG-режим (дни 22–23): `backend/domain/`, `services/`, `schemas/`, `api/`, `frontend/`, `scripts/`
 
 | Модуль | Назначение |
 |---|---|
-| `backend/domain/rag_mode.py` | Промпт и лимиты режима: `RAG_SYSTEM_PROMPT` (ответ только по контексту), `RAG_DEFAULT_TOP_K = 5`/`RAG_MAX_TOP_K = 10`, `RAG_CONTEXT_MAX_TOKENS = 3000`, `RAG_CHUNK_MAX_CHARS = 2000`, `RAG_GROUNDING_MIN_SHARE = 0.5`/`RAG_GROUNDING_MIN_WORD = 5`, `RAG_LLM_ATTEMPTS = 3` c паузой `RAG_RETRY_SECONDS`/`RAG_RETRY_BACKOFF`, `RAG_CANDIDATE_POOL = 30`, `RAG_VECTOR_WEIGHT = 0.2`; `resolve_rag_strategy`, `render_context`/`render_rag_block` (заголовок `## Контекст из корпуса RAG`), `fit_context` (жадный бюджет), `content_words`/`query_weights`/`lexical_score` (вклад слова = 1 / число фрагментов с ним), `grounding_share`/`grounding_verdict` |
+| `backend/domain/rag_mode.py` | Промпт и лимиты режима: `RAG_SYSTEM_PROMPT` (ответ только по контексту), `RAG_DEFAULT_TOP_K = 5`/`RAG_MAX_TOP_K = 10`, `RAG_CONTEXT_MAX_TOKENS = 3000`, `RAG_CHUNK_MAX_CHARS = 2000`, `RAG_GROUNDING_MIN_SHARE = 0.5`/`RAG_GROUNDING_MIN_WORD = 5`, `RAG_LLM_ATTEMPTS = 3` c паузой `RAG_RETRY_SECONDS`/`RAG_RETRY_BACKOFF`, `RAG_CANDIDATE_POOL = 30`, `RAG_VECTOR_WEIGHT = 0.2`; `resolve_rag_strategy`, `render_context`/`render_rag_block` (заголовок `## Контекст из корпуса RAG`), `fit_context` (жадный бюджет), `content_words`/`query_weights`/`lexical_score` (вклад слова = 1 / число фрагментов с ним), `grounding_share`/`grounding_verdict`; `rank_candidates` отдаёт вместе с гибридным `score` и `lexical_score` |
+| `backend/domain/rag_filter.py` | Домен дня 23 — режимы и порог: `RAG_MODE_BASELINE`/`RAG_MODE_REWRITE`/`RAG_MODE_RERANK`/`RAG_MODE_RERANK_FILTER` с подписями и рычагами (`RAG_MODE_KNOBS`), `resolve_rag_mode`, `mode_knobs`, `mode_catalog`, `normalize_rerank_scores` (баллы в `[0, 1]`), `candidate_text` (обрезка фрагмента до `RAG_RERANK_MAX_CHARS = 1000`), `apply_rerank` (поле `rerank_score`, стабильная сортировка), `filter_hits` (порог `min_score`), `RAG_RERANK_MODEL` (`cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`), `RAG_RERANK_BATCH_SIZE = 32`/`RAG_RERANK_MAX_LENGTH = 512`, `RAG_FILTER_MIN_SCORE`, `RAG_MAX_CANDIDATES = 60`, `RAG_THRESHOLD_GRID`, тексты предупреждений этапов |
 | `backend/domain/rag_corpus_spec.py` | Состав корпуса: `RAG_CORPUS_SOURCES` (36 источников дня 21), `RAG_CORPUS_SUBDIR = "rag_corpus"`, минимумы `RAG_CORPUS_MIN_PAGES = 25`/`RAG_CORPUS_MIN_CHUNKS = 50`, `corpus_pages`, `validate_sources` (пропавший файл или суффикс вне `DOCUMENT_SUFFIXES` — проблема) |
-| `backend/domain/rag_eval.py` | Оценка: `RagQuestion` (вопрос, `key_facts`, `expected_sources`, `note`), `RAG_QUESTIONS` (10 записей), `question_as_dict`, `facts_found`, `fact_score` (доля найденных фактов), `verdict` («лучше»/«хуже»/«равно» по долям) |
+| `backend/domain/rag_eval.py` | Оценка: `RagQuestion` (вопрос, `key_facts`, `expected_sources`, `note`), `RAG_QUESTIONS` (10 записей), `question_as_dict`, `facts_found`, `fact_score` (доля найденных фактов), `verdict` («лучше»/«хуже»/«равно» по долям), `expected_found` (найден ли ожидаемый источник в выдаче) |
 | `backend/services/rag_corpus_loader.py` | `RagCorpusLoader(DocumentLoader)`: подкаталог `documents/rag_corpus/` и источники дня 21, `status` (документы, символы, страницы, готовность), `validate`; синглтон `get_rag_corpus_loader` |
-| `backend/services/rag_service.py` | `RAGService`: `retrieve` (гибридный поиск: кандидаты FAISS + словесные веса), `_answer` (общий путь с контекстом и без), `rag_query`/`no_rag_query` (единый `RAG_SYSTEM_PROMPT`, различие — блок контекста), `compare`, `prepare_corpus` (пересборка корпуса и обоих индексов), `config`; повторы вызова `RAG_LLM_ATTEMPTS`, откат на ответ без RAG, `RAGRejected`/`RAGUpstreamError` с кодами причин, синглтон `get_rag_service` |
-| `backend/schemas/rag.py` | Pydantic-схемы: `RagQueryIn`/`RagQueryOut`, `RagSourceOut`, `RagTokensOut`, `RagCompareIn`/`RagCompareOut`, `RagCorpusOut`, `RagIndexOut`, `RagConfigOut` |
-| `backend/api/rag.py` | Роутер `/rag`, три эндпоинта; коды: 400 (пустой вопрос, неизвестная стратегия), 409 (корпус не проиндексирован), 502 (сбой вызова модели) |
-| `frontend/rag_api.py` | HTTP-запросы RAG поверх общего `request_json` |
-| `frontend/rag_section.py` | Панель «🔍 RAG-запрос по корпусу» (тумблер, `top_k` 1–10, стратегия, форма вопроса, метрики времени/токенов/фрагментов/кэша, expander «📚 Использованные источники», строка опоры) и раздел «🆚 RAG-сравнение» (столбцы «🚫 Без RAG» / «✅ С RAG») |
+| `backend/services/rag_errors.py` | Исключения режима: `RAGError`, `RAGRejected` (код причины и сообщение), `RAGUpstreamError` — вынесены из службы, чтобы их импортировали и роутер, и этапы поиска без цикла |
+| `backend/services/rag_corpus_index.py` | Подготовка корпуса: `CHUNK_STRATEGIES`, `prepare_corpus(loader, index_service)` (пересборка корпуса и обоих индексов, проверка минимума чанков), `corpus_config(loader, store)` (состояние корпуса и индексов для `GET /rag/config`) |
+| `backend/services/rag_retrieval.py` | Этапы отбора дня 23: `RAGStages` (запрос, режим, стратегия, пул, порог, поле сортировки, кандидаты до и после отсечения, флаг реранка, предупреждение) и `RAGRetrieval.run` — поиск (сырая близость в `vector_score`), гибридный отбор, `_rerank`, `filter_hits`, обрезка до `top_k`; `_limit`/`_candidate_limit` держат границы дня 22 |
+| `backend/services/rerank_service.py` | `RerankService`: ленивая загрузка `CrossEncoder(RAG_RERANK_MODEL)` в кэш `INDEX_MODELS_DIR`, `score(query, texts)` с партией `RAG_RERANK_BATCH_SIZE`, `warmup`, `reset`, `RerankError`; синглтон `get_rerank_service`; модель грузится только внутри `_load`, поэтому тесты идут на стабе |
+| `backend/services/rag_records.py` | Сборка полей ответа: `source(hit)` (восемь полей фрагмента, `score` = балл отбора) и `selection(stages)` (метрики отбора и предупреждения для `RagQueryOut`) |
+| `backend/services/rag_llm.py` | Повторы вызова модели: `call_with_retry` (попытки `RAG_LLM_ATTEMPTS`, паузы `RAG_RETRY_SECONDS`/`RAG_RETRY_BACKOFF`), `response_text`, `usage_dict` |
+| `backend/services/rag_service.py` | `RAGService`: `retrieve`/`_stages` (режим → переформулировка → этапы поиска), `_rewrite` (запрос моделью с `RAG_REWRITE_SYSTEM_PROMPT`), `_answer` (общий путь с контекстом и без), `rag_query`/`no_rag_query` (единый `RAG_SYSTEM_PROMPT`, различие — блок контекста), `compare`, `compare_modes` (четыре режима на одном вопросе), `prepare_corpus`, `config`; повторы вызова, откат на ответ без RAG, `RAGRejected`/`RAGUpstreamError` с кодами причин, синглтон `get_rag_service` |
+| `backend/schemas/rag.py` | Pydantic-схемы: `RagQueryIn`/`RagQueryOut` (рычаги `rewrite`/`rerank`/`min_score`/`top_k_candidates` и метрики отбора), `RagSourceOut` (четыре балла), `RagTokensOut`, `RagCompareIn`/`RagCompareOut`, `RagModesIn`/`RagModeOut`/`RagModesOut`, `RagCorpusOut`, `RagIndexOut`, `RagConfigOut` (`modes`, `rerank_model`, `min_score_default`, `candidates_max`) |
+| `backend/api/rag.py` | Роутер `/rag`, четыре эндпоинта; коды: 400 (пустой вопрос, неизвестная стратегия или режим), 422 (порог вне 0…1, пул вне 1…60), 409 (корпус не проиндексирован), 502 (сбой вызова модели) |
+| `frontend/rag_api.py` | HTTP-запросы RAG поверх общего `request_json`: `api_rag_query` (рычаги `rewrite`/`rerank`/`min_score`/`top_k_candidates`), `api_rag_compare`, `api_rag_compare_modes`, `api_rag_config` |
+| `frontend/rag_section.py` | Панель «🔍 RAG-запрос по корпусу» (тумблер, `top_k` 1–10, стратегия, тумблеры переформулировки и реранкера, слайдер порога, форма вопроса, метрики времени/токенов/фрагментов до и после фильтра/порога/кэша, предупреждения этапов, expander «📚 Использованные источники» со четырьмя баллами, строка опоры) и раздел «🆚 RAG-сравнение» (столбцы «🚫 Без RAG» / «✅ С RAG» плюс мультиселект режимов и сравнение четырёх режимов отбора) |
 | `scripts/prepare_rag_corpus.py` | CLI сборки корпуса: `--list`, `--force`, `--validate`; печатает документы, символы, страницы против минимума и ожидаемое число чанков по стратегиям |
 | `scripts/index_rag_corpus.py` | `RAGService.prepare_corpus()`: строит оба индекса RAG, печатает чанки, векторы и тайминги, проверяет минимум чанков на стратегию |
-| `scripts/run_rag_eval.py` | Прогон 10 контрольных вопросов: ответ с RAG и без, `fact_score` и вердикт, запись `docs/reports/rag_eval.md`; флаги `--top-k`, `--strategy`, `--report`, `--limit` |
+| `scripts/rag_eval_cells.py` | Клетки markdown-таблицы отчёта: `cell` (экранирование и обрезка до `REPORT_CELL_CHARS`), `expectation`, `verdicts_cell`, `answer_cell`, `sources_cell`, `source_line`, `misses`, `metrics_line`; вынесены из `rag_eval_report.py` по лимиту 400 строк |
+| `scripts/rag_eval_report.py` | Чистый рендер отчёта и подсчёт итогов: `render_report`, `render_sweep`, `choose_threshold` (правило выбора порога), `summary_lines`, `step_check` (сверка ступени отсечения с `rerank`), `counts`, `appendix`; отделён от прогона, чтобы печать правилась без вызовов модели |
+| `scripts/run_rag_eval.py` | Прогон 10 контрольных вопросов через 4 режима отбора и ответ без RAG: `fact_score`, вердикты против «без RAG» и против `baseline`, метрики «до/после фильтра», свип порога офлайн по баллам реранкера, запись `docs/reports/rag_modes.md`; флаги `--top-k`, `--strategy`, `--report`, `--limit`, `--threshold`, `--sweep` |
 
 Корпус — производные данные: `documents/rag_corpus/` собирается из источников дня 21, а
 индексы `index/rag_corpus_fixed.index`/`rag_corpus_structural.index` строятся заново
 после клонирования. Новых таблиц RAG не вводит: обе стратегии живут строками в той же
 таблице `document_chunks`, различаясь колонкой `strategy`.
+
+Веса реранкера (день 23) тоже производные: кросс-энкодер складывается в `index/models/`
+подкаталогами кэша `huggingface_hub`; при отсутствии весов реранкер не грузится, режимы
+без него работают (`rerank_warning` в ответе), а `GET /rag/config` продолжает отдавать
+конфигурацию корпуса и индексов.
 
 ### Экономия контекста агента: корень дня, `.gitignore` и настройки окружения
 
@@ -312,8 +333,8 @@ tiktoken-счётчиком, скидка непика — тариф прова
 |---|---|---|
 | `api/` | 17 | HTTP: 14 роутеров по доменам (в том числе `indexing.py` — индексация, `llm.py` — расходы, `rag.py` — RAG, `orchestration.py` — запуски, `mcp_servers.py` — флот), `lifespan.py` (старт и остановка фоновых служб, чтение индексов, прогрев модели) и `main.py` (сборка `app`) |
 | `core/` | 5 | `config.py` (настройки дня: файл флота, каталоги документов и индексов, модель эмбеддингов, границы поиска и **весь раздел оптимизации затрат** — маршрутизация моделей, пределы ответа, тарифы, доля цены кэша, окна непика и параметры журнала), `mcp_server_config.py` (чтение `mcp_servers.json` и запись `tools_cache`), `dependencies.py` (доступ роутов к менеджеру, реестру, планировщику, службам пайплайна, оркестрации, индексации, RAG и клиенту LLM), `prompt_builder.py` |
-| `domain/` | 53 | Чистые правила и данные без БД и сети: FSM задачи/сжатия/MCP/планировщика/пайплайна/оркестрации/**индексации**, графы переходов, расписания, агрегация, распознавание реплик, маппинг аргументов, стратегии, профиль, инварианты, тексты промптов, план шагов, **источники документов, блоки, метрики сравнения, тестовые запросы**, **стоимость запросов и правило непиковых часов**, **RAG-промпт, источники корпуса и контрольные вопросы**. Знают только stdlib, `core.config` и соседей по слою |
-| `services/` | 33 | Прикладные сервисы: компрессор контекста, состояние задачи, инварианты, `mcp_*` (клиент, транспорт, ошибки, реестр с флотом, состояние сервера, раннер инструмента), планировщик и его службы, пайплайн, оркестратор, **чанкер, эмбеддинги, векторный индекс, загрузчик документов, прогон индексации, сборка метрик, служба индексации**, **клиент LLM, сжатие промптов и перенос запуска в непик**, а также **загрузчик корпуса RAG и служба RAG** |
+| `domain/` | 54 | Чистые правила и данные без БД и сети: FSM задачи/сжатия/MCP/планировщика/пайплайна/оркестрации/**индексации**, графы переходов, расписания, агрегация, распознавание реплик, маппинг аргументов, стратегии, профиль, инварианты, тексты промптов, план шагов, **источники документов, блоки, метрики сравнения, тестовые запросы**, **стоимость запросов и правило непиковых часов**, **RAG-промпт, источники корпуса и контрольные вопросы**, **режимы отбора RAG с порогом и реранкером (день 23)**. Знают только stdlib, `core.config` и соседей по слою |
+| `services/` | 39 | Прикладные сервисы: компрессор контекста, состояние задачи, инварианты, `mcp_*` (клиент, транспорт, ошибки, реестр с флотом, состояние сервера, раннер инструмента), планировщик и его службы, пайплайн, оркестратор, **чанкер, эмбеддинги, векторный индекс, загрузчик документов, прогон индексации, сборка метрик, служба индексации**, **клиент LLM, сжатие промптов и перенос запуска в непик**, а также **загрузчик корпуса RAG, служба RAG, этапы отбора, рекорды ответа, повторы вызова и служба кросс-энкодера (день 23)** |
 | `storage/` | 17 | Доступ к БД: `database.py` (движок, сессии, реэкспорт ORM), хранилища задач, инвариантов, памяти, планировщика, пайплайна, оркестрации, **чанков с журналом индексации** и **журнала расходов на LLM** (+ модули «строка → словарь») |
 | `agents/` | 12 | `Agent`, `MemoryManager`, `ProfileStore`, `AgentManager` из миксинов; менеджер передаёт агентам реестр MCP, службы пайплайна, оркестрации, **индексации (шаг поиска по документам в `generate`)** и **клиент LLM со строителем промптов** |
 | `models/` | 13 | ORM-таблицы SQLAlchemy по доменам, включая **`indexing.py`** (`document_chunks`, `index_runs`), **`llm_usage.py`**, `orchestration.py` |
@@ -338,8 +359,8 @@ orchestration_fsm, …`), а не реэкспортирует их
 
 ## Тесты: `tests/`
 
-Набор дня — **2560 тестов**: `unit/` — 1750 (61 файл), `integration/` — 581
-(51 файл), `e2e/` — 229 (16 файлов). Классификация по фикстурам: чистые модули /
+Набор дня — **2601 тест**: `unit/` — 1781 (64 файла), `integration/` — 582
+(51 файл), `e2e/` — 238 (16 файлов). Классификация по фикстурам: чистые модули /
 временная БД и агент / `TestClient`. Унаследованные наборы дней 11–20 (память и
 стратегии, профиль, задача и переходы, инварианты, MCP, планировщик, пайплайн, флот и
 оркестрация) остаются на месте; их раскладка по файлам — в
@@ -349,8 +370,8 @@ orchestration_fsm, …`), а не реэкспортирует их
 и делят одну схему БД на прогон: session-scoped `schema_template` строит её один
 раз, а `session_factory` копирует файл (2,65 мс вместо 934 мс у `create_all`) —
 изоляция сохранена (файл на тест), время полного прогона упало с 370 с до 68 с.
-Тяжёлые тесты (78 штук: подпроцессы MCP-серверов по stdio и часть e2e) помечены
-`slow` и по умолчанию пропускаются: `uv run pytest` идёт ~31 с и покрывает 2482
+Тяжёлые тесты (79 штук: подпроцессы MCP-серверов по stdio и часть e2e) помечены
+`slow` и по умолчанию пропускаются: `uv run pytest` идёт ~31 с и покрывает 2522
 теста, полный набор — `uv run pytest -m ""` или `--run-slow`. Autouse-фикстура
 `no_real_network` запрещает тестам TCP на нелокальные адреса (внешние API
 подменены фейками). Замеры и разбор — в
@@ -374,8 +395,12 @@ singleton протекал бы между тестами вместе с фаб
 Фикстуры RAG вынесены в `tests/fixtures_rag.py` тем же приёмом: `rag_corpus_dir` и
 `rag_documents` (тестовый корпус из `tests/rag_fakes.py`), `rag_loader`,
 `rag_index_service` (оба индекса на фейковом эмбеддере), `empty_index_service` (отказ
-«индекс пуст»), `rag_usage_store`, `rag_stub`/`rag_client` (заглушка клиента DeepSeek) и
-`rag_service` (служба RAG без пауз между попытками).
+«индекс пуст»), `rag_usage_store`, `rag_stub`/`rag_client` (заглушка клиента DeepSeek),
+`rag_reranker` (стаб-реранкер: балл — доля слов запроса в тексте фрагмента, без модели
+и сети) и `rag_service` (служба RAG без пауз между попытками). Ленивая загрузка
+настоящего кросс-энкодера запрещена так же, как для эмбеддера: autouse-фикстура
+`isolated_indexing` подменяет `RerankService._load` функцией-ошибкой и обнуляет
+модульный `_service` реранкера.
 
 Вторая унаследованная autouse-фикстура, `offline_planner`, запрещает тестам звать
 настоящую модель планировщика оркестрации; третья, `no_real_fleet`, — поднимать
@@ -389,8 +414,8 @@ singleton протекал бы между тестами вместе с фаб
 | Блоки и чанкинг | `unit/test_chunking_blocks.py` (181), `unit/test_chunker_fixed.py` (122), `unit/test_chunker_structural.py` (131) | Секции markdown и кода (`ast` и запасная эвристика при `SyntaxError`), абзацы plain text; главное свойство — блоки делят текст без пропусков и перекрытий, `content` чанка равен срезу исходника; бюджет окна, перекрытие окон, слияние мелких секций, разрез длинных с сохранением заголовка |
 | Домен индексации | `unit/test_indexing_fsm.py` (118), `unit/test_index_metrics.py` (197), `unit/test_index_scenarios.py` (132) | Таблица 15 переходов и негативные пары → `UnknownIndexingEvent`; границы бакетов, покрытие как объединение интервалов, precision/recall (в том числе запрос без релевантных чанков), ASCII-гистограмма и строки сравнения; валидность пяти запросов и метаданные источников |
 | Загрузка и эмбеддинги | `integration/test_document_loader.py` (148), `integration/test_embedding_service.py` (174) | Сборка документов и манифеста, маркер усечения, пропуск пропавшего источника, эвристики для незнакомого файла, битый манифест; ленивая загрузка модели, нормализация и батчи, `max_seq_length`, один экземпляр модели, `EmbeddingError`, `warmup` без исключений |
-| Индекс и прогон | `integration/test_index_service.py` (201), `integration/test_indexing_service.py` (264), `integration/test_indexing_restart.py` (61) | `embedding_id == id`, порядок попаданий, `IndexNotBuiltError`, круговорот файла индекса, очистка, статистика; этапы прогона по FSM и счётчики, метрики и качество по запросам, одиночная стратегия без сравнения, пять кодов отказа, сбой эмбеддера в строке запуска, фоновый прогон; перезапуск без переиндексации |
-| API | `e2e/test_indexing_api.py` (298) | Девять эндпоинтов `/indexing`: синхронный и фоновый прогон, прогресс, статистика, поиск (409 на пустом индексе, 400 на пустом запросе, 422 на `top_k` вне границ), примеры чанков, история, 404, очистка, поле `indexing` ответа генерации и правило «один ход — один автоматизм» |
+| Индекс и прогон | `integration/test_index_service.py` (202), `integration/test_indexing_service.py` (270), `integration/test_indexing_restart.py` (61) | `embedding_id == id`, порядок попаданий, `IndexNotBuiltError`, круговорот файла индекса, очистка, статистика; этапы прогона по FSM и счётчики, метрики и качество по запросам, одиночная стратегия без сравнения, пять кодов отказа, сбой эмбеддера в строке запуска, фоновый прогон; перезапуск без переиндексации |
+| API | `e2e/test_indexing_api.py` (299) | Девять эндпоинтов `/indexing`: синхронный и фоновый прогон, прогресс, статистика, поиск (409 на пустом индексе, 400 на пустом запросе, 422 на `top_k` вне границ), примеры чанков, история, 404, очистка, поле `indexing` ответа генерации и правило «один ход — один автоматизм» |
 
 ### Оптимизация затрат на LLM
 
@@ -398,23 +423,26 @@ singleton протекал бы между тестами вместе с фаб
 |---|---|---|
 | Промпт и сжатие | `unit/test_prompt_builder.py` (314), `unit/test_prompt_compressor.py` (204) | Зоны промпта, попадание и промах кэша префикса по содержимому, guard `looks_dynamic` (метка времени и hex-id в префиксе — предупреждение, а не молчаливый промах), предел ответа по типу задачи; снятие комментариев, повторов и минификация JSON, идемпотентность, счётчики `stats`, неотрицательность снятых токенов |
 | Домен стоимости и непик | `unit/test_llm_cost.py` (117), `unit/test_peak_hours.py` (161) | Цена запроса по тарифам, доля цены попадания в кэш, вклад каждого рычага, `core_saving` против `total_saving`; границы окон непика (будни 00–01, 04–06, 10–24 UTC, все выходные), `next_off_peak` строго позже момента, подпись окна и прогноз скидки |
-| Хранилище журнала | `unit/test_llm_usage_rows.py` (127), `integration/test_llm_usage_store.py` (243) | Форма словаря строки журнала; запись строки запроса, свежие запросы первыми, периоды `day`/`week`/`month`/`all`, неизвестный период — ошибка, агрегаты (доля кэша, разбивка по моделям, типам и дням) |
-| Клиент и агент | `integration/test_llm_client.py` (273), `integration/test_agent_cost.py` (162) | Выбор модели по типу задачи, предел ответа, извлечение `cache_hit`/`cache_miss` из ответа, запись в журнал, подмена фабрики клиента; ход агента через `LLMClient` и `PromptBuilder`, поле `llm` в ответе генерации |
+| Хранилище журнала | `unit/test_llm_usage_rows.py` (127), `integration/test_llm_usage_store.py` (244) | Форма словаря строки журнала; запись строки запроса, свежие запросы первыми, периоды `day`/`week`/`month`/`all`, неизвестный период — ошибка, агрегаты (доля кэша, разбивка по моделям, типам и дням) |
+| Клиент и агент | `integration/test_llm_client.py` (297), `integration/test_agent_cost.py` (162) | Выбор модели по типу задачи, предел ответа, извлечение `cache_hit`/`cache_miss` из ответа, запись в журнал, подмена фабрики клиента; ход агента через `LLMClient` и `PromptBuilder`, поле `llm` в ответе генерации |
 | Планировщик и непик | `integration/test_scheduler_off_peak.py` (114) | Флаг `prefer_off_peak` переносит первый запуск в дешёвое окно, статус планировщика показывает `off_peak`/`next_off_peak`/`discount_percent`, задачи без флага не сдвигаются |
-| API | `e2e/test_llm_api.py` (234) | Пять эндпоинтов `/llm`: журнал с раздельными `cache_hit`/`cache_miss`, состояние рычагов, прогноз, справка по моделям и правило окон; контракт ошибок (400 на неизвестный период, 422 на `off_peak_share` вне границ), поле `llm` ответа генерации |
+| API | `e2e/test_llm_api.py` (230) | Пять эндпоинтов `/llm`: журнал с раздельными `cache_hit`/`cache_miss`, состояние рычагов, прогноз, справка по моделям и правило окон; контракт ошибок (400 на неизвестный период, 422 на `off_peak_share` вне границ), поле `llm` ответа генерации |
 
-### RAG-режим
+### RAG-режим (дни 22–23)
 
 | Группа | Файлы (строк) | Что проверяют |
 |---|---|---|
-| Фейки и фикстуры | `tests/rag_fakes.py` (96), `tests/fixtures_rag.py` (84) | Стаб-клиент DeepSeek (пишет вызовы и отвечает текстом корпуса) и два markdown-документа с редкими литералами; фикстуры тестового корпуса, службы поиска и службы RAG без пауз |
-| Сервис RAG | `unit/test_rag_service.py` (371) | Поиск `top_k` с метаданными пяти полей и порядком по score; промпт с блоком контекста и без него; бюджет `fit_context`; повторы вызова и откат на ответ без RAG; оценка опоры; `compare` зовёт оба режима; отвержение пустого вопроса и неизвестной стратегии; отказ на пустом индексе |
-| Полный цикл (slow) | `integration/test_rag_flow.py` (102) | Сборка корпуса из 36 реальных источников и обоих индексов, минимумы страниц и чанков на стратегию; `rag_query` находит нужный фрагмент и отдаёт источники с пятью полями |
-| API | `e2e/test_rag_api.py` (174) | Три эндпоинта `/rag`: запрос с RAG и без (пустые источники), конфигурация корпуса, коды 400 (пустой вопрос, неизвестная стратегия), 409 (пустой индекс), 502 (сбой клиента); `POST /rag/compare` |
+| Фейки и фикстуры | `tests/rag_fakes.py` (169), `tests/fixtures_rag.py` (95) | Стаб-клиент DeepSeek (пишет вызовы, отвечает по сценарию `replies`, умеет падать первые N раз), стаб-реранкер (балл по словам запроса), два markdown-документа с редкими литералами; фикстуры тестового корпуса, службы поиска, реранкера и службы RAG без пауз |
+| Домен отбора | `unit/test_rag_filter.py` (112) | Таблица четырёх режимов и родство режима с ручками (`RAG_MODE_KNOBS`), неизвестное имя режима, нормализация баллов кросс-энкодера (логистика вне 0…1, порядок сохраняется), текст пары для кросс-энкодера с усечением, `apply_rerank` (добавляет балл, сортирует, при рассинхроне — `ValueError`), `filter_hits` (`None` — тот же список, отсутствующий балл = 0.0), текст предупреждения о пустом результате |
+| Реранкер | `unit/test_rerank_service.py` (167) | Ленивая загрузка под локом, `score` без текстов не грузит модель, порядок пар и `batch_size`, ошибка загрузки → `RerankError` с подсказкой про `RAG_RERANK_MODEL`, `reset`, синглтон; пакет `sentence_transformers` подменён заглушкой |
+| Сервис RAG | `unit/test_rag_service.py` (395) | Поиск `top_k` с метаданными восьми полей и порядком по score; гибридный балл и видимые `vector_score`/`lexical_score`; сборка промпта, бюджет контекста, опора на источники; `compare` зовёт оба режима; отвержение пустого вопроса, неизвестной стратегии и режима; отказ на пустом индексе; повтор сбойного вызова и откат на ответ без контекста |
+| Режимы отбора | `unit/test_rag_modes.py` (187) | Режимы дня 23 на заглушке реранкера: три балла без реранка и связь `score` с `lexical_score`/`vector_score`; `rewrite` делает второй вызов модели и ищет по переформулировке, пустая переформулировка и сбой возвращают исходный вопрос; `rerank` сортирует по баллу кросс-энкодера, `min_score` отсекает всё с предупреждением, сбой реранкера не стоит ответа; `top_k_candidates` урезает пул; неизвестный режим отвергается; `compare_modes` собирает записи по режимам |
+| Полный цикл (slow) | `integration/test_rag_flow.py` (135) | Сборка корпуса из 36 реальных источников и обоих индексов, минимумы страниц и чанков на стратегию; `rag_query` находит нужный фрагмент и отдаёт источники с восемью полями; реранк стабом переставляет кандидатов на реальном корпусе и порог оставляет хотя бы один фрагмент |
+| API | `e2e/test_rag_api.py` (290) | Четыре эндпоинта `/rag`: запрос с RAG и без, конфигурация корпуса, режимы и эхо-поля отбора, `POST /rag/compare_modes`, коды 400 (пустой вопрос, неизвестная стратегия, неизвестный режим), 409 (пустой индекс), 422 (`min_score` вне 0…1, `top_k_candidates` вне 1…60), 502 (сбой клиента); `POST /rag/compare` |
 
 ## Что изменилось относительно дня 20
 
-Новые модули дня 21 и дня 22 перечислены выше. Здесь — только правки **унаследованного** кода
+Новые модули дней 21–23 перечислены выше. Здесь — только правки **унаследованного** кода
 (проверены сравнением с `day20/`; в скобках — было → стало строк):
 
 | Модуль | Строк | Что изменилось |
@@ -422,15 +450,15 @@ singleton протекал бы между тестами вместе с фаб
 | `backend/agents/agent.py` | 2284 (2094) | Два шага дня 21: поиск по индексу (`_empty_indexing_report`, свойство `indexing_service`, `apply_index_context`, поле `record["indexing"]`) и вызов модели через `LLMClient` + сборка промпта `PromptBuilder` со сжатием блоков (`_make_client` остаётся точкой подмены в тестах); реплика, занятая пайплайном или оркестрацией, поиск по индексу не делает |
 | `backend/agents/agent_manager.py` | 110 (105) | Параметры `indexing_service` и `llm_client`/`prompt_builder` — службы передаются агентам |
 | `backend/agents/manager_agents.py` | 257 (255) | Передача новых служб в обоих местах создания `Agent` |
-| `backend/core/config.py` | 400 (291) | Два новых раздела: «Индексация документов и поиск» (каталоги, модель эмбеддингов, чанкинг, границы топ-k, длины полей) и «Оптимизация затрат на LLM» (`MODEL_PRICES`, `LLM_CACHE_INPUT_RATIO`, типы задач и маршрутизация `LLM_TASK_MODELS`, пределы ответа `LLM_TASK_MAX_TOKENS`, `OFF_PEAK_WEEKDAY_HOURS_UTC`/`PEAK_WEEKDAY_HOURS_UTC`/`OFF_PEAK_DISCOUNT_PERCENT`, параметры журнала `LLM_USAGE_*`); `API_TITLE`/`API_DESCRIPTION`/`API_VERSION` дня 22. Ровно на границе лимита 400 строк |
-| `backend/core/dependencies.py` | 195 (115) | `get_indexing_service`, `get_index_service`, `get_embedding_service`, `get_prompt_builder`, `get_llm_client`, `get_rag_service` |
-| `backend/api/main.py` | 75 (66) | Подключены роутеры `indexing`, `llm` и `rag` и точки подмены служб индексации, клиента LLM и службы RAG |
-| `backend/api/__init__.py` | 69 (56) | Реэкспорт роутеров `indexing`, `llm` и `rag`; контракт ошибок дня (409 на пустой индекс, 400 на стратегию/запрос/документы, неизвестный период расходов и пустой вопрос RAG, 502 на сбой LLM-вызова RAG) |
-| `backend/api/lifespan.py` | 75 (60) | Пятый и шестой шаги старта — `get_index_service().load_all()` и прогрев модели эмбеддингов демон-потоком; остановка пишет индексы (`save_all`) |
-| `backend/api/agents.py` | 339 (314) | В инвентаре `GET /` — группы `indexing` (9), `llm` (5) и `rag` (3) и имя приложения дня 22; всего 102 записи, из них три `/rag/*` |
+| `backend/core/config.py` | 400 (291) | Два новых раздела: «Индексация документов и поиск» (каталоги, модель эмбеддингов, чанкинг, границы топ-k, длины полей) и «Оптимизация затрат на LLM» (`MODEL_PRICES`, `LLM_CACHE_INPUT_RATIO`, типы задач и маршрутизация `LLM_TASK_MODELS`, пределы ответа `LLM_TASK_MAX_TOKENS`, `OFF_PEAK_WEEKDAY_HOURS_UTC`/`PEAK_WEEKDAY_HOURS_UTC`/`OFF_PEAK_DISCOUNT_PERCENT`, параметры журнала `LLM_USAGE_*`); `API_TITLE`/`API_DESCRIPTION`/`API_VERSION` дня 23 (в описании — второй этап отбора RAG и четыре эндпоинта `/rag/*`). Ровно на границе лимита 400 строк |
+| `backend/core/dependencies.py` | 208 (115) | `get_indexing_service`, `get_index_service`, `get_embedding_service`, `get_prompt_builder`, `get_llm_client`, `get_rag_service`, `get_rerank_service` |
+| `backend/api/main.py` | 79 (66) | Подключены роутеры `indexing`, `llm` и `rag` и точки подмены служб индексации, клиента LLM, службы RAG и реранкера |
+| `backend/api/__init__.py` | 69 (56) | Реэкспорт роутеров `indexing`, `llm` и `rag`; контракт ошибок дня (409 на пустой индекс, 400 на стратегию/запрос/документы, неизвестный период расходов, пустой вопрос RAG и неизвестный режим отбора, 422 на порог вне 0…1 и пул вне 1…60, 502 на сбой LLM-вызова RAG) |
+| `backend/api/lifespan.py` | 88 (60) | Пятый и шестой шаги старта — `get_index_service().load_all()` и прогрев моделей демон-потоком `model-warmup` (эмбеддинги, затем реранкер); остановка пишет индексы (`save_all`) |
+| `backend/api/agents.py` | 341 (314) | В инвентаре `GET /` — группы `indexing` (9), `llm` (5) и `rag` (4, включая `POST /rag/compare_modes`) и имя приложения дня 23; всего 103 записи, из них четыре `/rag/*` |
 | `backend/api/scheduler.py` | 361 (355) | Описание флага `prefer_off_peak` и полей `off_peak`/`next_off_peak`/`discount_percent` в ответе `GET /scheduler/status` |
 | `backend/domain/__init__.py` | 400 (395) | Импорт модулей индексации, стоимости, непика и RAG как модулей; исторические абзацы докстринга сжаты, чтобы файл остался в лимите |
-| `backend/services/__init__.py` | 242 (165) | Реэкспорт чанкера, эмбеддингов, индекса, загрузчика документов, службы индексации и её кодов отказа, `LLMClient`/`get_llm_client`, `PromptCompressor`, `shift_to_off_peak`, `RagCorpusLoader`/`get_rag_corpus_loader`, `RAGService`/`get_rag_service` и ошибок RAG |
+| `backend/services/__init__.py` | 256 (165) | Реэкспорт чанкера, эмбеддингов, индекса, загрузчика документов, службы индексации и её кодов отказа, `LLMClient`/`get_llm_client`, `PromptCompressor`, `shift_to_off_peak`, `RagCorpusLoader`/`get_rag_corpus_loader`, `RAGService`/`get_rag_service`, ошибок RAG и модулей дня 23 (`rag_errors`, `rag_corpus_index`, `rag_llm`, `rag_records`, `rag_retrieval`, `rerank_service`) |
 | `backend/services/compressor.py` | 330 (329) | Вызов LLM идёт с `task_type=config.LLM_TASK_SUMMARY` — работа сжатия контекста попадает под маршрутизацию моделей и журнал |
 | `backend/services/invariant_checker.py` | 305 (296) | `task_type=config.LLM_TASK_CLASSIFY` при вызове модели и текст ошибки про `day21/.env` |
 | `backend/services/orchestration_planner.py` | 98 (94) | Клиент вызова — `LLMClient` (`call` с `task_type`), фабрика вынесена в свойство |
@@ -441,14 +469,14 @@ singleton протекал бы между тестами вместе с фаб
 | `backend/storage/__init__.py` | 189 (155) | `ChunkStore`, `IndexRunStore`, `IndexRunNotFoundError`, `chunk_dict`, `index_run_dict`, `LLMUsageStore`, `llm_usage_dict` |
 | `backend/storage/database.py` | 63 (59) | Реэкспорт ORM-таблиц индексации и журнала расходов |
 | `backend/models/__init__.py` | 87 (77) | `DocumentChunk`, `IndexRun`, `LLMUsage` |
-| `backend/schemas/__init__.py` | 350 (269) | Реэкспорт схем индексации, расходов и RAG |
+| `backend/schemas/__init__.py` | 356 (269) | Реэкспорт схем индексации, расходов и RAG (включая `RagModeOut`/`RagModesIn`/`RagModesOut`) |
 | `backend/schemas/agent.py` | 362 (352) | Поля `indexing` и `llm` ответа генерации |
 | `frontend/chat_section.py` | 381 (346) | Девятый раздел «📦 Индексация», десятый «💰 Расходы» и одиннадцатый «🆚 RAG-сравнение»; панель «🔍 RAG-запрос по корпусу» в конце ветки чата; строки `indexing_note` и сводка расходов в отчёте хода |
-| `tests/conftest.py` | 272 (228) | Общие фикстуры (`schema_template`, `no_real_network`); фикстуры индексации и RAG вынесены в `fixtures_indexing.py` и `fixtures_rag.py` и импортируются обратно |
-| `app.py` | 79 (67) | Заголовок страницы и описание разделов дня 22 |
-| `README.md`, `docs/architecture.md`, `docs/usage.md`, `docs/api.md` | 562, 630, 268, 6257 | Документация дня переписана под текущее состояние: `README` и `architecture` описывают день, `usage.md` — инструкция дня, в `api.md` есть разделы индексации, расходов на LLM и RAG |
+| `tests/conftest.py` | 273 (228) | Общие фикстуры (`schema_template`, `no_real_network`); фикстуры индексации и RAG (включая стаб-реранкер) вынесены в `fixtures_indexing.py` и `fixtures_rag.py` и импортируются обратно |
+| `app.py` | 79 (67) | Заголовок страницы и описание разделов дня 23 |
+| `README.md`, `docs/architecture.md`, `docs/usage.md`, `docs/api.md` | 570, 736, 293, 6407 | Документация дня переписана под текущее состояние: `README` и `architecture` описывают день 23 (реранкер, порог, rewrite, сравнение режимов), `usage.md` — инструкция дня, в `api.md` есть разделы индексации, расходов на LLM и RAG |
 | `pyproject.toml` | 30 (24) | Имя `day21` и описание дня; добавлены `sentence-transformers`, `faiss-cpu`, `numpy` |
-| `.env.example` | 20 (15) | `DAY21_BACKEND_URL` вместо `DAY20_BACKEND_URL`, добавлена `DAY21_EMBEDDING_MODEL` |
+| `.env.example` | 25 (15) | `DAY21_BACKEND_URL` вместо `DAY20_BACKEND_URL`, добавлены `DAY21_EMBEDDING_MODEL` и закомментированный `RAG_RERANK_MODEL` |
 | `pytest.ini` | — | Комментарий про день 21 |
 
 Остальные файлы отличаются только идентичностью дня (`day20` → `day21`,
@@ -502,7 +530,7 @@ singleton протекал бы между тестами вместе с фаб
 | `frontend/common.py` | 400 | 400 | Ровно на границе, поэтому дни 20 и 21 его не правили: подписи разделов живут в `orchestration_*.py`, `indexing_*.py` и `cost_section.py` |
 | `backend/core/config.py` | 400 | 400 | Ровно на границе: копились разделы дней 11–21 (день 21 добавил индексацию и оптимизацию затрат). Следующий раздел потребует выноса части настроек в отдельный модуль конфигурации |
 | `backend/domain/__init__.py` | 400 | 400 | Модули планировщика, пайплайна, оркестрации, индексации, стоимости, непика и RAG импортируются как модули (`from . import …`), а не реэкспортируются именами: иначе список имён слоя вышел бы за лимит |
-| `GET /` — счётчик эндпоинтов | 102 записи / 84 пути | — | Инвентарь `endpoints` перечисляет эндпоинты по методу (102 записи, включая три `/rag/*`), тогда как OpenAPI группирует их по пути — уникальных путей 84. Расхождение не ошибка, а разная форма счёта |
+| `GET /` — счётчик эндпоинтов | 103 записи / 84 пути | — | Инвентарь `endpoints` перечисляет эндпоинты по методу (103 записи, включая четыре `/rag/*`), тогда как OpenAPI группирует их по пути — уникальных путей 84. Расхождение не ошибка, а разная форма счёта |
 | `backend/services/mcp_client.py` | 398 | 400 | Клиент запускает свой daemon-поток с циклом событий и долгоживущую задачу сессии (контексты MCP SDK обязаны входить и выходить в одной задаче anyio); цикл событий и адаптеры SDK вынесены в `mcp_loop.py` и `mcp_transport.py` |
 | `.agents/skills/**` | 416–449 | — | Вендорные скиллы сторонних пакетов (`uvx library-skills --copy`): в трёх шаблонах Streamlit-приложений больше 400 строк. Это код библиотеки, а не дня |
 | `chunk_id` не уникален | — | — | Повторный прогон по тем же документам ДОПИСЫВАЕТ индекс и таблицу (числа растут — это видно в статистике и истории запусков). Уникальный `chunk_id` превратил бы кнопку демо-прогона в одноразовую: второй клик падал бы на ограничении вместо того, чтобы либо дописать, либо честно попросить очистку. Переиндексация с нуля — явная кнопка «🧹 Очистить обе стратегии» |
@@ -528,14 +556,21 @@ uv run python -c "from pathlib import Path; print([(str(p), len(p.read_text(enco
 [('backend\\agents\\agent.py', 2284)]
 ```
 
-`app.py` (79 ≤ 100) и `backend/api/main.py` (75 ≤ 80) в лимитах; `frontend/common.py`,
+`app.py` (79 ≤ 100) и `backend/api/main.py` (79 ≤ 80) в лимитах; `frontend/common.py`,
 `backend/core/config.py` и `backend/domain/__init__.py` (по 400) — ровно на границе,
 в пределах лимита. Скрипт отчёта об оптимизации тоже перестал быть превышением: замер
 (`scripts/cost_optimization_measure.py`, 382) вынесен из рендера
-(`scripts/cost_optimization_report.py`, 285) — вместе они были длиннее 400. Новые файлы
-дня 22 лимит не нарушают: самый длинный — `backend/services/rag_service.py` (396), за
-ним `tests/unit/test_rag_service.py` (371), `scripts/run_rag_eval.py` (316) и
-`backend/domain/rag_mode.py` (309).
+(`scripts/cost_optimization_report.py`, 285) — вместе они были длиннее 400. Файлы дня 23
+лимит не нарушают: `backend/services/rag_service.py` (380) — самый длинный, за ним
+`frontend/rag_section.py` (358), `backend/domain/rag_mode.py` (310),
+`scripts/run_rag_eval.py` (303), `scripts/rag_eval_report.py` (286),
+`backend/schemas/rag.py` (246), `backend/domain/rag_filter.py` (219),
+`tests/unit/test_rag_modes.py` (187), `backend/services/rag_retrieval.py` (186),
+`backend/services/rerank_service.py` (139), `scripts/rag_eval_cells.py` (140),
+`backend/services/rag_corpus_index.py` (89), `backend/services/rag_llm.py` (63),
+`backend/services/rag_records.py` (60), `backend/services/rag_errors.py` (27).
+`tests/unit/test_rag_service.py` после выноса режимов ушёл с 567 строк до 395 —
+лимит держится и в тестах.
 Каталог `.agents/` исключён не для красоты: в этой копии скиллы библиотек скопированы
 (а не слинкованы), и три шаблона Streamlit внутри скилла `developing-with-streamlit`
 длиннее 400 строк (416–449). Это код библиотеки, а не дня.

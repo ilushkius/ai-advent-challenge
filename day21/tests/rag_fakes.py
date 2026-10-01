@@ -1,4 +1,4 @@
-"""Фейки режима RAG (день 22): тестовый корпус и клиент DeepSeek без сети.
+"""Фейки режима RAG: тестовый корпус, клиент DeepSeek без сети и реранкер без модели.
 
 Корпус — два markdown-документа с редким литералом ``CHARS_PER_PAGE``: фейковый
 эмбеддер ищет по совпадению слов, поэтому в тексте есть и литерал из вопроса, и
@@ -8,8 +8,16 @@
 Ответ заглушки подобран под ``rag_mode.grounding_share``: опора считается по ЦЕЛЫМ
 словам длиной от пяти символов, поэтому ``1800`` в неё не попадает, а ``корпус``,
 ``равен``, ``символов`` и ``страницу`` попадают — эти словоформы есть в документе.
+
+``RagStubReranker`` ставится вместо кросс-энкодера: балл фрагмента — доля слов
+запроса, найденных в его тексте. Модель в тестах не грузится вообще (её загрузку
+запрещает autouse-фикстура ``isolated_indexing``), а формулы отбора всё равно
+проверяются целиком.
 """
+import re
 from types import SimpleNamespace
+
+from backend.domain import rag_filter
 
 #: Документ с литералом вопроса: на него обязан находиться фрагмент.
 RAG_MARKDOWN_A = """# Правила корпуса
@@ -78,19 +86,84 @@ class RagStubCompletions:
                                         or len(owner.calls) <= owner.error_times):
             raise owner.error
         return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content=owner.reply),
-                                     finish_reason="stop")],
+            choices=[SimpleNamespace(message=SimpleNamespace(
+                content=owner.text(len(owner.calls))), finish_reason="stop")],
             usage=owner.usage,
         )
 
 
 class RagStubClient:
-    """Клиент DeepSeek для тестов RAG: те же четыре параметра, что у SDK."""
+    """Клиент DeepSeek для тестов RAG: те же четыре параметра, что у SDK.
 
-    def __init__(self, reply=None, error=None, error_times=None, usage=None) -> None:
+    ``replies`` — ответ по номеру вызова (последний повторяется): он нужен режиму
+    с переформулировкой, где первый вызов возвращает поисковый запрос, а второй —
+    ответ по найденному контексту. Пустой ``replies`` означает один ``reply``.
+    """
+
+    def __init__(self, reply=None, replies=None, error=None, error_times=None,
+                 usage=None) -> None:
         self.calls: list = []
         self.reply = GROUNDED_REPLY if reply is None else reply
+        self.replies = [str(item) for item in (replies or [])]
         self.error = error
         self.error_times = error_times
         self.usage = usage if usage is not None else RagStubUsage()
         self.chat = SimpleNamespace(completions=RagStubCompletions(self))
+
+    def text(self, call_number: int) -> str:
+        """Текст ответа для вызова № ``call_number`` (счёт с единицы)."""
+        if not self.replies:
+            return self.reply
+        return self.replies[min(call_number - 1, len(self.replies) - 1)]
+
+
+class RagStubReranker:
+    """Реранкер без модели: балл — доля слов запроса, найденных в тексте фрагмента.
+
+    Числа детерминированы (никакой сети и весов), поэтому тесты проверяют формулу и
+    порядок, а не качество модели. ``scores`` подменяет расчёт целиком — этим
+    проверяется рассинхрон числа баллов и кандидатов; ``error`` — сбой реранкера.
+    """
+
+    def __init__(self, scores=None, error=None, loaded=True,
+                 model_name="fake: реранкер по словам запроса") -> None:
+        self.calls: list = []
+        self.scores = None if scores is None else list(scores)
+        self.error = error
+        self._loaded = loaded
+        self._model_name = model_name
+
+    @property
+    def model_name(self) -> str:
+        """Имя модели реранкера: у заглушки — своё, чтобы его было видно в отчёте."""
+        return self._model_name
+
+    @property
+    def loaded(self) -> bool:
+        """Загружена ли «модель»: у заглушки это просто флаг."""
+        return self._loaded
+
+    def score(self, query: str, texts) -> list:
+        """Баллы фрагментов в ``[0, 1]``: доля слов запроса, найденных в тексте."""
+        self.calls.append({"query": query, "texts": list(texts)})
+        if self.error is not None:
+            raise self.error
+        if self.scores is not None:
+            return rag_filter.normalize_rerank_scores(self.scores)
+        words = [word.lower() for word in re.findall(r"\w+", str(query or ""))
+                 if len(word) > 2]
+        raw = []
+        for text in texts:
+            haystack = str(text or "").lower()
+            found = sum(1 for word in words if word in haystack)
+            raw.append(found / len(words) if words else 0.0)
+        return rag_filter.normalize_rerank_scores(raw)
+
+    def warmup(self) -> bool:
+        """Прогрев заглушки: загрузка не нужна, поэтому всегда успех."""
+        self._loaded = True
+        return True
+
+    def reset(self) -> None:
+        """Сброс «модели»: у заглушки — только флаг."""
+        self._loaded = False

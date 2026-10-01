@@ -21,7 +21,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 from ..core import config
-from ..domain import rag_mode
+from ..domain import rag_filter, rag_mode
 
 
 class RagQueryIn(BaseModel):
@@ -46,6 +46,25 @@ class RagQueryIn(BaseModel):
         True,
         description="true — ответ с контекстом корпуса, false — тот же вопрос без контекста",
     )
+    rewrite: bool = Field(
+        False,
+        description="Переформулировать запрос моделью перед поиском (день 23)",
+    )
+    rerank: bool = Field(
+        False,
+        description="Пересортировать кандидатов кросс-энкодером (день 23)",
+    )
+    min_score: Optional[float] = Field(
+        None, ge=0.0, le=1.0,
+        description=(
+            "Порог отсечения: фрагменты ниже балла не попадают в контекст. "
+            "С реранкером шкала [0, 1], без него — гибридный балл дня 22"
+        ),
+    )
+    top_k_candidates: Optional[int] = Field(
+        None, ge=1, le=rag_filter.RAG_MAX_CANDIDATES,
+        description="Сколько кандидатов запросить у поиска (по умолчанию — пул дня 22)",
+    )
 
 
 class RagSourceOut(BaseModel):
@@ -55,7 +74,12 @@ class RagSourceOut(BaseModel):
     title: str = Field("", description="Заголовок документа")
     section: str = Field("", description="Заголовок раздела (пусто у стратегии fixed)")
     chunk_id: str = Field(..., description="Идентификатор чанка внутри стратегии")
-    score: float = Field(..., description="Близость к вопросу (больше — ближе)")
+    score: float = Field(..., description="Балл, по которому фрагмент отобран (больше — ближе)")
+    vector_score: float = Field(0.0, description="Косинусная близость FAISS (день 23)")
+    lexical_score: float = Field(0.0, description="Словесный вес фрагмента (день 22)")
+    rerank_score: Optional[float] = Field(
+        None, description="Балл кросс-энкодера реранкера (None — реранка не было)"
+    )
 
 
 class RagTokensOut(BaseModel):
@@ -90,6 +114,16 @@ class RagQueryOut(BaseModel):
     context_tokens: int = Field(0, description="Размер блока контекста в токенах")
     duration_ms: int = Field(0, description="Сколько занял запрос целиком")
     tokens: Optional[RagTokensOut] = Field(None, description="Расход вызова (None — вызова не было)")
+    query_used: str = Field("", description="Текст, по которому реально искали (день 23)")
+    rewritten: bool = Field(False, description="true — запрос переформулирован моделью")
+    reranked: bool = Field(False, description="true — порядок фрагментов дал кросс-энкодер")
+    candidates: int = Field(0, description="Сколько фрагментов было ДО отсечения")
+    kept: int = Field(0, description="Сколько фрагментов осталось ПОСЛЕ отсечения")
+    min_score: Optional[float] = Field(None, description="Порог отсечения (None — без порога)")
+    top_k_candidates: int = Field(0, description="Размер пула кандидатов поиска")
+    rewrite_warning: str = Field("", description="Сбой переформулировки (пусто — её не было)")
+    rerank_warning: str = Field("", description="Сбой реранкера (порядок как в дне 22)")
+    filter_warning: str = Field("", description="Порог отбросил все фрагменты")
 
 
 class RagCompareIn(BaseModel):
@@ -113,9 +147,48 @@ class RagCompareOut(BaseModel):
     rag: RagQueryOut = Field(..., description="Ответ с контекстом корпуса")
 
 
+class RagModeOut(BaseModel):
+    """Один режим отбора в сравнении: имя, подпись и полный результат ответа."""
+
+    mode: str = Field(..., description="Имя режима: baseline | rewrite | rerank | rerank_filter")
+    label: str = Field("", description="Человеческая подпись режима для интерфейса и отчёта")
+    result: RagQueryOut = Field(..., description="Ответ со всеми метриками отбора")
+
+
+class RagModesIn(BaseModel):
+    """POST /rag/compare_modes — один вопрос, несколько режимов отбора подряд."""
+
+    question: str = Field(..., max_length=config.INDEX_QUERY_MAX, description="Вопрос к корпусу")
+    top_k: int = Field(
+        rag_mode.RAG_DEFAULT_TOP_K, ge=1, le=rag_mode.RAG_MAX_TOP_K,
+        description="Сколько фрагментов корпуса подмешать в контекст",
+    )
+    strategy: Optional[str] = Field(
+        None, description="Стратегия поиска: rag_corpus_structural (по умолчанию) | rag_corpus_fixed",
+    )
+    modes: Optional[List[str]] = Field(
+        None, description="Какие режимы сравнивать (по умолчанию — все четыре)",
+    )
+    min_score: Optional[float] = Field(
+        None, ge=0.0, le=1.0, description="Порог отсечения поверх выбранных режимов",
+    )
+    top_k_candidates: Optional[int] = Field(
+        None, ge=1, le=rag_filter.RAG_MAX_CANDIDATES,
+        description="Сколько кандидатов запросить у поиска",
+    )
+
+
+class RagModesOut(BaseModel):
+    """Сравнение режимов отбора на одном вопросе (день 23)."""
+
+    question: str = Field(..., description="Вопрос, который прогоняли по режимам")
+    modes: List[RagModeOut] = Field(
+        default_factory=list, description="Результаты по режимам в порядке запроса"
+    )
+
+
 class RagCorpusOut(BaseModel):
     """Состояние корпуса: папка, объём в страницах и готовность к отчёту."""
-
     corpus_dir: str = Field(..., description="Папка собранного корпуса")
     documents: int = Field(0, description="Сколько документов в корпусе")
     chars: int = Field(0, description="Суммарный объём корпуса в символах")
@@ -149,6 +222,12 @@ class RagConfigOut(BaseModel):
     top_k_max: int = Field(..., description="Верхняя граница top_k")
     context_max_tokens: int = Field(..., description="Бюджет блока контекста в промпте")
     chunk_max_chars: int = Field(..., description="Предел длины одного фрагмента в символах")
+    modes: List[dict] = Field(
+        default_factory=list, description="Каталог режимов отбора: имя, подпись и ручки"
+    )
+    rerank_model: str = Field("", description="Модель кросс-энкодера реранкера")
+    min_score_default: float = Field(0.0, description="Порог отсечения по умолчанию")
+    candidates_max: int = Field(0, description="Верхняя граница top_k_candidates")
 
 
 __all__ = [
@@ -157,6 +236,9 @@ __all__ = [
     "RagConfigOut",
     "RagCorpusOut",
     "RagIndexOut",
+    "RagModeOut",
+    "RagModesIn",
+    "RagModesOut",
     "RagQueryIn",
     "RagQueryOut",
     "RagSourceOut",

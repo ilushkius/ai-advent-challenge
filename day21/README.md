@@ -1,8 +1,8 @@
-# День 22 — индексация документов, RAG и оптимизация затрат на LLM
+# День 23 — реранкинг, порог отсечения и переформулировка запроса в RAG
 
-Задание дня — **проиндексировать документы, сравнить две стратегии чанкинга,
-снизить расходы на LLM и отвечать по корпусу в режиме RAG**. День 21 надстроил
-над агентом дня 20 два слоя:
+Задание дня — **добавить к RAG второй этап отбора: пересортировку кросс-энкодером,
+порог релевантности и переформулировку запроса моделью, и измерить, что это даёт**.
+День 21 надстроил над агентом дня 20 два слоя:
 
 1. **слой индексации и поиска по документам проекта** — набор документов, две стратегии
    чанкинга, эмбеддинги `sentence-transformers` в FAISS, метаданные чанков в
@@ -15,6 +15,14 @@
 внутреннему корпусу документов (`documents/rag_corpus/`), к промпту прикладывается
 блок найденных фрагментов, а рядом тот же вопрос отвечается без корпуса — вклад RAG
 виден в отчёте и в разделе «🆚 RAG-сравнение».
+
+День 23 уточняет отбор внутри этого режима: гибридный пул кандидатов
+пересортировывает мультиязычный кросс-энкодер, слабые фрагменты отсекает порог
+релевантности, вопрос можно переформулировать моделью перед поиском, а четыре
+режима отбора (`baseline`, `rewrite`, `rerank`, `rerank_filter`) сравниваются на
+одном вопросе эндпоинтом `POST /rag/compare_modes` и разделом «🆚 RAG-сравнение».
+Каждый фрагмент в ответе несёт все четыре балла (`score`, `vector_score`,
+`lexical_score`, `rerank_score`), а ответ — метрики отбора «до/после фильтра».
 
 Унаследованное приложение дня 20 (агент DeepSeek: память, профиль, состояние
 задачи, инварианты, MCP-флот, планировщик, пайплайн, оркестрация) остаётся на
@@ -60,12 +68,12 @@ uv run pytest -m "" --cov=backend --cov-report=html   # покрытие по в
 
 | Команда | Когда запускать | Сколько идёт |
 |---|---|---|
-| `uv run pytest -m "not slow"` | во время работы, после каждой правки | ~30 с (2482 теста) |
-| `uv run pytest -m ""` или `--run-slow` | перед коммитом — проверка всего набора | ~70 с (2560 тестов) |
+| `uv run pytest -m "not slow"` | во время работы, после каждой правки | ~30 с (2522 теста) |
+| `uv run pytest -m ""` или `--run-slow` | перед коммитом — проверка всего набора | ~70 с (2601 тест) |
 | `uv run pytest -m "" --cov=backend --cov-report=html` | когда нужно убедиться, что покрытие не упало | ~80 с, отчёт в `htmlcov/` |
 
 Команду покрытия запускайте **вместе с `-m ""`**: без него HTML-отчёт считается
-только по быстрому набору (2482 теста) и цифра будет не про весь набор. Число из
+только по быстрому набору (2522 теста) и цифра будет не про весь набор. Число из
 отчёта дня (96 %) снято на полном наборе.
 
 **Медленные тесты помечены `slow` и по умолчанию не запускаются.** Это
@@ -288,6 +296,16 @@ Hugging Face, в Git он не попадает. Модель задаётся �
 фрагмент остаётся всегда), текст чанка обрезается до `RAG_CHUNK_MAX_CHARS` (2000
 символов).
 
+Второй этап отбора (день 23, `backend/services/rag_retrieval.py` и
+`backend/domain/rag_filter.py`) включает четыре режима: `baseline` — ровно отбор дня
+22, `rewrite` — вопрос переформулирует модель перед поиском, `rerank` — кросс-энкодер
+(`RAG_RERANK_MODEL`) пересортировывает кандидатов по паре «вопрос — фрагмент»,
+`rerank_filter` — то же плюс порог отсечения `RAG_FILTER_MIN_SCORE`. Баллы видны все:
+`score` (гибридный или `rerank_score`, смотря чем отбирали), `vector_score`
+(сырая близость FAISS), `lexical_score` и `rerank_score` (0…1). Сбой необязательного
+этапа не стоит ответа: переформулировка и реранкер возвращают предупреждение и
+продолжают работу на исходных данных.
+
 Запрос к модели идёт единственным путём `LLMClient.generate_with_context`: системное
 сообщение `RAG_SYSTEM_PROMPT` — **стабильный префикс** (кэш контекста DeepSeek
 попадает и после включения RAG), затем сообщение «блок `## Контекст из корпуса RAG`
@@ -303,26 +321,48 @@ Hugging Face, в Git он не попадает. Модель задаётся �
 | `RAG_CHUNK_MAX_CHARS` | 2000 |
 | `RAG_GROUNDING_MIN_SHARE` | 0.5 |
 | `RAG_LLM_ATTEMPTS` | 3 (одна попытка и две повторные, пауза 1.0 → 2.0 с) |
+| `RAG_FILTER_MIN_SCORE` | 0.05 (измерен свипом; 0.0 — без отсечения) |
+| `RAG_MAX_CANDIDATES` | 60 (верхняя граница `top_k_candidates`) |
+| `RAG_RERANK_MAX_LENGTH` / `RAG_RERANK_MAX_CHARS` | 512 токенов / 1000 символов на пару кросс-энкодера |
+| `RAG_REWRITE_MAX_CHARS` | 300 |
 
-Эндпоинты (3): `POST /rag/query` (тело `use_rag: true|false` — с корпусом и без),
-`GET /rag/config` (готовность корпуса и число чанков по стратегиям),
-`POST /rag/compare` (оба ответа рядом). Коды: **400** — пустой вопрос и неизвестная
-стратегия, **409** — корпус не проиндексирован, **502** — вызов модели в режиме RAG
+Эндпоинты (4): `POST /rag/query` (тело `use_rag: true|false` — с корпусом и без,
+плюс `rewrite`, `rerank`, `min_score`, `top_k_candidates`),
+`GET /rag/config` (готовность корпуса, число чанков по стратегиям и каталог режимов),
+`POST /rag/compare` (оба ответа рядом), `POST /rag/compare_modes` (до четырёх режимов
+отбора на одном вопросе). Коды: **400** — пустой вопрос, неизвестная
+стратегия и неизвестный режим отбора, **409** — корпус не проиндексирован,
+**422** — `min_score` вне 0…1 или `top_k_candidates` вне 1…60, **502** — вызов модели в режиме RAG
 не удался и откат на ответ без контекста тоже не прошёл. Сбой RAG-вызова не роняет
 запрос: `rag_query` возвращает ответ без RAG с `fallback = true` и предупреждением.
 
 В интерфейсе панель **«🔍 RAG-запрос по корпусу»** стоит внизу раздела
 «💬 Чат и память» (`frontend/rag_section.py`): тумблер «RAG: включён», слайдер
-`top_k` 1–10, выбор стратегии, форма вопроса, метрики (время, токены, фрагменты, кэш
-контекста), строка оценки опоры и expander «📚 Использованные источники» с таблицей
-источник / заголовок / раздел / `chunk_id` / score. Рядом — раздел
-**«🆚 RAG-сравнение»** с двумя столбцами «🚫 Без RAG» / «✅ С RAG».
+`top_k` 1–10, выбор стратегии, тумблеры «Переформулировать запрос моделью» и
+«Реранкер: кросс-энкодер», слайдер порога отсечения `min_score`, форма вопроса,
+метрики (время, токены, фрагменты, кэш контекста, «фрагментов до фильтра» и
+«фрагментов после фильтра», порог), строка оценки опоры, `query_used` при
+переформулировке, предупреждения этапов и expander «📚 Использованные источники» с
+таблицей источник / заголовок / раздел / `chunk_id` / `score` / `vector_score` /
+`lexical_score` / `rerank_score`. Рядом — раздел
+**«🆚 RAG-сравнение»** с двумя столбцами «🚫 Без RAG» / «✅ С RAG» и мультиселектом
+режимов (`baseline`, `rewrite`, `rerank`, `rerank_filter`), которые сравниваются
+рядом на одном вопросе.
 
 Отчёт сравнения на 10 контрольных вопросах (`RAG_QUESTIONS` домена
 `backend/domain/rag_eval.py`, прогон `scripts/run_rag_eval.py`):
-[docs/reports/rag_eval.md](docs/reports/rag_eval.md) — топ-K 5, стратегия
-`rag_corpus_structural`; итог: лучше с RAG — 8, хуже — 0, равно — 2, откатов нет,
-ожидаемый источник найден во всех 10 вопросах.
+[docs/reports/rag_modes.md](docs/reports/rag_modes.md) — топ-K 5, стратегия
+`rag_corpus_structural`, порог отсечения 0.05. Против ответа без RAG: `baseline`
+лучше 7 / хуже 0 / равно 3, `rewrite` 8/0/2, `rerank` 7/0/3, `rerank_filter` 5/0/5;
+против `baseline`: `rewrite` 2/1/7, `rerank` 2/3/5, `rerank_filter` 2/4/4; откатов и
+сбоев нет. Отдельный этап отбора стоит того только на части вопросов: `rewrite`
+выигрывает у `baseline` в 2 случаях при 1 проигрыше, `rerank` и `rerank_filter` — в 2
+при 3–4 проигрышах (кросс-энкодер поднимает соседние фрагменты выше точного).
+Ступень отсечения при измеренном пороге 0.05 экономит контекст (в среднем 4.4
+фрагмента против 5), но ответы на этом прогоне ухудшились: `rerank_filter` против
+`rerank` — лучше 1, хуже 3, равно 6. То есть порог — рычаг под задачу (короткий
+контекст), а не улучшение по умолчанию: его значение измерено свипом, но пользу
+порог приносит не всегда, и в интерфейсе он выключается нулём.
 
 ## Оптимизация затрат на LLM
 
@@ -510,10 +550,11 @@ day21/
 │   ├── core/                 # config.py, prompt_builder.py, mcp_server_config.py, dependencies.py
 │   ├── domain/               # чистые правила: chunking, document_sources, index_metrics, index_scenarios,
 │   │                         # indexing_fsm, indexing_prompt, llm_cost, peak_hours,
-│   │                         # rag_mode, rag_corpus_spec, rag_eval + унаследованные домены
+│   │                         # rag_filter, rag_mode, rag_corpus_spec, rag_eval + унаследованные домены
 │   ├── services/             # chunker, embedding_service, index_service, document_loader, index_runner,
 │   │                         # index_comparison, indexing_service, llm_client, prompt_compressor, off_peak,
-│   │                         # rag_corpus_loader, rag_service + унаследованные
+│   │                         # rag_corpus_loader, rag_corpus_index, rag_errors, rag_llm, rag_records,
+│   │                         # rag_retrieval, rag_service, rerank_service + унаследованные
 │   ├── storage/              # database.py, chunk_store.py, index_run_store.py, index_rows.py, llm_usage_store.py,
 │   │                         # llm_usage_rows.py + унаследованные хранилища
 │   ├── agents/               # Agent (в generate — шаги поиска по индексу и метрики llm), MemoryManager, AgentManager
@@ -521,10 +562,11 @@ day21/
 │   ├── schemas/              # Pydantic-схемы API (включая indexing.py, llm.py и rag.py)
 │   └── utils/                # своего кода нет: общий живёт в repo-level shared/
 ├── tests/                    # pytest: unit/, integration/, e2e/ + conftest.py и фейки (indexing_fakes.py, rag_fakes.py, …)
-├── docs/                     # architecture.md, api.md, usage.md, reports/ (indexing_demo.md, cost_optimization.md, rag_eval.md, context_optimization.md, test_optimization.md, …)
+├── docs/                     # architecture.md, api.md, usage.md, reports/ (indexing_demo.md, cost_optimization.md, rag_modes.md, context_optimization.md, test_optimization.md, …)
 ├── scripts/                  # прогоны демонстраций и сборка отчётов (indexing_demo.py, prepare_documents.py,
 │                             # indexing_scenarios.py, indexing_report.py, indexing_ui_shot.py, cost_optimization_report.py,
-│                             # prepare_rag_corpus.py, index_rag_corpus.py, run_rag_eval.py, …)
+│                             # prepare_rag_corpus.py, index_rag_corpus.py, run_rag_eval.py, rag_eval_report.py,
+│                             # rag_eval_cells.py, …)
 ├── STRUCTURE.md              # карта модулей дня по слоям и лимит 400 строк
 ├── pyproject.toml, uv.lock   # зависимости (uv): sentence-transformers, sentencepiece, faiss-cpu, numpy, mcp, sqlalchemy…
 ├── pytest.ini, conftest.py   # конфигурация pytest (pythonpath = . tests)
@@ -555,7 +597,7 @@ day21/
   пяти символов), найденных в тексте фрагментов: «низкая уверенность» означает лишь
   отсутствие слов из контекста, а не доказанную недостоверность ответа.
 - **Прогон `scripts/run_rag_eval.py` требует ключа.** Отчёт
-  [docs/reports/rag_eval.md](docs/reports/rag_eval.md) собирается реальными вызовами
+  [docs/reports/rag_modes.md](docs/reports/rag_modes.md) собирается реальными вызовами
   DeepSeek: без `DEEPSEEK_API_KEY` в `day21/.env` сравнение с RAG и без него не
   воспроизводится (тесты работают офлайн на стабе клиента).
 - **Журнал `llm_usage` растёт и не чистится автоматически.** Есть окна периодов

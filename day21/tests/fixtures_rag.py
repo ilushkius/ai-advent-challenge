@@ -11,11 +11,12 @@ from backend.domain.rag_mode import RAG_STRATEGIES
 from backend.services.chunker import chunk_document
 from backend.services.index_service import IndexService
 from backend.services.llm_client import LLMClient
+from backend.services.rag_corpus_index import CHUNK_STRATEGIES
 from backend.services.rag_corpus_loader import RagCorpusLoader
-from backend.services.rag_service import AGENT_ID, CHUNK_STRATEGIES, RAGService
+from backend.services.rag_service import AGENT_ID, RAGService
 from backend.storage.llm_usage_store import LLMUsageStore
 
-from rag_fakes import RagStubClient, write_corpus
+from rag_fakes import RagStubClient, RagStubReranker, write_corpus
 
 
 @pytest.fixture
@@ -68,6 +69,16 @@ def rag_stub():
 
 
 @pytest.fixture
+def rag_reranker():
+    """Реранкер-заглушка: балл — доля слов запроса, найденных в тексте фрагмента.
+
+    Настоящая модель в тестах не грузится: её загрузку запрещает autouse-фикстура
+    ``isolated_indexing``, поэтому любая попытка обратиться к весам — падение теста.
+    """
+    return RagStubReranker()
+
+
+@pytest.fixture
 def rag_client(rag_usage_store, rag_stub):
     """Обёртка вызова LLM на заглушке и временном журнале расходов."""
     client = LLMClient(agent_id=AGENT_ID, client_factory=lambda: rag_stub,
@@ -77,8 +88,8 @@ def rag_client(rag_usage_store, rag_stub):
 
 
 @pytest.fixture
-def rag_service(rag_loader, rag_index_service, chunk_store, rag_client):
+def rag_service(rag_loader, rag_index_service, chunk_store, rag_client, rag_reranker):
     """Служба RAG на тестовом корпусе: без пауз между попытками."""
     return RAGService(index_service=rag_index_service, loader=rag_loader,
                       store=chunk_store, llm_client=rag_client,
-                      sleep=lambda _seconds: None)
+                      rerank_service=rag_reranker, sleep=lambda _seconds: None)

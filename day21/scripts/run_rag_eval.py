@@ -1,20 +1,29 @@
-"""Оценка режима RAG дня 22: десять контрольных вопросов с корпусом и без него.
+"""Оценка режимов отбора RAG дня 23: четыре режима отбора и ответ без корпуса.
 
-Каждый вопрос задаётся модели дважды — без RAG и с RAG, — и ответы сравниваются по
-эталонным фактам: доля найденных в тексте ответа фактов даёт вердикт
-«лучше/хуже/равно». Эталонные факты — литералы из файлов корпуса (числа, имена,
-заголовки сообщений), которых нет в общих знаниях модели: так видно, что ответ с RAG
-опирался на документы, а не на память модели.
+Прогон отвечает на каждый контрольный вопрос пятью способами: без RAG (эталон),
+затем режимами ``baseline``, ``rewrite``, ``rerank`` и ``rerank_filter``. Ответы
+сравниваются по эталонным фактам: доля найденных в тексте фактов даёт вердикт
+«лучше/хуже/равно» — сначала против ответа без корпуса, затем против ``baseline``
+(то есть против отбора дня 22). Эталонные факты — литералы из файлов корпуса
+(числа, имена, заголовки сообщений), которых нет в общих знаниях модели: так видно,
+что ответ опирался на документы, а не на память модели.
+
+Кросс-энкодер прогоняется один раз на вопрос: режимы ``rerank`` и ``rerank_filter``
+идут по одному пулу кандидатов и одному запросу, поэтому второй проход вернул бы те
+же баллы, и их отдаёт кэш (``CachedReranker``). Свип порога считается офлайн из
+сохранённых баллов реранкера — вызовов модели на сетку порогов нет.
 
 Каждая неудача вызова LLM превращается в откат (ответ без RAG) и помечается в
-отчёте: строка не выдаётся за обычный ответ с корпусом. Отчёт пишется в
-``docs/reports/rag_eval.md``; код возврата 1 — если был откат или сбой вопроса.
+отчёте; сбой необязательной ступени (реранкер, порог) стоит только предупреждения и
+не отменяет ответ. Отчёт пишется в ``docs/reports/rag_modes.md``; код возврата 1 —
+если был откат или сбой.
 
-Запуск из папки day21/ (нужен DEEPSEEK_API_KEY в .env)::
+Запуск из папки day21/ (нужен DEEPSEEK_API_KEY в .env; первый прогон скачает веса
+кросс-энкодера в ``index/models``)::
 
-    uv run python scripts/run_rag_eval.py
-    uv run python scripts/run_rag_eval.py --top-k 3 --strategy rag_corpus_fixed
-    uv run python scripts/run_rag_eval.py --limit 2 --report docs/reports/rag_eval.md
+    uv run python scripts/run_rag_eval.py --sweep
+    uv run python scripts/run_rag_eval.py --top-k 3 --threshold 0.5
+    uv run python scripts/run_rag_eval.py --limit 2 --report docs/reports/rag_modes.md
 """
 from __future__ import annotations
 
@@ -29,14 +38,61 @@ for _path in (DAY_ROOT, SCRIPT_DIR):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
-from backend.domain import rag_eval, rag_mode  # noqa: E402
-from backend.services.rag_service import RAGError, RAGService  # noqa: E402
+import rag_eval_report as report  # noqa: E402
 
-#: Длина ячейки markdown-таблицы: полные ответы всё равно идут в приложении.
-REPORT_CELL_CHARS = 700
+from backend.domain import rag_eval, rag_filter, rag_mode  # noqa: E402
+from backend.services.rag_errors import RAGError  # noqa: E402
+from backend.services.rag_retrieval import RAGRetrieval  # noqa: E402
+from backend.services.rag_service import RAGService  # noqa: E402
+from backend.services.rerank_service import get_rerank_service  # noqa: E402
 
-#: Отчёт по умолчанию — рядом с отчётом индексации дня 21.
-DEFAULT_REPORT = "docs/reports/rag_eval.md"
+#: Отчёт по умолчанию — рядом с отчётами дней 21 и 22.
+DEFAULT_REPORT = "docs/reports/rag_modes.md"
+
+#: Режимы, которые считаются службой и попадают в таблицу.
+MODE_NAMES = tuple(rag_filter.RAG_MODES)
+
+
+class CachedReranker:
+    """Реранкер с кэшем пар «запрос + фрагменты»: один прогон кросс-энкодера на вопрос.
+
+    Баллы зависят только от текста запроса и текста фрагментов, а пул кандидатов у
+    режимов ``rerank`` и ``rerank_filter`` одинаков — повторный проход вернул бы те же
+    числа, поэтому второй запрос берётся из кэша. Кэш живёт один прогон: ключ включает
+    полный список текстов, так что подмена вопроса или пула считается заново.
+    """
+
+    def __init__(self, inner) -> None:
+        self._inner = inner
+        self._cache: dict = {}
+        self.calls = 0
+
+    @property
+    def model_name(self) -> str:
+        """Имя модели внутреннего реранкера (для логов и отчёта)."""
+        return self._inner.model_name
+
+    @property
+    def loaded(self) -> bool:
+        """Загружены ли веса внутреннего реранкера."""
+        return self._inner.loaded
+
+    def score(self, query: str, texts) -> list:
+        """Баллы фрагментов: считаются один раз на пару «запрос + список текстов»."""
+        key = (str(query), tuple(str(text) for text in texts))
+        if key not in self._cache:
+            self._cache[key] = self._inner.score(query, texts)
+            self.calls += 1
+        return list(self._cache[key])
+
+    def warmup(self) -> bool:
+        """Прогрев внутреннего реранкера (веса грузятся здесь)."""
+        return self._inner.warmup()
+
+    def reset(self) -> None:
+        """Сброс кэша и весов внутреннего реранкера."""
+        self._cache.clear()
+        self._inner.reset()
 
 
 def main(argv=None) -> int:
@@ -47,7 +103,8 @@ def main(argv=None) -> int:
         print(f"неизвестная стратегия: {args.strategy!r}; "
               f"доступны: {', '.join(rag_mode.RAG_STRATEGIES)}")
         return 1
-    service = RAGService()
+    threshold = min(1.0, max(0.0, float(args.threshold)))
+    service = RAGService(rerank_service=CachedReranker(get_rerank_service()))
     config = service.config()
     if not config["ready"]:
         print("корпус или индексы не готовы: собираю (scripts/index_rag_corpus.py)")
@@ -59,6 +116,8 @@ def main(argv=None) -> int:
         print(f"собран корпус: {prepared['corpus']['documents']} документов, "
               f"чанков {sum(prepared['chunks'].values())}")
         config = service.config()
+    retrieval = RAGRetrieval(index_service=service.index_service, store=service.store,
+                             rerank_service=service.rerank_service)
     questions = list(rag_eval.RAG_QUESTIONS)
     if args.limit:
         questions = questions[:max(1, int(args.limit))]
@@ -66,34 +125,40 @@ def main(argv=None) -> int:
     entries = []
     for number, question in enumerate(questions, 1):
         print(f"[{number}/{len(questions)}] {question.question}")
-        entry = _evaluate(service, question, args.top_k, strategy)
+        entry = _evaluate(service, retrieval, question, top_k=args.top_k,
+                          strategy=strategy, threshold=threshold)
         entries.append(entry)
         _print_entry(entry)
     elapsed = time.perf_counter() - started
-    report = _render_report(entries, top_k=args.top_k, strategy=strategy,
-                            config=config, elapsed=elapsed)
+    sweep = _sweep(entries, rag_filter.RAG_THRESHOLD_GRID) if args.sweep else None
+    text = report.render_report(entries, top_k=args.top_k, strategy=strategy,
+                                mode_names=MODE_NAMES, threshold=threshold, sweep=sweep,
+                                config=config, elapsed=elapsed)
     target = Path(args.report)
     if not target.is_absolute():
         target = DAY_ROOT / target
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(report, encoding="utf-8")
-    better = sum(1 for entry in entries if entry["verdict"] == rag_eval.VERDICT_BETTER)
-    worse = sum(1 for entry in entries if entry["verdict"] == rag_eval.VERDICT_WORSE)
-    same = sum(1 for entry in entries if entry["verdict"] == rag_eval.VERDICT_SAME)
-    fallbacks = sum(1 for entry in entries if _is_fallback(entry))
-    failures = sum(1 for entry in entries if entry["error"])
+    target.write_text(text, encoding="utf-8")
+    fallbacks = _fallbacks(entries)
+    failures = _failures(entries)
     print("")
-    print(f"итог: лучше с RAG — {better}, хуже — {worse}, равно — {same} "
-          f"(из {len(entries)}); откатов {fallbacks}, сбоев {failures}; "
-          f"{elapsed:.0f} с")
+    for line in report.summary_lines(entries, MODE_NAMES):
+        print(line.strip("`").replace("`", ""))
+    if sweep is not None:
+        chosen = report.choose_threshold(sweep)
+        mark = "совпадает с порогом прогона" if abs(chosen - threshold) < 1e-9 \
+            else f"впишите в RAG_FILTER_MIN_SCORE (в прогоне {threshold:.2f})"
+        print(f"свип порога: выбран {chosen:.2f} — {mark}")
+    print(f"откатов {fallbacks}, сбоев {failures}; вызовов кросс-энкодера "
+          f"{service.rerank_service.calls}; {elapsed:.0f} с")
     print(f"отчёт: {target}")
     return 1 if fallbacks or failures else 0
 
 
 def _parse_args(argv):
-    """Разбирает аргументы: объём поиска, стратегия, файл отчёта, число вопросов."""
+    """Разбирает аргументы: объём поиска, стратегия, отчёт, порог, свип."""
     parser = argparse.ArgumentParser(
-        description="Оценка RAG дня 22: ответы с корпусом и без него по 10 вопросам",
+        description="Оценка режимов отбора RAG дня 23: реранкер, порог, rewrite",
     )
     parser.add_argument("--top-k", type=int, default=rag_mode.RAG_DEFAULT_TOP_K,
                         help=f"сколько фрагментов брать в контекст "
@@ -105,211 +170,133 @@ def _parse_args(argv):
                         help=f"файл отчёта (по умолчанию {DEFAULT_REPORT})")
     parser.add_argument("--limit", type=int, default=0,
                         help="сколько вопросов взять (0 — все)")
+    parser.add_argument("--threshold", type=float, default=rag_filter.RAG_FILTER_MIN_SCORE,
+                        help=f"порог отсечения режима rerank_filter "
+                             f"(по умолчанию {rag_filter.RAG_FILTER_MIN_SCORE})")
+    parser.add_argument("--sweep", action="store_true",
+                        help="добавить в отчёт свип порога по сохранённым баллам")
     return parser.parse_args(argv)
 
 
-def _evaluate(service: RAGService, question, top_k: int, strategy: str) -> dict:
-    """Два ответа на один вопрос: факты, вердикт и найденный ожидаемый источник."""
-    try:
-        record = service.compare(question.question, top_k=top_k, strategy=strategy)
-    except RAGError as exc:
-        return {"question": question, "error": str(exc), "no_rag": None, "rag": None,
-                "without_score": 0.0, "with_score": 0.0, "verdict": "", "found": False}
-    without, with_rag = record["no_rag"], record["rag"]
-    without_score = rag_eval.fact_score(without["answer"], question)
-    with_score = rag_eval.fact_score(with_rag["answer"], question)
-    return {
+def _evaluate(service: RAGService, retrieval: RAGRetrieval, question, *, top_k: int,
+              strategy: str, threshold: float) -> dict:
+    """Пять ответов на один вопрос: без RAG, четыре режима, факты, вердикты, пул."""
+    entry = {
         "question": question,
         "error": "",
-        "no_rag": without,
-        "rag": with_rag,
-        "without_score": without_score,
-        "with_score": with_score,
-        "verdict": rag_eval.verdict(with_score, without_score),
-        "found": rag_eval.expected_found(
-            [source["source"] for source in with_rag["sources"]], question),
+        "no_rag": None,
+        "records": {},
+        "mode_errors": {},
+        "scores": {},
+        "verdicts": {},
+        "vs_baseline": {},
+        "found": {},
+        "pool": 0,
+        "dropped": 0,
+        "pool_scores": [],
     }
+    try:
+        entry["no_rag"] = service.no_rag_query(question.question)
+    except RAGError as exc:
+        entry["error"] = str(exc)
+        return entry
+    for name in MODE_NAMES:
+        min_score = threshold if name == rag_filter.RAG_MODE_RERANK_FILTER else None
+        try:
+            entry["records"][name] = service.rag_query(
+                question.question, top_k=top_k, strategy=strategy, mode=name,
+                min_score=min_score)
+        except RAGError as exc:
+            entry["mode_errors"][name] = str(exc)
+    stages = _pool(retrieval, question.question, top_k=top_k, strategy=strategy)
+    if stages is not None and stages.reranked:
+        entry["pool_scores"] = [
+            (round(float(hit.get("rerank_score") or 0.0), 4), str(hit.get("source") or ""))
+            for hit in stages.candidates
+        ]
+        entry["pool"] = len(entry["pool_scores"])
+        entry["dropped"] = sum(1 for score, _ in entry["pool_scores"] if score < threshold)
+    _score(entry, question)
+    return entry
+
+
+def _score(entry: dict, question) -> None:
+    """Считает доли фактов и вердикты режимов: против «без RAG» и против baseline."""
+    entry["scores"]["no_rag"] = rag_eval.fact_score(entry["no_rag"]["answer"], question)
+    baseline = entry["records"].get(rag_filter.RAG_MODE_BASELINE)
+    baseline_score = rag_eval.fact_score(baseline["answer"], question) if baseline else 0.0
+    for name in MODE_NAMES:
+        record = entry["records"].get(name)
+        if record is None:
+            continue
+        score = rag_eval.fact_score(record["answer"], question)
+        entry["scores"][name] = score
+        entry["verdicts"][name] = rag_eval.verdict(score, entry["scores"]["no_rag"])
+        entry["vs_baseline"][name] = rag_eval.verdict(score, baseline_score)
+        entry["found"][name] = rag_eval.expected_found(
+            [source["source"] for source in record["sources"]], question)
+
+
+def _pool(retrieval: RAGRetrieval, question: str, *, top_k: int, strategy: str):
+    """Кандидаты режима ``rerank`` с баллами: источник данных для свипа порога."""
+    try:
+        return retrieval.run(question, top_k=top_k, strategy=strategy,
+                             mode=rag_filter.RAG_MODE_RERANK)
+    except RAGError:
+        return None
+
+
+def _sweep(entries: list, grid) -> list:
+    """Свип порога офлайн: сколько вопросов сохраняет фрагменты и ожидаемый источник."""
+    rows = []
+    for threshold in grid:
+        total = kept_any = kept_expected = 0
+        for entry in entries:
+            if not entry["pool_scores"]:
+                continue
+            total += 1
+            kept = [source for score, source in entry["pool_scores"] if score >= threshold]
+            if kept:
+                kept_any += 1
+            if rag_eval.expected_found(kept, entry["question"]):
+                kept_expected += 1
+        rows.append({"threshold": float(threshold), "total": total, "kept_any": kept_any,
+                     "kept_expected": kept_expected})
+    return rows
 
 
 def _print_entry(entry: dict) -> None:
-    """Печатает метрики одного вопроса: факты, вердикт и найденный источник."""
+    """Печатает по одному вопросу: факты, вердикты и метрики всех режимов."""
     if entry["error"]:
         print(f"    сбой: {entry['error']}")
         return
-    marker = "" if entry["found"] else "  (ожидаемый источник не найден)"
-    print(f"    факты: без RAG {entry['without_score']:.2f}, "
-          f"с RAG {entry['with_score']:.2f} → {entry['verdict']}{marker}")
-    print(f"    {_metrics_line(entry)}")
-
-
-def _metrics_line(entry: dict) -> str:
-    """Метрики обоих ответов одной строкой: время, токены, фрагменты, кэш."""
-    parts = []
-    for label, key in (("без RAG", "no_rag"), ("с RAG", "rag")):
-        record = entry[key]
+    print(f"    без RAG: факты {entry['scores']['no_rag']:.2f}, "
+          f"{report.metrics_line(entry['no_rag'])}")
+    for name in MODE_NAMES:
+        record = entry["records"].get(name)
         if record is None:
+            print(f"    {name}: сбой: {entry['mode_errors'].get(name, '')}")
             continue
-        detail = [f"{record['duration_ms']} мс"]
-        tokens = _token_total(record)
-        if tokens:
-            detail.append(f"{tokens} токенов")
-        if key == "rag":
-            detail.append(f"{record['chunks_used']} чанков")
-            detail.append(f"контекст {record['context_tokens']} токенов")
-            cache = (record.get("tokens") or {}).get("cache_hit_percent")
-            if cache:
-                detail.append(f"кэш {cache:.1f} %")
-        parts.append(f"{label} — " + ", ".join(detail))
-    return "; ".join(parts) or "вызовов не было"
+        marker = "" if entry["found"].get(name) else "  [источник не найден]"
+        print(f"    {name}: факты {entry['scores'][name]:.2f} → "
+              f"{entry['verdicts'][name]} vs без RAG, "
+              f"{entry['vs_baseline'][name]} vs baseline; "
+              f"{report.metrics_line(record)}{marker}")
+        for key in ("rewrite_warning", "rerank_warning", "filter_warning"):
+            if record.get(key):
+                print(f"      ⚠ {key}: {record[key]}")
 
 
-def _is_fallback(entry: dict) -> bool:
-    """Был ли откат: ответ с RAG получен без контекста из-за сбоя вызова."""
-    return bool(entry["rag"] and entry["rag"].get("fallback"))
+def _fallbacks(entries: list) -> int:
+    """Сколько ответов режимов получено откатом на вызов без контекста."""
+    return sum(1 for entry in entries for name in MODE_NAMES
+               if (entry["records"].get(name) or {}).get("fallback"))
 
 
-def _render_report(entries: list, *, top_k: int, strategy: str,
-                   config: dict, elapsed: float) -> str:
-    """Markdown-отчёт: шапка, правило вердикта, таблица, итог и приложение."""
-    corpus = config["corpus"]
-    lines = [
-        "# День 22 — RAG: сравнение ответов с корпусом и без него",
-        "",
-        f"Отчёт собран прогоном `scripts/run_rag_eval.py`: топ-K = {top_k}, "
-        f"стратегия = {strategy},",
-        f"корпус — {corpus['documents']} документов / {corpus['chars']} символов "
-        f"(~{corpus['pages']} страниц), индекс — {config['chunks_total']} чанков, "
-        f"время прогона {elapsed:.0f} с.",
-        "",
-        "## Как считался вердикт",
-        "Ключевые факты вопроса ищутся в тексте ответа (вхождение без учёта регистра); "
-        "доля найденных",
-        "фактов сравнивается у ответа с RAG и без RAG: «лучше» — доля выше, «хуже» — ниже, "
-        "«равно» —",
-        "доли совпали. Вопросы намеренно про значения из файлов корпуса: их нельзя "
-        "воспроизвести по памяти.",
-        "",
-        "## Таблица сравнения",
-        "",
-        "| Вопрос | Ожидание (ключевые факты) | Источники (файл · раздел · score) "
-        "| Ответ без RAG | Ответ с RAG | Вердикт |",
-        "|---|---|---|---|---|---|",
-    ]
-    for entry in entries:
-        question = entry["question"]
-        lines.append("| " + " | ".join([
-            _cell(question.question),
-            _cell(_expectation(question)),
-            _cell(_sources_cell(entry)),
-            _cell(_answer_cell(entry, "no_rag")),
-            _cell(_answer_cell(entry, "rag")),
-            entry["verdict"] or "—",
-        ]) + " |")
-    lines += ["", "## Итог", ""]
-    lines += [f"- {line}" for line in _summary(entries)]
-    lines += ["", "## Приложение: полные ответы", ""]
-    for number, entry in enumerate(entries, 1):
-        lines += _appendix(number, entry)
-    return "\n".join(lines) + "\n"
-
-
-def _expectation(question) -> str:
-    """Эталон строки таблицы: формулировка факта и сами литералы."""
-    return f"{question.note} Факты: {', '.join(question.key_facts)}"
-
-
-def _sources_cell(entry: dict) -> str:
-    """Колонка источников: использованные чанки и пометка о промахе поиска."""
-    if entry["error"]:
-        return f"сбой: {entry['error']}"
-    sources = list(entry["rag"]["sources"])
-    if not sources:
-        return "поиск не дал источников"
-    cell = "<br>".join(f"{source['source']} · {source['section'] or '—'} · {source['score']}"
-                       for source in sources)
-    if not entry["found"]:
-        expected = ", ".join(entry["question"].expected_sources)
-        cell += f"<br>⚠ ожидались: {expected}"
-    return cell
-
-
-def _answer_cell(entry: dict, key: str) -> str:
-    """Колонка ответа: текст или пометка сбоя (полный ответ — в приложении)."""
-    record = entry[key]
-    if record is None:
-        return "—"
-    prefix = "⚠ откат на ответ без RAG: " if _is_fallback(entry) and key == "rag" else ""
-    return prefix + str(record["answer"])
-
-
-def _summary(entries: list) -> list:
-    """Строки раздела «Итог»: счёт вердиктов, промахи поиска и откаты."""
-    total = len(entries)
-    better = sum(1 for entry in entries if entry["verdict"] == rag_eval.VERDICT_BETTER)
-    worse = sum(1 for entry in entries if entry["verdict"] == rag_eval.VERDICT_WORSE)
-    same = sum(1 for entry in entries if entry["verdict"] == rag_eval.VERDICT_SAME)
-    misses = sum(1 for entry in entries if not entry["found"] and not entry["error"])
-    fallbacks = [entry for entry in entries if _is_fallback(entry)]
-    failures = [entry for entry in entries if entry["error"]]
-    lines = [f"Лучше с RAG: {better}; хуже: {worse}; равно: {same} (из {total})."]
-    if failures:
-        lines.append(f"Сбоев запроса: {len(failures)} — вопросы без ответов, "
-                     "прогон стоит повторить.")
-    if misses:
-        lines.append(f"Поиск не нашёл ожидаемый источник в {misses} из {total} вопросов: "
-                     "там ответ с RAG опирался на соседние фрагменты корпуса.")
-    else:
-        lines.append(f"Поиск нашёл ожидаемый источник во всех {total} вопросах.")
-    if fallbacks:
-        lines.append(f"Откатов на ответ без RAG: {len(fallbacks)} — строки помечены "
-                     "предупреждением.")
-    else:
-        lines.append("Откатов на ответ без RAG не было: модель ответила на каждый запрос.")
-    return lines
-
-
-def _appendix(number: int, entry: dict) -> list:
-    """Приложение по одному вопросу: эталон, оба ответа, чанки и метрики."""
-    question = entry["question"]
-    lines = [
-        f"### {number}. {question.question}",
-        "",
-        f"- **Ожидание:** {question.note}",
-        f"- **Ключевые факты:** {', '.join(question.key_facts)}",
-        f"- **Ожидаемые источники:** {', '.join(question.expected_sources)}",
-    ]
-    if entry["error"]:
-        lines += [f"- **Сбой:** {entry['error']}", ""]
-        return lines
-    for label, key in (("без RAG", "no_rag"), ("с RAG", "rag")):
-        lines.append(f"- **Ответ {label}:** {entry[key]['answer']}")
-    warning = entry["rag"].get("warning")
-    if warning:
-        lines.append(f"- **Предупреждение:** {warning}")
-    lines.append("- **Использованные чанки:**")
-    sources = list(entry["rag"]["sources"])
-    if not sources:
-        lines.append("  - поиск не дал источников")
-    for source in sources:
-        lines.append(f"  - `{source['source']} · {source['title']} · "
-                     f"{source['section'] or '—'} · {source['chunk_id']} · "
-                     f"{source['score']}`")
-    lines += [f"- **Метрики:** {_metrics_line(entry)}", ""]
-    return lines
-
-
-def _token_total(record: dict) -> int:
-    """Токены ответа целиком: запрос плюс ответ, 0 — если счётчика нет."""
-    tokens = record.get("tokens") or {}
-    return int(tokens.get("prompt_tokens") or 0) + int(tokens.get("completion_tokens") or 0)
-
-
-def _cell(value: str) -> str:
-    """Ячейка markdown-таблицы: без переводов строк, с экранированной чертой."""
-    text = " ".join(str(value or "").split())
-    if len(text) > REPORT_CELL_CHARS:
-        text = text[:REPORT_CELL_CHARS - 1].rstrip() + "…"
-    return text.replace("|", "\\|")
+def _failures(entries: list) -> int:
+    """Сколько запросов сорвалось: вопросы без «без RAG» или без режима."""
+    return sum((1 if entry["error"] else 0) + len(entry["mode_errors"])
+               for entry in entries)
 
 
 if __name__ == "__main__":

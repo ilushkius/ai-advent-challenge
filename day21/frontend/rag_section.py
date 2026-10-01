@@ -1,18 +1,22 @@
-"""Панель «🔍 RAG-запрос по корпусу» и раздел «🆚 RAG-сравнение» (день 22).
+"""Панель «🔍 RAG-запрос по корпусу» и раздел «🆚 RAG-сравнение» (день 22, день 23).
 
 RAG живёт в процессе бэкенда: интерфейс задаёт вопрос, показывает ответ, метрики
-(время, токены, число фрагментов, доля ввода из кэша контекста) и использованные
-фрагменты корпуса — источник, заголовок, раздел, ``chunk_id`` и оценку близости.
-Разметку ответа и работу с индексом интерфейс не повторяет: он только показывает
-то, что вернул ``POST /rag/query``.
+(время, токены, число фрагментов до и после отсечения, порог, доля ввода из кэша
+контекста) и использованные фрагменты корпуса — источник, заголовок, раздел,
+``chunk_id`` и все четыре балла отбора: гибридный, векторный, лексический и от
+кросс-энкодера. Разметку ответа и работу с индексом интерфейс не повторяет: он
+только показывает то, что вернул ``POST /rag/query``.
 
 Два места использования одного и того же отображения:
 
-* панель в разделе «💬 Чат и память» — вопрос к корпусу, переключатель RAG и топ-K,
+* панель в разделе «💬 Чат и память» — вопрос к корпусу, переключатель RAG, топ-K,
+  ступени отбора дня 23 (переформулировка вопроса, реранкер, порог отсечения),
   ответ и список фрагментов; выключенный переключатель даёт ответ по памяти модели
   на тот же вопрос (различие ровно одно — блок контекста, как и на бэкенде);
 * раздел «🆚 RAG-сравнение» — один вопрос, два ответа рядом и их метрики, чтобы
-  видеть разницу «с корпусом» и «без корпуса» на одном экране.
+  видеть разницу «с корпусом» и «без корпуса»; ниже — сравнение режимов отбора
+  (``POST /rag/compare_modes``): до четырёх ответов на один вопрос, чтобы отдельно
+  от ответа было видно, что добавляет переформулировка, реранкер и порог.
 
 Источник данных корпуса — ``documents/rag_corpus``: производные данные, их
 собирают скрипты дня (``scripts/prepare_rag_corpus.py`` и
@@ -29,21 +33,30 @@ RAG_TOP_K_MIN = 1
 RAG_TOP_K_MAX = 10
 RAG_TOP_K_DEFAULT = 5
 
+#: Ступени отбора дня 23: режимы сравнения по умолчанию и порог «без отсечения».
+RAG_MODE_DEFAULTS = ("baseline", "rerank_filter")
+RAG_MIN_SCORE_MIN = 0.0
+RAG_MIN_SCORE_MAX = 1.0
+
 #: Стратегии поиска по корпусу: имя namespace индекса → подпись для человека.
 RAG_STRATEGIES = (
     ("rag_corpus_structural", "структурная (по разделам)"),
     ("rag_corpus_fixed", "фиксированное окно"),
 )
 
-#: Ключи состояния сессии: последний ответ панели и последнее сравнение.
+#: Ключи состояния сессии: последний ответ панели, сравнение и сравнение режимов.
 RAG_RESULT_KEY = "rag_last"
 RAG_COMPARE_KEY = "rag_compare_last"
+RAG_MODES_KEY = "rag_modes_last"
 
 #: Метрики ответа: подпись и как её посчитать (``tokens`` — словарь расхода или {}).
 METRICS = {
     "time": ("Время", lambda record, tokens: f"{int(record.get('duration_ms') or 0) / 1000:.2f} с"),
     "tokens": ("Токены", lambda record, tokens: common.fmt_int(_token_total(tokens)) if tokens else "—"),
     "chunks": ("Фрагментов", lambda record, tokens: str(int(record.get("chunks_used") or 0))),
+    "candidates": ("До фильтра", lambda record, tokens: str(int(record.get("candidates") or 0))),
+    "kept": ("После фильтра", lambda record, tokens: str(int(record.get("kept") or 0))),
+    "min_score": ("Порог", lambda record, tokens: _score_caption(record)),
     "context": ("Контекст", lambda record, tokens: f"{common.fmt_int(record.get('context_tokens') or 0)} токенов"),
     "cache": ("Кэш контекста",
               lambda record, tokens: f"{float(tokens.get('cache_hit_percent') or 0):.1f} %"
@@ -57,18 +70,20 @@ def render_chat_rag_panel() -> None:
     st.caption("Вопрос ищет фрагменты в корпусе документов дня 21 и уходит модели "
                "вместе с ними; выключенный переключатель отправляет тот же вопрос "
                "без контекста — это видно по числу фрагментов и по ответу.")
-    _config_caption(_load_config())
+    config = _load_config()
+    _config_caption(config)
     use_rag = st.toggle("RAG: включён", value=True, key="rag_use_rag",
                         help="Выключить — ответ придёт по памяти модели, без корпуса.")
     top_k = _top_k_slider("rag_top_k", disabled=not use_rag)
     strategy = _strategy_select("rag_strategy", disabled=not use_rag)
+    rewrite, rerank, min_score = _selection_widgets("rag", config, disabled=not use_rag)
     with st.form("rag_form", clear_on_submit=True):
         question = st.text_area("Вопрос к корпусу RAG", height=80,
                                 placeholder="Например: чему равен CHARS_PER_PAGE "
                                             "в day21/backend/services/document_loader.py?")
         submitted = st.form_submit_button("🔎 Найти ответ", type="primary")
     if submitted:
-        _ask(question, top_k, strategy, use_rag)
+        _ask(question, top_k, strategy, use_rag, rewrite, rerank, min_score)
     record = st.session_state.get(RAG_RESULT_KEY)
     if record:
         _render_result(record, show_sources=True)
@@ -78,13 +93,14 @@ def render_chat_rag_panel() -> None:
 
 
 def render_rag_compare_section() -> None:
-    """Раздел «🆚 RAG-сравнение»: один вопрос, два ответа рядом с метриками."""
+    """Раздел «🆚 RAG-сравнение»: один вопрос — ответы без RAG и с RAG, затем режимы."""
     st.title("🆚 RAG-сравнение")
     st.caption("Один и тот же вопрос задаётся модели дважды: слева — без корпуса, "
                "справа — с фрагментами индекса RAG. Сравнение показывает, что "
                "добавляет корпус, а отчёт по десяти контрольным вопросам лежит в "
-               "`docs/reports/rag_eval.md`.")
-    _config_caption(_load_config())
+               "`docs/reports/rag_modes.md`.")
+    config = _load_config()
+    _config_caption(config)
     columns = st.columns([1, 2])
     with columns[0]:
         top_k = _top_k_slider("rag_compare_top_k")
@@ -97,29 +113,76 @@ def render_rag_compare_section() -> None:
         submitted = st.form_submit_button("🆚 Сравнить", type="primary")
     if submitted:
         _compare(question, top_k, strategy)
+    _render_modes_form(config, top_k, strategy)
     record = st.session_state.get(RAG_COMPARE_KEY)
-    if not record:
+    if record:
+        st.markdown(f"**Вопрос:** {record.get('question') or '—'}")
+        left, right = st.columns(2)
+        with left:
+            st.markdown("**🚫 Без RAG**")
+            _render_result(record.get("no_rag") or {},
+                           keys=("time", "tokens", "chunks"))
+        with right:
+            st.markdown("**✅ С RAG**")
+            _render_result(record.get("rag") or {}, show_sources=True)
+    else:
         st.info("Задайте вопрос и нажмите «🆚 Сравнить»: ответы появятся рядом.")
+    _render_modes_result()
+
+
+def _render_modes_form(config: dict | None, top_k: int, strategy: str) -> None:
+    """Форма сравнения режимов отбора: мультиселект четырёх ступеней и кнопка."""
+    modes = config.get("modes") or []
+    names = [mode.get("name") for mode in modes if mode.get("name")]
+    if not names:
+        return
+    labels = {mode["name"]: mode.get("label") or mode["name"] for mode in modes}
+    st.divider()
+    st.markdown("**Сравнение режимов отбора** — что добавляет каждая ступень дня 23")
+    with st.form("rag_modes_form"):
+        chosen = st.multiselect(
+            "Режимы для сравнения", options=names,
+            default=[name for name in RAG_MODE_DEFAULTS if name in names],
+            format_func=lambda name: f"{name} — {labels.get(name, name)}",
+            key="rag_modes_choice",
+            help="baseline — порядок дня 22; rewrite — переформулировка вопроса; "
+                 "rerank — кросс-энкодер; rerank_filter — реранкер и порог отсечения.",
+        )
+        question = st.text_area("Вопрос для сравнения режимов", height=80,
+                                key="rag_modes_question",
+                                placeholder="Например: чему равен CHARS_PER_PAGE "
+                                            "в day21/backend/services/document_loader.py?")
+        submitted = st.form_submit_button("🆚 Сравнить режимы", type="primary")
+    if submitted:
+        _compare_modes(question, top_k, strategy, chosen)
+
+
+def _render_modes_result() -> None:
+    """Ответы всех выбранных режимов рядом: у каждого свои метрики и источники."""
+    record = st.session_state.get(RAG_MODES_KEY)
+    if not record:
+        return
+    entries = record.get("modes") or []
+    if not entries:
+        st.info("Ни один режим не сравнивался: выберите хотя бы один.")
         return
     st.markdown(f"**Вопрос:** {record.get('question') or '—'}")
-    left, right = st.columns(2)
-    with left:
-        st.markdown("**🚫 Без RAG**")
-        _render_result(record.get("no_rag") or {},
-                       keys=("time", "tokens", "chunks"))
-    with right:
-        st.markdown("**✅ С RAG**")
-        _render_result(record.get("rag") or {}, show_sources=True)
+    for column, entry in zip(st.columns(len(entries)), entries):
+        with column:
+            st.markdown(f"**{entry.get('label') or entry.get('mode')}**")
+            _render_result(entry.get("result") or {}, show_sources=True)
 
 
 # ---------- действия ----------
-def _ask(question: str, top_k: int, strategy: str, use_rag: bool) -> None:
+def _ask(question: str, top_k: int, strategy: str, use_rag: bool, rewrite: bool,
+         rerank: bool, min_score: float | None) -> None:
     """Отправляет вопрос и кладёт ответ в состояние сессии (пустой — плашкой)."""
     if not question.strip():
         common.flash("error", "Введите вопрос: пустой запрос бэкенд отвергает.")
         st.rerun()
     try:
-        record = rag_api.api_rag_query(question, top_k, strategy, use_rag)
+        record = rag_api.api_rag_query(question, top_k, strategy, use_rag, rewrite,
+                                       rerank, min_score)
     except api_client.BackendError as exc:
         common.flash("error", f"RAG-запрос не выполнен: {exc.message}")
     else:
@@ -141,14 +204,34 @@ def _compare(question: str, top_k: int, strategy: str) -> None:
     st.rerun()
 
 
+def _compare_modes(question: str, top_k: int, strategy: str, modes: list) -> None:
+    """Отправляет вопрос на сравнение режимов и кладёт записи в состояние сессии."""
+    if not question.strip():
+        common.flash("error", "Введите вопрос: пустой запрос бэкенд отвергает.")
+        st.rerun()
+    try:
+        record = rag_api.api_rag_compare_modes(question, top_k, strategy, modes)
+    except api_client.BackendError as exc:
+        common.flash("error", f"Сравнение режимов не выполнено: {exc.message}")
+    else:
+        st.session_state[RAG_MODES_KEY] = record
+    st.rerun()
+
+
 # ---------- отображение ----------
 def _render_result(record: dict, show_sources: bool = False,
-                   keys=("time", "tokens", "chunks", "cache")) -> None:
-    """Ответ одного запроса: текст, предупреждение отката, метрики и фрагменты."""
+                   keys=("time", "tokens", "chunks", "candidates", "kept", "min_score",
+                         "cache")) -> None:
+    """Ответ одного запроса: текст, предупреждения отбора, метрики и фрагменты."""
     st.markdown(common.esc(record.get("answer") or "—"))
+    if record.get("rewritten") and record.get("query_used"):
+        st.caption(f"Поиск шёл по переформулированному запросу: {record['query_used']}")
     if record.get("fallback"):
         st.warning(record.get("warning")
                    or "Ответ получен без контекста: вызов модели с корпусом не удался.")
+    for key in ("rewrite_warning", "rerank_warning", "filter_warning"):
+        if record.get(key):
+            st.warning(record[key])
     if record.get("grounding"):
         st.caption(f"Опора в контексте: {record['grounding']}")
     _render_metrics(record, keys)
@@ -176,13 +259,23 @@ def _render_sources(sources: list) -> None:
 
 
 def _source_row(source: dict) -> dict:
-    """Строка таблицы источников (подписи интерфейса, а не значения API)."""
+    """Строка таблицы источников (подписи интерфейса, а не значения API).
+
+    Четыре балла показываются рядом намеренно: ``score`` — тот, по которому шёл
+    отбор (реранкер, если он работал, иначе гибридный), ``vector``/``lexical`` —
+    из чего собран гибридный, ``rerank`` — второй этап отбора. Пустой балл
+    реранкера печатается прочерком: этап не выполнялся.
+    """
+    rerank_score = source.get("rerank_score")
     return {
         "источник": source.get("source"),
         "заголовок": source.get("title"),
         "раздел": source.get("section") or "—",
         "chunk_id": source.get("chunk_id"),
         "score": source.get("score"),
+        "vector": source.get("vector_score"),
+        "lexical": source.get("lexical_score"),
+        "rerank": "—" if rerank_score is None else rerank_score,
     }
 
 
@@ -225,6 +318,39 @@ def _strategy_select(key: str, disabled: bool = False) -> str:
     return st.selectbox("Стратегия поиска", [value for value, _ in RAG_STRATEGIES],
                         format_func=lambda value: labels.get(value, value),
                         key=key, disabled=disabled)
+
+
+def _selection_widgets(prefix: str, config: dict | None,
+                       disabled: bool = False) -> tuple[bool, bool, float]:
+    """Ступени отбора дня 23: переформулировка, реранкер и порог отсечения.
+
+    Значение порога по умолчанию — измеренное ``min_score_default`` бэкенда
+    (``GET /rag/config``): при смене модели реранкера калибровка повторяется на
+    бэкенде, и интерфейс подхватывает новое значение сам. Ноль означает «без
+    отсечения» и в запрос не отправляется.
+    """
+    rewrite = st.toggle("Переформулировать запрос моделью", value=False,
+                        key=f"{prefix}_rewrite", disabled=disabled,
+                        help="Модель переписывает вопрос в поисковый запрос; поиск "
+                             "идёт по переформулировке, ответ — по исходному вопросу.")
+    rerank = st.toggle("Реранкер: кросс-энкодер", value=True,
+                       key=f"{prefix}_rerank", disabled=disabled,
+                       help="Второй этап отбора: кросс-энкодер пересортировывает "
+                            "кандидатов гибридного поиска.")
+    default = float((config or {}).get("min_score_default") or RAG_MIN_SCORE_MIN)
+    min_score = st.slider("Порог отсечения (min_score)", RAG_MIN_SCORE_MIN,
+                          RAG_MIN_SCORE_MAX, value=default,
+                          step=0.01, key=f"{prefix}_min_score", disabled=disabled,
+                          help="0.00 — без отсечения. Шкала реранкера — 0…1; без "
+                               "реранкера порог сравнивается с гибридным баллом, "
+                               "у которого шкала выше единицы.")
+    return rewrite, rerank, min_score
+
+
+def _score_caption(record: dict) -> str:
+    """Порог отсечения для метрики: ``None`` (отсечения не было) печатается прочерком."""
+    min_score = record.get("min_score")
+    return "—" if min_score is None else f"{float(min_score):.2f}"
 
 
 def _token_total(tokens: dict) -> int:
