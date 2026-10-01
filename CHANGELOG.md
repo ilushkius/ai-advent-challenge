@@ -53,6 +53,13 @@
   загрузки настоящих весов в `tests/fixtures_indexing.py`. Набор дня — 2601 тест
   (быстрый прогон 2522).
 
+* Документация: раздел «Сценарий дня 23» в `README.md` и `docs/usage.md` — семь
+  шагов от корпуса до сравнения режимов (`baseline` → `rewrite` → `rerank` → порог
+  → `compare_modes` → прогон отчёта) с ожидаемыми числами (30 кандидатов → 5
+  фрагментов, с порогом 0.05 в среднем 4.4) и признаками сбоя каждой ступени;
+  корневой `README.md` приведён к текущему дню (день 23, веса двух моделей, карта
+  документации дня).
+
 **Затронуто:** `day21/backend/domain/` (`rag_filter.py`, `rag_mode.py`,
 `rag_eval.py`), `day21/backend/services/` (`rerank_service.py`, `rag_retrieval.py`,
 `rag_errors.py`, `rag_corpus_index.py`, `rag_records.py`, `rag_llm.py`,
@@ -68,7 +75,7 @@
 `e2e/test_rag_api.py`, `e2e/test_indexing_api.py`, `e2e/test_llm_api.py`),
 `day21/docs/reports/rag_modes.md` (вместо `rag_eval.md`), документация `day21/`
 (`README.md`, `STRUCTURE.md`, `docs/architecture.md`, `docs/usage.md`,
-`docs/api.md`), `day21/.env.example`, `CHANGELOG.md`.
+`docs/api.md`), `day21/.env.example`, корневой `README.md`, `CHANGELOG.md`.
 
 ## 2026-09-29 — feat — день 22: RAG-режим с корпусом документов, 10 контрольных вопросов и сравнением с ответом без RAG
 
