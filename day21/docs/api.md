@@ -147,14 +147,15 @@ LLM, прогноз экономии и поле `llm` генерации),
 
 ## Эндпоинты
 
-Всего 105 записей эндпоинтов (в списке `GET /` — все, кроме самой подсказки): 10 в
+Всего 110 записей эндпоинтов (в списке `GET /` — все, кроме самой подсказки): 10 в
 разделе агентов (CRUD, генерация и статистика), 9 контекста (сжатие, стратегии,
 ветки, факты), 10 памяти, 6 профилей пользователей, 11 состояния задачи, 6
 инвариантов, 5 MCP активного соединения, 3 флота MCP-серверов, 14 планировщика, 5
-пайплайна, 6 оркестрации, 9 индексации, 5 расходов на LLM и 6 RAG (поиск по
+пайплайна, 6 оркестрации, 9 индексации, 5 расходов на LLM, 6 RAG (поиск по
 корпусу, режим без RAG, сравнение, сравнение режимов отбора, вопросы демо и прогон
-демо). Вместе с корневым
-`GET /` приложение объявляет 106 эндпоинтов, а уникальных путей в OpenAPI — 87:
+демо) и 5 мини-чата (сессия, реплика, память задачи, история реплик и закрытие
+сессии). Вместе с корневым
+`GET /` приложение объявляет 111 эндпоинтов, а уникальных путей в OpenAPI — 92:
 FastAPI сводит методы одного пути
 (`GET`/`POST`/`DELETE /orchestration/runs/{run_id}` — это три записи одного пути) в
 одну запись схемы.
@@ -165,7 +166,8 @@ FastAPI сводит методы одного пути
 [«Инварианты»](#инварианты), [«MCP»](#mcp), [«Планировщик»](#планировщик),
 [«Пайплайн»](#пайплайн), [«Оркестрация»](#оркестрация),
 [«Индексация документов»](#индексация-документов),
-[«RAG-режим»](#rag-режим), [«Расходы на LLM»](#расходы-на-llm) и
+[«RAG-режим»](#rag-режим), [«Расходы на LLM»](#расходы-на-llm),
+[«Мини-чат с RAG и памятью задачи»](#мини-чат-с-rag-и-памятью-задачи-день-25) и
 [«MCP-серверы»](#mcp-серверы).
 
 | Метод | Путь | Назначение | Успех |
@@ -275,6 +277,11 @@ FastAPI сводит методы одного пути
 | POST | `/rag/compare_modes` | один вопрос через несколько режимов отбора сразу (`modes`) | 200 RagModesOut |
 | GET | `/rag/demo-questions` | контрольные вопросы RAG-демо из `backend/data/demo_questions.json` | 200 RagDemoQuestionsOut |
 | POST | `/rag/demo-run` | прогон демо: `rows` с режимом, ответом, источниками, цитатами и вердиктом по каждому вопросу + `summary` | 200 RagDemoOut |
+| POST | `/mini-chat/sessions` | новая сессия мини-чата (8 hex-символов) вместе с `task_id` памяти задачи `mc-<session_id>` | 201 MiniChatSessionOut |
+| POST | `/mini-chat/sessions/{session_id}/messages` | реплика: ответ по корпусу с источниками и цитатами, обновление памяти задачи; слабый контекст — режим «не знаю», повторный сбой модели — `mode="error"` (404 — неизвестная сессия) | 200 MiniChatAnswerOut |
+| GET | `/mini-chat/sessions/{session_id}/memory` | память задачи: `goal`, `terms`, `constraints`, `clarifications` и число реплик | 200 MiniChatTaskMemoryOut |
+| GET | `/mini-chat/sessions/{session_id}/history` | реплики сессии в порядке добавления (необязательный `limit`) | 200 MiniChatHistoryOut |
+| DELETE | `/mini-chat/sessions/{session_id}` | закрыть сессию: удалить реплики (идемпотентно); память задачи остаётся | 200 MiniChatCloseOut |
 | GET | `/` | список доступных эндпоинтов | 200 объект-подсказка |
 
 ## GET /
@@ -283,7 +290,8 @@ FastAPI сводит методы одного пути
 персонализации, состояния задачи (отдельным ключом — группа `task_transitions`),
 инвариантов, MCP (активное соединение), флота MCP-серверов (ключ `mcp_servers`),
 планировщика, пайплайна, оркестрации, индексации документов (ключ `indexing`),
-расходов на LLM (ключ `llm`) и RAG (ключ `rag`), а также перечень эндпоинтов (105
+расходов на LLM (ключ `llm`), RAG (ключ `rag`) и мини-чата с RAG и памятью задачи
+(ключ `mini_chat`), а также перечень эндпоинтов (110
 строк — все, кроме самого `GET /`).
 
 ```bash
@@ -307,6 +315,7 @@ curl.exe http://127.0.0.1:8000/
   "indexing": "POST /indexing/run, POST /indexing/demo, GET /indexing/status, GET /indexing/stats, GET /indexing/search, GET /indexing/chunks, GET /indexing/runs, GET /indexing/runs/{run_id}, POST /indexing/clear (9 эндпоинтов)",
   "llm": "/llm/usage, /llm/status, /llm/estimate, /llm/models, /llm/peak (5 эндпоинтов — журнал расходов, кэш контекста, непиковые часы)",
   "rag": "POST /rag/query, GET /rag/config, POST /rag/compare, POST /rag/compare_modes, GET /rag/demo-questions, POST /rag/demo-run (6 эндпоинтов — поиск по корпусу, режим без RAG, сравнение, сравнение режимов, вопросы демо, прогон демо)",
+  "mini_chat": "POST /mini-chat/sessions, POST /mini-chat/sessions/{session_id}/messages, GET /mini-chat/sessions/{session_id}/memory, GET /mini-chat/sessions/{session_id}/history, DELETE /mini-chat/sessions/{session_id} (5 эндпоинтов — мини-чат с RAG и памятью задачи)",
   "endpoints": [
     "POST /agents",
     "GET /agents",
@@ -412,7 +421,12 @@ curl.exe http://127.0.0.1:8000/
     "POST /rag/compare",
     "POST /rag/compare_modes",
     "GET /rag/demo-questions",
-    "POST /rag/demo-run"
+    "POST /rag/demo-run",
+    "POST /mini-chat/sessions",
+    "POST /mini-chat/sessions/{session_id}/messages",
+    "GET /mini-chat/sessions/{session_id}/memory",
+    "GET /mini-chat/sessions/{session_id}/history",
+    "DELETE /mini-chat/sessions/{session_id}"
   ]
 }
 ```
@@ -6369,15 +6383,161 @@ curl.exe -X POST http://127.0.0.1:8000/rag/demo-run ^
 пустого индекса внутрь демо не пробрасываются: вопросы, которым не хватило
 контекста, приходят строкой `dont_know`, остальные — строками `rag`.
 
+## Мини-чат с RAG и памятью задачи (день 25)
+
+Мини-чат — подсистема дня 25: отдельное приложение (`day21/mini_chat/`, Streamlit на
+порту 8502) поверх того же FastAPI. Фрагменты корпуса он берёт тем же отбором, что и
+RAG-режим (`rag_service.retrieval.run`), но промпт собирает **сам**:
+RAG-контекст → память задачи → история диалога. Пять эндпоинтов `/mini-chat` отдают
+сессию, ответ с источниками и цитатами, память задачи, историю реплик и закрытие
+сессии.
+
+Отличия от [`POST /rag/query`](#post-ragquery): у мини-чата есть `session_id` и
+память задачи, которая обновляется после каждой реплики, а повторный сбой модели
+даёт `mode="error"` (RAG-режим в том же случае уходит в ответ без контекста).
+Заголовок приложения и версия схемы (`17.0.0`) остались от дня 24: песочница дня 25
+не меняется, мини-чат живёт отдельным входом.
+
+### POST /mini-chat/sessions
+
+Новая сессия: `session_id` (8 hex-символов, `config.SESSION_ID_LENGTH`) и `task_id`
+памяти задачи — `mc-<session_id>`. Тело — `MiniChatSessionIn` (`user_id`,
+необязательный; пусто — `config.DEFAULT_USER_ID` = `default`).
+
+```bash
+curl.exe -X POST http://127.0.0.1:8000/mini-chat/sessions ^
+  -H "Content-Type: application/json" ^
+  -d "{}"
+```
+
+```json
+{
+  "session_id": "464d0f5f",
+  "task_id": "mc-464d0f5f",
+  "user_id": "default",
+  "created_at": "2026-10-02T10:15:00.123456+00:00"
+}
+```
+
+Создание сессии заводит и служебную строку агента `agents.agent_id = "mini-chat"` —
+она нужна как якорь внешних ключей таблиц памяти (`short_term_messages`,
+`working_memory`); живого агента песочницы мини-чат не создаёт.
+
+Коды: `201`, `422` (`user_id` длиннее 64 символов).
+
+### POST /mini-chat/sessions/{session_id}/messages
+
+Реплика пользователя. Тело — `MiniChatMessageIn`: `message` (1…500 символов) и
+`top_k` (1…10, по умолчанию 5). Сервер: достаёт фрагменты отбором
+`rag_service.retrieval`, собирает контекст из трёх блоков, вызывает модель
+(`rag_llm.call_with_retry`, до 3 попыток), пишет обе реплики в краткосрочную память и
+извлекает память задачи отдельным вызовом модели с пределом ожидания
+`MINI_CHAT_EXTRACT_TIMEOUT` (5 с, одна попытка).
+
+```bash
+curl.exe -X POST http://127.0.0.1:8000/mini-chat/sessions/464d0f5f/messages ^
+  -H "Content-Type: application/json" ^
+  -d "{\"message\":\"Зачем нужен CYRILLIC_RATIO в document_sources?\"}"
+```
+
+```json
+{
+  "session_id": "464d0f5f",
+  "task_id": "mc-464d0f5f",
+  "question": "Зачем нужен CYRILLIC_RATIO в document_sources?",
+  "mode": "rag",
+  "answer": "CYRILLIC_RATIO используется в функции detect_language…",
+  "sources": [{"source": "day21-backend-domain-document_sources.py", "section": "module", "chunk_id": "structural:day21-backend-domain-document_sources.py:0001", "score": 0.8256}],
+  "quotes": [{"source": "day21-backend-domain-document_sources.py", "section": "module", "chunk_id": "structural:day21-backend-domain-document_sources.py:0001", "quote": "…"}],
+  "quotes_verified": true,
+  "confidence": 1.0,
+  "grounding": "ответ опирается на контекст",
+  "warning": "",
+  "memory_warning": "",
+  "fallback": false,
+  "chunks_used": 5,
+  "context_tokens": 2021,
+  "duration_ms": 4210,
+  "tokens": {"model": "deepseek-chat", "prompt_tokens": 1890, "completion_tokens": 114, "cache_hit_tokens": 1664, "cache_miss_tokens": 226, "cache_hit_percent": 88.0, "cost_estimate": 0.000231},
+  "task_memory": {"session_id": "464d0f5f", "task_id": "mc-464d0f5f", "goal": "Выяснить назначение CYRILLIC_RATIO в document_sources", "terms": ["CYRILLIC_RATIO", "detect_language"], "constraints": [], "clarifications": [], "message_count": 4, "updated": true, "updated_at": "2026-10-02T10:15:12.404368+00:00"},
+  "memory_updated": true
+}
+```
+
+Три режима ответа (`mode`):
+
+- `rag` — контекст корпуса сильнее порога релевантности (`rag_quotes.is_weak`):
+  ответ модели, `sources`, `quotes`, `quotes_verified`, `confidence`, `grounding`,
+  `chunks_used`, `context_tokens`, `tokens`;
+- `dont_know` — контекст слабее порога: модель не вызывается, `answer` —
+  `rag_quotes.DONT_KNOW_ANSWER`, `sources` и `quotes` пусты, `warning` —
+  «Недостаточно контекста: максимальный балл … ниже порога …»;
+- `error` — вызов модели не удался после повторов: `answer` начинается с
+  «Не удалось получить ответ: …», `fallback: true`, `warning` — текст ошибки.
+
+Память задачи обновляется **полной заменой** четырёх ключей рабочей памяти
+(`goal`, `terms`, `constraints`, `clarifications`; значения — JSON-строки), поэтому
+дрейф цели видно по `task_memory.goal`. Сбой или таймаут извлечения оставляет
+предыдущее состояние: `memory_updated: false`, а `memory_warning` — «Память задачи не
+обновлена: модель не ответила за 5.0 с, показано предыдущее состояние».
+
+Коды: `200`, `404` (неизвестная сессия), `400` (сообщение пусто после обрезки
+пробелов, пустой вопрос отбора, неизвестная стратегия), `409` (неизвестный режим
+отбора), `422` (тело: `message` пустой или длиннее 500 символов, `top_k` вне 1…10),
+`502` (сбой этапа отбора до вызова модели).
+
+### GET /mini-chat/sessions/{session_id}/memory
+
+Память задачи сессии — `MiniChatTaskMemoryOut`: `goal` (строка), `terms`,
+`constraints`, `clarifications` (списки), `message_count` (сколько реплик в сессии),
+`updated` (извлекалась ли память) и `updated_at` (последнее обновление, `null` — не
+извлекалась). Битое значение в рабочей памяти не роняет ответ: поле приходит пустым.
+
+Коды: `200`, `404`.
+
+### GET /mini-chat/sessions/{session_id}/history
+
+Реплики сессии по возрастанию `id` — `MiniChatHistoryOut`: `session_id`, `task_id` и
+`messages` (`role` — `user`/`assistant`, `content`, `created_at`). Необязательный
+параметр `limit` (1…500) оставляет последние реплики — интерфейс просит так окно
+диалога.
+
+Коды: `200`, `404`, `422` (`limit` вне 1…500).
+
+### DELETE /mini-chat/sessions/{session_id}
+
+Закрывает сессию: удаляет реплики краткосрочной памяти и возвращает их число
+(`deleted`). Идемпотентно — повторный вызов даёт `deleted: 0`, а не ошибку.
+**Память задачи не удаляется**: удаления записей рабочей памяти в API дня 11 нет,
+поэтому `task_id` продолжает хранить последнее состояние диалога.
+
+Коды: `200` (в том числе для уже закрытой сессии).
+
+### Формы мини-чата
+
+| Схема | Поля |
+|---|---|
+| `MiniChatSessionIn` | `user_id` (строка ≤ 64, необязательное) |
+| `MiniChatSessionOut` | `session_id`, `task_id`, `user_id`, `created_at` |
+| `MiniChatMessageIn` | `message` (1…500), `top_k` (1…10, по умолчанию 5) |
+| `MiniChatTaskMemoryOut` | `session_id`, `task_id`, `goal`, `terms`, `constraints`, `clarifications`, `message_count`, `updated`, `updated_at` |
+| `MiniChatAnswerOut` | `session_id`, `task_id`, `question`, `mode`, `answer`, `sources` ([RagSourceOut](#ragsourceout)), `quotes` ([RagQuoteOut](#ragquoteout)), `quotes_verified`, `confidence`, `grounding`, `warning`, `memory_warning`, `fallback`, `chunks_used`, `context_tokens`, `duration_ms`, `tokens` ([RagTokensOut](#ragtokensout)), `task_memory` ([MiniChatTaskMemoryOut](#minichattaskmemoryout)), `memory_updated` |
+| `MiniChatHistoryMessageOut` | `role`, `content`, `created_at` |
+| `MiniChatHistoryOut` | `session_id`, `task_id`, `messages` ([MiniChatHistoryMessageOut](#minichathistorymessageout)) |
+| `MiniChatCloseOut` | `session_id`, `task_id`, `deleted` |
+
+Источники, цитаты и расходы описаны теми же схемами, что у RAG-режима, — второй формы
+для них не заводится.
+
 ## Коды ошибок
 
 | Код | Когда | Тело |
 |---|---|---|
-| `400` | RAG: пустой вопрос (`POST /rag/query`, `POST /rag/compare`) и неизвестная стратегия поиска (не `rag_corpus_structural`/`rag_corpus_fixed`); пустой `task_id` после обрезки пробелов в `PUT /memory/task`; недопустимый переход состояния задачи: пропуск этапа, откат больше чем на этап, переход «в себя», выход из этапа без согласования (guard-условие), любой переход из `done`, пауза из `done` и повторная пауза, `advance` и `rollback` на паузе, шаг чужого этапа, несовпадение `to_stage` с целью отката, `resume` не на паузе; цель MCP не разобрана: пустая после обрезки пробелов, URL там, где нужен запуск команды, и наоборот; `POST /mcp/call` — инструмента нет в каталоге сервера или аргументы не подходят по `input_schema` (нет обязательного, лишний, тип не тот); `POST /scheduler/tasks` — инструмент не входит в планировщик дня, лишний/отсутствующий аргумент, значение не того типа или вне границ, `source_url` без `http(s)://`, неразобранное расписание (интервал вне 1…86400, cron не из пяти полей, `date` без `run_date`); неизвестный `status` в фильтрах `/scheduler/tasks` и `/scheduler/reminders`; негодная конфигурация пайплайна (не объект, пустой список `steps`, шагов больше `PIPELINE_STEPS_MAX`, шаг без `tool`, неизвестное условие `op`) и неизвестный `status` в фильтре `/pipelines/runs`; негодный план оркестрации (не объект, пустой список `steps`, шагов больше `ORCH_STEPS_MAX`, шаг без `tool`, `args` не объект, неизвестное условие), невыполнимый сценарий оркестрации (плана нет, а флот не публикует нужных инструментов) неизвестный `status` в фильтре `/orchestration/runs`; неизвестная `strategy` индексации, пустой `query` поиска и отсутствие документов у `/indexing/*`, неизвестный период агрегации расходов у `GET /llm/usage` (не `day`/`week`/`month`/`all`) | `HTTPException` с `detail` (у `POST /tasks/{task_id}/transition` — причина и подсказка) |
-| `404` | неизвестный `agent_id` во всех `/agents/{agent_id}/...` (а для `DELETE /memory/long-term/{id}` — ещё и отсутствующая запись); нет профиля у `GET`/`PUT`/`DELETE /users/{user_id}/profile`; неизвестный `task_id` во всех `/tasks/{task_id}/...`; неизвестный `task_id` у `/scheduler/tasks/{task_id}/...` и `notification_id` у `POST /scheduler/notifications/{id}/read`; неизвестный `run_id` у `/pipelines/runs/{run_id}`, `…/steps` и `DELETE /pipelines/runs/{run_id}`, а также у `/orchestration/runs/{run_id}`, `…/steps` и `DELETE /orchestration/runs/{run_id}` и у `/indexing/runs/{run_id}`; неизвестное имя сервера у `GET /mcp/servers/{name}/tools` | `HTTPException` с `detail` |
-| `409` | корпус RAG не проиндексирован (`POST /rag/query`, `POST /rag/compare` без индексных чанков); профиль с таким `user_id` уже есть (`POST /users/{user_id}/profile`); задача с таким `task_id` уже заведена (`POST /agents/{agent_id}/tasks`); `GET /mcp/tools` и `POST /mcp/call` без соединения с MCP-сервером; пауза не активной задачи и возобновление не стоящей на паузе, запуск уже выполненной задачи планировщика; поиск по непостроенному индексу (`GET /indexing/search` без индексации) | `HTTPException` с `detail` |
-| `422` | невалидное тело запроса (Pydantic/FastAPI): невалидные поля профиля, `initial_stage` вне `planning`/`execution`/`validation`, неизвестный этап/шаг, слишком длинные `expected_action`/`reason`, пустой `task_id`, тело `PATCH /tasks/{task_id}/context` без единого флага, пустая цель или неизвестный транспорт у `POST /mcp/connect`, пустое или длиннее 100 символов имя инструмента у `POST /mcp/call`, `schedule_type` вне `date`/`interval`/`cron`, пустой или длиннее 64 символов `tool`, пустое или длиннее 100 символов `name` у `POST /scheduler/tasks`, не объект `pipeline`/`initial_args`, не булево `background` у `POST /pipelines/run`, нечисловой `limit`/`run_id` в `/pipelines/...`, пустая или длиннее 500 символов `query`, не объект `plan`/`initial_args`, не булево `background`, нечисловой `run_id`/`limit` в `/orchestration/...`, `top_k` вне 1…20, `limit` < 1 и не булево `background` в `/indexing/...` | объект с `detail` — списком ошибок |
-| `502` | сбой генерации `POST /generate` (нет ключа, сеть, лимиты); RAG: вызов модели в режиме с контекстом не удался после повторов и откат на ответ без контекста тоже не прошёл (`POST /rag/query`, `POST /rag/compare`); MCP-сервер недоступен, команда запуска не найдена, таймаут `initialize` или ошибка `tools/list`; `POST /mcp/call` — соединение оборвалось и ответа от инструмента не было | `GenerateResponse` со `status:"error"`; у MCP — `HTTPException` с одной строкой текста и подсказкой |
+| `400` | мини-чат: пустое после обрезки пробелов сообщение (`POST /mini-chat/sessions/{session_id}/messages`); RAG: пустой вопрос (`POST /rag/query`, `POST /rag/compare`) и неизвестная стратегия поиска (не `rag_corpus_structural`/`rag_corpus_fixed`); пустой `task_id` после обрезки пробелов в `PUT /memory/task`; недопустимый переход состояния задачи: пропуск этапа, откат больше чем на этап, переход «в себя», выход из этапа без согласования (guard-условие), любой переход из `done`, пауза из `done` и повторная пауза, `advance` и `rollback` на паузе, шаг чужого этапа, несовпадение `to_stage` с целью отката, `resume` не на паузе; цель MCP не разобрана: пустая после обрезки пробелов, URL там, где нужен запуск команды, и наоборот; `POST /mcp/call` — инструмента нет в каталоге сервера или аргументы не подходят по `input_schema` (нет обязательного, лишний, тип не тот); `POST /scheduler/tasks` — инструмент не входит в планировщик дня, лишний/отсутствующий аргумент, значение не того типа или вне границ, `source_url` без `http(s)://`, неразобранное расписание (интервал вне 1…86400, cron не из пяти полей, `date` без `run_date`); неизвестный `status` в фильтрах `/scheduler/tasks` и `/scheduler/reminders`; негодная конфигурация пайплайна (не объект, пустой список `steps`, шагов больше `PIPELINE_STEPS_MAX`, шаг без `tool`, неизвестное условие `op`) и неизвестный `status` в фильтре `/pipelines/runs`; негодный план оркестрации (не объект, пустой список `steps`, шагов больше `ORCH_STEPS_MAX`, шаг без `tool`, `args` не объект, неизвестное условие), невыполнимый сценарий оркестрации (плана нет, а флот не публикует нужных инструментов) неизвестный `status` в фильтре `/orchestration/runs`; неизвестная `strategy` индексации, пустой `query` поиска и отсутствие документов у `/indexing/*`, неизвестный период агрегации расходов у `GET /llm/usage` (не `day`/`week`/`month`/`all`) | `HTTPException` с `detail` (у `POST /tasks/{task_id}/transition` — причина и подсказка) |
+| `404` | неизвестный `session_id` во всех `/mini-chat/sessions/{session_id}/...`; неизвестный `agent_id` во всех `/agents/{agent_id}/...` (а для `DELETE /memory/long-term/{id}` — ещё и отсутствующая запись); нет профиля у `GET`/`PUT`/`DELETE /users/{user_id}/profile`; неизвестный `task_id` во всех `/tasks/{task_id}/...`; неизвестный `task_id` у `/scheduler/tasks/{task_id}/...` и `notification_id` у `POST /scheduler/notifications/{id}/read`; неизвестный `run_id` у `/pipelines/runs/{run_id}`, `…/steps` и `DELETE /pipelines/runs/{run_id}`, а также у `/orchestration/runs/{run_id}`, `…/steps` и `DELETE /orchestration/runs/{run_id}` и у `/indexing/runs/{run_id}`; неизвестное имя сервера у `GET /mcp/servers/{name}/tools` | `HTTPException` с `detail` |
+| `409` | мини-чат: корпус не проиндексирован и неизвестный режим отбора; корпус RAG не проиндексирован (`POST /rag/query`, `POST /rag/compare` без индексных чанков); профиль с таким `user_id` уже есть (`POST /users/{user_id}/profile`); задача с таким `task_id` уже заведена (`POST /agents/{agent_id}/tasks`); `GET /mcp/tools` и `POST /mcp/call` без соединения с MCP-сервером; пауза не активной задачи и возобновление не стоящей на паузе, запуск уже выполненной задачи планировщика; поиск по непостроенному индексу (`GET /indexing/search` без индексации) | `HTTPException` с `detail` |
+| `422` | невалидное тело запроса (Pydantic/FastAPI): у мини-чата — пустой `message` (1…500 символов), `top_k` вне 1…10, `limit` вне 1…500 и `user_id` длиннее 64 символов; невалидные поля профиля, `initial_stage` вне `planning`/`execution`/`validation`, неизвестный этап/шаг, слишком длинные `expected_action`/`reason`, пустой `task_id`, тело `PATCH /tasks/{task_id}/context` без единого флага, пустая цель или неизвестный транспорт у `POST /mcp/connect`, пустое или длиннее 100 символов имя инструмента у `POST /mcp/call`, `schedule_type` вне `date`/`interval`/`cron`, пустой или длиннее 64 символов `tool`, пустое или длиннее 100 символов `name` у `POST /scheduler/tasks`, не объект `pipeline`/`initial_args`, не булево `background` у `POST /pipelines/run`, нечисловой `limit`/`run_id` в `/pipelines/...`, пустая или длиннее 500 символов `query`, не объект `plan`/`initial_args`, не булево `background`, нечисловой `run_id`/`limit` в `/orchestration/...`, `top_k` вне 1…20, `limit` < 1 и не булево `background` в `/indexing/...` | объект с `detail` — списком ошибок |
+| `502` | сбой генерации `POST /generate` (нет ключа, сеть, лимиты); мини-чат: сбой этапа отбора (`RAGUpstreamError`) до вызова генерации (сбой самой модели даёт не `502`, а `mode: "error"` со статусом `200`); RAG: вызов модели в режиме с контекстом не удался после повторов и откат на ответ без контекста тоже не прошёл (`POST /rag/query`, `POST /rag/compare`); MCP-сервер недоступен, команда запуска не найдена, таймаут `initialize` или ошибка `tools/list`; `POST /mcp/call` — соединение оборвалось и ответа от инструмента не было | `GenerateResponse` со `status:"error"`; у MCP — `HTTPException` с одной строкой текста и подсказкой |
 
 `400` — недопустимый переход состояния задачи. Там, где целевой этап назвал
 пользователь (`POST /tasks/{task_id}/transition`), `detail` — короткая причина

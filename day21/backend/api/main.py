@@ -1,30 +1,26 @@
 """
-FastAPI-приложение дня 24: память, задача, инварианты, MCP-флот, планировщик,
-пайплайн, оркестрация MCP-серверов, ИНДЕКСАЦИЯ документов, РАСХОДЫ на LLM и RAG.
+FastAPI-приложение дня 25: память, задача, инварианты, MCP-флот, планировщик, пайплайн,
+оркестрация MCP-серверов, индексация документов, расходы на LLM, режим RAG и мини-чат.
 
 Запуск из папки day21/:  uvicorn backend.api.main:app --port 8000
 Swagger-документация:  http://127.0.0.1:8000/docs
 
-При старте (``backend/api/lifespan.py``) создаются таблицы SQLite, агенты
-восстанавливаются из базы, поднимается планировщик и ФЛОТ из трёх MCP-серверов
-(``mcp_servers.json``), читаются оба индекса FAISS с диска, а модели эмбеддингов
-и реранкера прогреваются в фоновом потоке; при остановке планировщик встаёт,
-индексы пишутся на диск, а соединения флота и активное MCP-подключение закрываются.
+При старте (``backend/api/lifespan.py``) создаются таблицы SQLite, агенты восстанавливаются
+из базы, поднимается планировщик и флот из трёх MCP-серверов (``mcp_servers.json``), читаются
+оба индекса FAISS с диска, а модели эмбеддингов и реранкера прогреваются в фоновом потоке;
+при остановке планировщик встаёт, индексы пишутся на диск, а соединения флота и MCP закрываются.
 
-Новое в дне 22 — режим RAG (``backend/api/rag.py``): поиск по корпусу документов,
-ответ с контекстом и без него, сравнение двух ответов. День 23 добавил второй этап
-отбора — переформулировку вопроса, кросс-энкодер и порог отсечения, а с ним сравнение
-режимов отбора (``POST /rag/compare_modes``). День 24 закрыл контур доверия к ответу:
-обязательные источники и цитаты, проверку опоры ответа на цитаты, порог релевантности
-с режимом «не знаю» (``RAG_RELEVANCE_THRESHOLD``) и демо-прогон десяти контрольных
-вопросов (``GET /rag/demo-questions``, ``POST /rag/demo-run``, 6 эндпоинтов).
+Дни 22–24 — режим RAG (``backend/api/rag.py``): поиск по корпусу, ответ с контекстом и без него,
+сравнение ответов и режимов отбора, кросс-энкодер с порогом отсечения, обязательные источники
+и цитаты, проверка опоры и режим «не знаю». День 25 добавил мини-чат
+(``backend/api/mini_chat.py``, 5 эндпоинтов): сессии, ответ с источниками, память задачи и история.
 
-Здесь только сборка приложения: эндпоинты живут в ``backend/api/``, доступ к службам —
-в ``backend/core/dependencies.py``; функции ``get_manager``, ``get_mcp_registry``,
-``get_scheduler``, ``get_schedule_service``, ``get_pipeline_service``,
-``get_orchestration_service``, ``get_indexing_service``, ``get_index_service``,
-``get_embedding_service``, ``get_llm_client``, ``get_rag_service`` и
-``get_rerank_service`` импортированы сюда как точки подмены для тестов.
+Здесь только сборка приложения: эндпоинты живут в ``backend/api/``, доступ к службам — в
+``backend/core/dependencies.py``; функции ``get_manager``, ``get_mcp_registry``, ``get_scheduler``,
+``get_schedule_service``, ``get_pipeline_service``, ``get_orchestration_service``,
+``get_indexing_service``, ``get_index_service``, ``get_embedding_service``, ``get_llm_client``,
+``get_rag_service``, ``get_mini_chat_service`` и ``get_rerank_service`` импортированы сюда как
+точки подмены для тестов.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,6 +32,7 @@ from ..services.index_service import get_index_service
 from ..services.indexing_service import get_indexing_service
 from ..services.llm_client import get_llm_client
 from ..services.mcp_registry import get_mcp_registry
+from ..services.mini_chat_service import get_mini_chat_service
 from ..services.orchestration_service import get_orchestration_service
 from ..services.pipeline_service import get_pipeline_service
 from ..services.rag_service import get_rag_service
@@ -44,7 +41,7 @@ from ..services.schedule_service import get_schedule_service
 from ..services.scheduler import get_scheduler
 from . import (
     agents, context, indexing, invariants, llm, mcp, mcp_servers, memory,
-    orchestration, pipelines, profiles, rag, scheduler, tasks,
+    mini_chat, orchestration, pipelines, profiles, rag, scheduler, tasks,
 )
 from .lifespan import lifespan
 
@@ -72,6 +69,7 @@ app.include_router(invariants.router)
 app.include_router(mcp.router)
 app.include_router(mcp_servers.router)
 app.include_router(memory.router)
+app.include_router(mini_chat.router)
 app.include_router(orchestration.router)
 app.include_router(pipelines.router)
 app.include_router(profiles.router)

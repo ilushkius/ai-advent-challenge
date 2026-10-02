@@ -1,0 +1,44 @@
+{
+  "scenarios": [
+    {
+      "id": "rag_docs",
+      "title": "Настроить RAG-поиск по документации проекта с источниками и цитатами",
+      "goal": "настроить RAG-поиск по корпусу проекта так, чтобы каждый ответ приходил с источниками и цитатами",
+      "messages": [
+        "Цель: RAG-поиск по корпусу с источниками и цитатами. Первый вопрос: что пишется в index_runs в backend/models/indexing.py?",
+        "Зачем нужен CYRILLIC_RATIO в document_sources?",
+        "Что делает index_chunks в index_service.py?",
+        "Какое сообщение бросает IndexNotBuiltError в index_service.py?",
+        "Чему равен PREVIEW_CHARS в index_service.py?",
+        "Цель: RAG-поиск по корпусу с источниками и цитатами. Чему равен EXCERPT_CHARS в indexing_prompt.py?",
+        "Как max_chars ограничивает документ в DOCUMENT_SOURCES? Основной app.py при этом не меняем.",
+        "Какая модель эмбеддингов по умолчанию в embedding_service?",
+        "Как render_index_block печатает блок индекса?",
+        "Какой эндпоинт в backend/api/indexing.py запускает сборку индекса?",
+        "Цель: RAG-поиск по корпусу с источниками и цитатами. Как compare_strategies в index_comparison.py сравнивает стратегии?",
+        "Как IndexService.search ищет чанки в index_service.py?",
+        "Как работает ChunkStore.add_chunks?",
+        "Как chunk_document режет документ на чанки в chunker.py?"
+      ]
+    },
+    {
+      "id": "orders_agent",
+      "title": "Спроектировать агента для обработки заявок",
+      "goal": "спроектировать агента обработки заявок на механике состояния задачи и памяти проекта",
+      "messages": [
+        "Цель: агент обработки заявок на состоянии задачи и памяти проекта. Что делает TaskStateMachine в day21/tests/conftest.py для заявки?",
+        "Что проверяет invariant_checker.py из backend/services у заявки?",
+        "Как scheduler хранит задания по заявкам?",
+        "Как pipeline_service запускает шаги по заявке?",
+        "Как PromptBuilder в backend/core/prompt_builder.py собирает промпт агента?",
+        "Цель: агент обработки заявок на состоянии задачи и памяти проекта. Как IndexService в index_service.py ищет похожие заявки?",
+        "Что делает task_or_404 в backend/core/dependencies.py для заявки по номеру?",
+        "Как mcp_server_config в mcp_server_config.py описывает инструменты?",
+        "Как LLMClient считает расход по заявкам в backend/services/llm_client.py?",
+        "Что проверяет TestQuery в index_scenarios.py?",
+        "Как ChunkStore.add_chunks хранит чанки заявок?",
+        "Цель: агент обработки заявок на состоянии задачи и памяти проекта. Объясни LLM_TASK_CHAT из backend/core/config.py."
+      ]
+    }
+  ]
+}

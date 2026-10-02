@@ -238,6 +238,12 @@ def root():
                 "(6 эндпоинтов — поиск по корпусу, режим без "
                 "RAG, сравнение ответов, сравнение режимов отбора, вопросы демо, "
                 "прогон демо)"),
+        "mini_chat": ("POST /mini-chat/sessions, "
+                      "POST /mini-chat/sessions/{session_id}/messages, "
+                      "GET /mini-chat/sessions/{session_id}/memory, "
+                      "GET /mini-chat/sessions/{session_id}/history, "
+                      "DELETE /mini-chat/sessions/{session_id} "
+                      "(5 эндпоинтов — мини-чат с RAG и памятью задачи)"),
         "endpoints": [
             "POST /agents", "GET /agents", "GET /agents/{agent_id}",
             "PATCH /agents/{agent_id}", "DELETE /agents/{agent_id}",
@@ -341,5 +347,10 @@ def root():
             "POST /rag/compare_modes",
             "GET /rag/demo-questions",
             "POST /rag/demo-run",
+            "POST /mini-chat/sessions",
+            "POST /mini-chat/sessions/{session_id}/messages",
+            "GET /mini-chat/sessions/{session_id}/memory",
+            "GET /mini-chat/sessions/{session_id}/history",
+            "DELETE /mini-chat/sessions/{session_id}",
         ],
     }

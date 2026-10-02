@@ -67,7 +67,12 @@
 - ``rag_llm`` — ``call_with_retry``/``response_text``/``usage_dict``: повторы
   вызова модели, текст ответа и расход без службы и без домена (день 23);
 - ``rag_records`` — форма ответа: фрагмент с баллами отбора и отчёт о ступенях
-  отбора в словарях, которые читают схемы API, отчётный скрипт и интерфейс (день 23).
+  отбора в словарях, которые читают схемы API, отчётный скрипт и интерфейс (день 23);
+- ``mini_chat_service`` — ``MiniChatService``: мини-чат дня 25 — ответ по корпусу
+  с источниками и цитатами, память задачи и история диалога в одном промпте;
+- ``mini_chat_memory`` — правила памяти задачи мини-чата: четыре ключа рабочей
+  памяти (цель, термины, ограничения, уточнения), извлечение моделью и снимок
+  для панели и API (день 25).
 
 Сервисы знают про домен и хранилище, но не про HTTP и не про Streamlit.
 """
@@ -77,6 +82,7 @@ from . import (
     index_comparison, index_runner, index_service, indexing_service,
     invariant_checker, mcp_client, mcp_errors,
     mcp_fleet_state, mcp_loop, mcp_registry, mcp_tool_runner, mcp_transport,
+    mini_chat_memory, mini_chat_service,
     off_peak, orchestration_planner,
     orchestration_service, orchestrator, pipeline, pipeline_service,
     schedule_service, scheduled_jobs, scheduler, source_fetch, task_state,
@@ -118,6 +124,13 @@ from .mcp_errors import MCPUnknownServerError, MCPUnknownToolError
 from .mcp_loop import SUBMIT_GRACE, MCPEventLoop
 from .mcp_registry import MCPRegistry, get_mcp_registry
 from .mcp_tool_runner import MCPToolRunner
+from .mini_chat_memory import MINI_CHAT_AGENT_ID
+from .mini_chat_service import (
+    MiniChatService,
+    MiniChatSessionError,
+    get_mini_chat_service,
+    make_mini_chat_client,
+)
 from .orchestration_planner import OrchestrationPlanner
 from .orchestration_service import OrchestrationService, get_orchestration_service
 from .orchestrator import Orchestrator
@@ -188,6 +201,9 @@ __all__ = [
     "MCPToolsError",
     "MCPUnknownServerError",
     "MCPUnknownToolError",
+    "MINI_CHAT_AGENT_ID",
+    "MiniChatService",
+    "MiniChatSessionError",
     "OrchestrationPlanner",
     "OrchestrationService",
     "Orchestrator",
@@ -218,6 +234,7 @@ __all__ = [
     "get_index_service",
     "get_indexing_service",
     "get_mcp_registry",
+    "get_mini_chat_service",
     "get_orchestration_service",
     "get_pipeline_service",
     "get_rag_corpus_loader",
@@ -229,12 +246,15 @@ __all__ = [
     "indexing_service",
     "invariant_checker",
     "make_checker_client",
+    "make_mini_chat_client",
     "mcp_client",
     "mcp_errors",
     "mcp_loop",
     "mcp_registry",
     "mcp_tool_runner",
     "mcp_transport",
+    "mini_chat_memory",
+    "mini_chat_service",
     "pipeline",
     "pipeline_service",
     "rag_corpus_index",

@@ -23,6 +23,7 @@ if TYPE_CHECKING:  # только для аннотаций
     from ..services.index_service import IndexService
     from ..services.indexing_service import IndexingService
     from ..services.mcp_registry import MCPRegistry
+    from ..services.mini_chat_service import MiniChatService
     from ..services.schedule_service import ScheduleService
     from ..services.orchestration_service import OrchestrationService
     from ..services.pipeline_service import PipelineService
@@ -150,6 +151,18 @@ def get_rag_service() -> "RAGService":
     from ..api import main
 
     return main.get_rag_service()
+
+
+def get_mini_chat_service() -> "MiniChatService":
+    """Служба мини-чата процесса (день 25): RAG-контекст, память задачи, история.
+
+    Та же точка подмены, что у остальных служб: тесты подменяют
+    ``monkeypatch.setattr(main, "get_mini_chat_service", ...)``, и подмену видят
+    роутер ``/mini-chat`` и скрипт прогона сценариев.
+    """
+    from ..api import main
+
+    return main.get_mini_chat_service()
 
 
 def get_rerank_service() -> "RerankService":

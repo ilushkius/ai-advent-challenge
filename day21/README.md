@@ -1,9 +1,28 @@
-# День 24 — обязательные источники и цитаты, режим «не знаю» и демо-прогон в UI
+# День 25 — мини-чат с RAG, источниками и памятью задачи
 
-Задание дня — **сделать так, чтобы каждый RAG-ответ нёс источники и цитаты, при
-слабом контексте честно отвечал «не знаю», а интерфейс давал прогнать десять
-контрольных вопросов одной кнопкой**. День 23 настроил отбор внутри режима RAG,
-день 24 закрывает контур доверия к ответу:
+Задание дня — **сделать отдельное production-like приложение мини-чата**: чат по
+корпусу проекта, под каждым ответом — источники и цитаты, в боковой панели — память
+задачи, которая обновляется после каждой реплики. Приложение живёт в `mini_chat/`
+(Streamlit, порт 8502) и изолировано от песочницы `app.py`:
+
+* **промпт собирает сам сервис** — `MiniChatService.chat` берёт фрагменты тем же
+  отбором RAG (`rag_service.retrieval.run`), добавляет память задачи и историю
+  диалога и вызывает модель сам; порядок блоков — RAG-контекст → память задачи
+  (последней строкой напоминание о цели) → история диалога;
+* **память задачи** — четыре ключа рабочей памяти дня 11 (`goal`, `terms`,
+  `constraints`, `clarifications`) с JSON-значениями под своим `task_id`
+  (`mc-<session_id>`): после каждой реплики отдельный вызов модели переписывает
+  состояние целиком, поэтому дрейф цели измерим; не ответил за 5 с — остаётся
+  предыдущее состояние и `memory_updated: false`;
+* **устойчивость** — ответ идёт через повторы вызова RAG, при сбое модели приходит
+  `mode: "error"` (а не ответ без контекста), при слабом контексте — режим «не знаю».
+
+Проверить это просто: `uv run streamlit run mini_chat/app.py --server.port 8502`
+рядом с бэкендом, а скрипт `uv run python scripts/run_mini_chat_scenarios.py`
+прогоняет два длинных сценария (14 и 12 реплик) и пишет отчёт
+[`docs/reports/mini_chat_scenarios.md`](docs/reports/mini_chat_scenarios.md).
+
+День 24 закрыл контур доверия к RAG-ответу:
 
 * **источники обязательны** — ответ в режиме `rag` всегда несёт фрагменты корпуса,
   на которых он построен;
@@ -17,9 +36,9 @@
   максимумом косинуса лучшего фрагмента из пула кандидатов; ниже порога модель не
   вызывается вовсе, ответ — `mode: "dont_know"` с предупреждением и без источников.
 
-Проверить это просто: раздел «🧪 RAG-демо» в интерфейсе прогоняет 10 контрольных
-вопросов (5 с ответом в корпусе, 3 частичных, 2 без ответа) и показывает по каждому
-режим, ответ, источники, цитаты и вердикт; тот же прогон из терминала —
+В песочнице `app.py` это проверяется просто: раздел «🧪 RAG-демо» прогоняет 10
+контрольных вопросов (5 с ответом в корпусе, 3 частичных, 2 без ответа) и показывает
+по каждому режим, ответ, источники, цитаты и вердикт; тот же прогон из терминала —
 `uv run python scripts/run_rag_quotes_eval.py`, отчёт —
 [`docs/reports/rag_quotes_eval.md`](docs/reports/rag_quotes_eval.md).
 
@@ -433,6 +452,18 @@ uv run streamlit run app.py                       # терминал 2
 Числа прогона этого сценария — в разделе «Итог» отчёта
 [docs/reports/rag_modes.md](docs/reports/rag_modes.md).
 
+### Мини-чат с RAG и памятью задачи (день 25)
+
+Отдельное приложение чата на порту 8502 (`mini_chat/app.py`) — только чат: ответ по
+корпусу проекта с источниками и цитатами и боковая панель «Память задачи». Память
+задачи — четыре ключа рабочей памяти дня 11 (цель, термины, ограничения, уточнения):
+модель извлекает их после каждой реплики и полностью заменяет прежние, поэтому в
+панели видно, как цель диалога смещается. Два длинных сценария прогоняются скриптом
+`scripts/run_mini_chat_scenarios.py`, числа и выводы — в отчёте
+[docs/reports/mini_chat_scenarios.md](docs/reports/mini_chat_scenarios.md); запуск и
+флаги — в разделе «Мини-чат с RAG и памятью задачи» файла
+[docs/usage.md](docs/usage.md).
+
 ## Оптимизация затрат на LLM
 
 Четыре рычага снижают счёт за запросы; формулы и модули перечислены в
@@ -614,8 +645,10 @@ day21/
 ├── frontend/                 # Streamlit UI по секциям (включая indexing_api.py, indexing_section.py,
 │                             # indexing_compare.py, indexing_search.py, cost_api.py, cost_section.py,
 │                             # rag_api.py, rag_section.py)
+├── mini_chat/                # отдельное приложение дня 25 (Streamlit, порт 8502): app.py (точка входа),
+│                             # api.py (запросы /mini-chat/...), panels.py (боковая панель и ход диалога)
 ├── backend/
-│   ├── api/                  # FastAPI: роутеры по доменам (в том числе indexing.py, llm.py и rag.py), main.py, lifespan.py
+│   ├── api/                  # FastAPI: роутеры по доменам (в том числе indexing.py, llm.py, rag.py и mini_chat.py), main.py, lifespan.py
 │   ├── core/                 # config.py, prompt_builder.py, mcp_server_config.py, dependencies.py
 │   ├── domain/               # чистые правила: chunking, document_sources, index_metrics, index_scenarios,
 │   │                         # indexing_fsm, indexing_prompt, llm_cost, peak_hours,
@@ -623,12 +656,13 @@ day21/
 │   ├── services/             # chunker, embedding_service, index_service, document_loader, index_runner,
 │   │                         # index_comparison, indexing_service, llm_client, prompt_compressor, off_peak,
 │   │                         # rag_corpus_loader, rag_corpus_index, rag_errors, rag_llm, rag_records,
-│   │                         # rag_retrieval, rag_service, rerank_service + унаследованные
+│   │                         # rag_retrieval, rag_service, rerank_service, mini_chat_service, mini_chat_memory
+│   │                         # + унаследованные
 │   ├── storage/              # database.py, chunk_store.py, index_run_store.py, index_rows.py, llm_usage_store.py,
 │   │                         # llm_usage_rows.py + унаследованные хранилища
 │   ├── agents/               # Agent (в generate — шаги поиска по индексу и метрики llm), MemoryManager, AgentManager
 │   ├── models/               # ORM: indexing.py (document_chunks, index_runs), llm_usage.py + унаследованные
-│   ├── schemas/              # Pydantic-схемы API (включая indexing.py, llm.py и rag.py)
+│   ├── schemas/              # Pydantic-схемы API (включая indexing.py, llm.py, rag.py и mini_chat.py)
 │   └── utils/                # своего кода нет: общий живёт в repo-level shared/
 ├── tests/                    # pytest: unit/, integration/, e2e/ + conftest.py и фейки (indexing_fakes.py, rag_fakes.py, …)
 ├── docs/                     # architecture.md, api.md, usage.md, reports/ (indexing_demo.md, cost_optimization.md, rag_modes.md, context_optimization.md, test_optimization.md, …)

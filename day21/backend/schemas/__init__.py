@@ -22,6 +22,8 @@ ORM-таблицы — отдельный пакет ``backend/models/``.
 - ``profile.py`` — профиль пользователя и его вклад в промпт;
 - ``rag.py`` — RAG: запрос по корпусу с RAG и без него, сравнение двух ответов,
   сравнение режимов отбора, состояние корпуса, лимиты контекста и каталог режимов;
+- ``mini_chat.py`` — мини-чат дня 25: сессия, ответ по корпусу с источниками и
+  цитатами, память задачи и история диалога;
 - ``task.py``    — состояние задачи: этап, шаг, контролируемые переходы (день 15),
   флаги-согласования и журнал попыток.
 """
@@ -113,6 +115,17 @@ from .memory import (
     SessionOut,
     TaskSetRequest,
     TaskOut,
+)
+
+from .mini_chat import (
+    MiniChatAnswerOut,
+    MiniChatCloseOut,
+    MiniChatHistoryMessageOut,
+    MiniChatHistoryOut,
+    MiniChatMessageIn,
+    MiniChatSessionIn,
+    MiniChatSessionOut,
+    MiniChatTaskMemoryOut,
 )
 
 from .mcp_servers import (
@@ -289,6 +302,14 @@ __all__ = [
     "MemoryInfo",
     "MemoryLayerInfo",
     "MessageOut",
+    "MiniChatAnswerOut",
+    "MiniChatCloseOut",
+    "MiniChatHistoryMessageOut",
+    "MiniChatHistoryOut",
+    "MiniChatMessageIn",
+    "MiniChatSessionIn",
+    "MiniChatSessionOut",
+    "MiniChatTaskMemoryOut",
     "NotificationOut",
     "NotificationsResponse",
     "OrchestrationDemoIn",

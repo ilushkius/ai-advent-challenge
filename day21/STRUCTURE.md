@@ -1,6 +1,6 @@
-# Структура дня 24
+# Структура дня 25
 
-Карта модулей дня 24: что где лежит и за что отвечает. Правила структуры — в
+Карта модулей дня 25: что где лежит и за что отвечает. Правила структуры — в
 [`../docs/project-rules.md`](../docs/project-rules.md) и
 [`../docs/architecture.md`](../docs/architecture.md).
 
@@ -11,9 +11,9 @@
 Pydantic-схемы — в `schemas/`, HTTP — в `api/`. Сваливать файлы в корень
 `backend/` нельзя.
 
-**Что такое день 24.** Проект дня 21 (копия дня 20 — агент DeepSeek с памятью, FSM,
+**Что такое день 25.** Проект дня 21 (копия дня 20 — агент DeepSeek с памятью, FSM,
 инвариантами, профилем, MCP-клиентом и флотом серверов, планировщиком, пайплайном и
-оркестрацией) плюс три новые подсистемы — две дня 21 и одна дней 22–24:
+оркестрацией) плюс четыре подсистемы — три дней 21–24 и мини-чат дня 25:
 
 1. **Индексация документов** — сборка набора документов из источников репозитория в
    `documents/`, две стратегии чанкинга (фиксированное окно по токенам и структурная —
@@ -43,12 +43,23 @@ Pydantic-схемы — в `schemas/`, HTTP — в `api/`. Сваливать ф
    десяти контрольных вопросов (`backend/data/demo_questions.json`,
    `GET /rag/demo-questions`, `POST /rag/demo-run`); отчёт —
    `docs/reports/rag_quotes_eval.md`.
+4. **Мини-чат с RAG и памятью задачи** — отдельное приложение `mini_chat/` (Streamlit
+   на порту 8502), изолированное от песочницы `app.py`: чат с «Источниками» и
+   «Цитатами» под каждым ответом и боковая панель «Память задачи». Промпт собирает сам
+   сервис (`MiniChatService.chat`): фрагменты берёт тем же отбором RAG
+   (`rag_service.retrieval.run`), добавляет память задачи (четыре ключа рабочей памяти
+   дня 11 — `goal`, `terms`, `constraints`, `clarifications`) и историю диалога. Ответ
+   идёт через `rag_llm.call_with_retry` (повторный сбой — `mode="error"`), а память
+   обновляет отдельный вызов модели с пределом ожидания 5 с: не ответила — остаётся
+   предыдущее состояние и `memory_updated: false`. Роутер `/mini-chat` (5 эндпоинтов),
+   отчёт — `docs/reports/mini_chat_scenarios.md` по двум длинным сценариям
+   (`backend/data/mini_chat_scenarios.json`).
 
 Унаследовано из дня 20 — одной строкой: **остальное дерево, включая `mcp_server/`,
 `mcp_servers/` с `mcp_servers.json`, память, профиль, состояние задачи, инварианты,
 планировщик, пайплайн и оркестрацию, — копия дня 20 без изменений**; карта этих
 модулей построчно — в [`day20/STRUCTURE.md`](../day20/STRUCTURE.md). Ниже описано
-только то, что дни 21–24 добавили или изменили.
+только то, что дни 21–25 добавили или изменили.
 
 ## Почему сделано так (решения дня 21)
 
@@ -134,33 +145,43 @@ day21/
 │   ├── rag_api.py            # HTTP-запросы RAG (/rag/...): query, compare, compare_modes, config
 │   ├── rag_section.py        # панель «🔍 RAG-запрос по корпусу» и раздел «🆚 RAG-сравнение» (включая сравнение режимов)
 │   └── …                     # остальные секции унаследованы от дня 20
+├── mini_chat/                # ОТДЕЛЬНОЕ приложение дня 25 (Streamlit, порт 8502): app.py — точка входа
+│                             # (root дня в sys.path + панели), api.py — HTTP-запросы /mini-chat/... поверх
+│                             # frontend.api_client, panels.py — боковая панель и ход диалога
 ├── backend/                  # FastAPI-бэкенд, домен и доступ к данным (девять слоёв, в каждом __init__.py)
 │   ├── __init__.py           # описание пакета + корень репозитория в sys.path (для shared/)
-│   ├── api/                  # 17 модулей: 14 роутеров по доменам (в том числе indexing.py, llm.py и rag.py), main.py, lifespan.py
+│   ├── api/                  # 18 модулей: 15 роутеров по доменам (в том числе indexing.py, llm.py, rag.py
+│   │                         # и mini_chat.py), main.py, lifespan.py
 │   ├── core/                 # 5 модулей: config (в том числе раздел оптимизации затрат), dependencies,
 │   │                         # mcp_server_config и prompt_builder (строитель промптов с кэшем префикса)
-│   ├── domain/               # 54 модуля: чистые правила и данные — индексация (chunking, document_sources,
+│   ├── domain/               # 56 модулей: чистые правила и данные — индексация (chunking, document_sources,
 │   │                         # index_metrics, index_scenarios, indexing_fsm, indexing_prompt), стоимость и непик
 │   │                         # (llm_cost, peak_hours), RAG (rag_mode, rag_filter, rag_corpus_spec, rag_eval) и унаследованные домены
-│   ├── services/             # 39 модулей: индексация (chunker, embedding_service, index_service, document_loader,
+│   ├── services/             # 42 модуля: индексация (chunker, embedding_service, index_service, document_loader,
 │   │                         # index_runner, index_comparison, indexing_service), затраты (llm_client,
-│   │                         # prompt_compressor, off_peak) и RAG (rag_corpus_loader, rag_service, rag_retrieval,
-│   │                         # rag_records, rag_llm, rag_errors, rag_corpus_index, rerank_service) плюс унаследованные
+│   │                         # prompt_compressor, off_peak), RAG (rag_corpus_loader, rag_service, rag_retrieval,
+│   │                         # rag_records, rag_llm, rag_errors, rag_corpus_index, rerank_service) и мини-чат
+│   │                         # (mini_chat_service, mini_chat_memory) плюс унаследованные
 │   ├── storage/              # 17 модулей: chunk_store и index_run_store (журнал прогонов индексации),
 │   │                         # llm_usage_store и llm_usage_rows (журнал расходов) плюс унаследованные хранилища
 │   ├── agents/               # Agent (в generate — шаг поиска по индексу, клиент LLM и строитель промптов),
 │   │                         # MemoryManager, ProfileStore, AgentManager + миксины
 │   ├── models/               # ORM-таблицы: 13 модулей, в том числе indexing.py (document_chunks, index_runs)
 │   │                         # и llm_usage.py (журнал расходов)
-│   ├── schemas/              # Pydantic-схемы API: 15 модулей, в том числе indexing.py, llm.py и rag.py
+│   ├── schemas/              # Pydantic-схемы API: 16 модулей, в том числе indexing.py, llm.py, rag.py и mini_chat.py
+│   ├── data/                 # данные дня: demo_questions.json (10 контрольных вопросов RAG) и
+│   │                         # mini_chat_scenarios.json (два сценария мини-чата: 14 и 12 реплик)
 │   └── utils/                # своего кода нет (общий — в repo-level shared/)
-├── tests/                    # pytest: 2601 тест (unit/ — 1781, integration/ — 582, e2e/ — 238); по умолчанию 2522 (79 slow отложены)
+├── tests/                    # pytest: 2629 тестов (unit/ — 1804, integration/ — 585, e2e/ — 240); по умолчанию 2547 (82 slow отложены)
 │   ├── conftest.py           # общие фикстуры (session-scoped schema_template для схемы БД) + autouse no_real_network
 │   ├── fixtures_fleet.py     # фикстуры флота MCP-серверов и оркестрации (вынесены из conftest: лимит 400 строк)
 │   ├── fixtures_indexing.py  # фикстуры индексации документов (тоже вынесены из conftest)
 │   ├── indexing_fakes.py     # фейки индексации: эмбеддер на хешах слов и три тестовых документа
 │   ├── fixtures_rag.py       # фикстуры RAG: тестовый корпус, служба поиска, стаб-клиент и служба RAG
 │   ├── rag_fakes.py          # фейки RAG: стаб-клиент DeepSeek и тексты тестового корпуса
+│   ├── mini_chat_fakes.py    # фейки мини-чата: стаб-клиент с двумя ответами (ответ и JSON памяти),
+│   │                         # заглушка отбора (сильная/слабая выдача) и клиент с неразобранной памятью
+│   ├── fixtures_mini_chat.py # фикстуры мини-чата: служба на фейковом отборе — сильная, слабая и сломанная
 │   └── …                     # унаследованные помощники тестов дня 20 (orchestration_fakes, mcp_fakes, stub_api, support…)
 ├── docs/                     # architecture.md, usage.md, api.md, reports/
 ├── scripts/                  # прогоны демонстраций и сборка отчётов (44 модуля, не пакет)
@@ -208,7 +229,7 @@ day21/
 что запускаются отдельным процессом, где ни корень дня, ни корень репозитория в
 `sys.path` не попадают.
 
-## Новые модули дней 21–23
+## Новые модули дней 21–25
 
 ### Индексация документов: `backend/domain/`, `services/`, `storage/`, `api/`
 
@@ -321,6 +342,30 @@ tiktoken-счётчиком, скидка непика — тариф прова
 без него работают (`rerank_warning` в ответе), а `GET /rag/config` продолжает отдавать
 конфигурацию корпуса и индексов.
 
+### Мини-чат с RAG и памятью задачи (день 25): `mini_chat/`, `backend/`, `scripts/`, `tests/`
+
+| Модуль | Назначение |
+|---|---|
+| `backend/services/mini_chat_service.py` | `MiniChatService`: `start_session` (8 hex-символов, `task_id = "mc-" + session_id`), `_known_session` (сессия восстанавливается по репликам, поэтому переживает перезапуск бэкенда), `chat` (отбор → контекст из трёх блоков → ответ → запись реплик → извлечение памяти), `_ensure_agent` (служебная строка `agents.agent_id = "mini-chat"` как якорь внешних ключей памяти), `get_task_memory`, `get_history`, `extract_task_memory`, `update_task_memory`, `end_session`, `_prompt_context`; фабрика `make_mini_chat_client` и синглтон `get_mini_chat_service`; ошибка `MiniChatSessionError` |
+| `backend/services/mini_chat_memory.py` | Правила памяти задачи: ключи `goal`/`terms`/`constraints`/`clarifications`, `payload`/`task_memory`/`store_payload` (полная замена значений, в БД — JSON-строки), `memory_block`/`dialog_block` (блоки промпта), `extract_payload` (вызов извлекателя, `None` при сбое или неразобранном ответе); вынесен из сервиса по лимиту строк |
+| `backend/schemas/mini_chat.py` | Pydantic-схемы: `MiniChatSessionIn`/`MiniChatSessionOut`, `MiniChatMessageIn` (`message` 1…500, `top_k` 1…10), `MiniChatTaskMemoryOut`, `MiniChatAnswerOut`, `MiniChatHistoryMessageOut`, `MiniChatHistoryOut`, `MiniChatCloseOut`; источники, цитаты и расходы — схемы RAG (`RagSourceOut`, `RagQuoteOut`, `RagTokensOut`) |
+| `backend/api/mini_chat.py` | Роутер `/mini-chat`, пять эндпоинтов (создание сессии, реплика, память задачи, история, закрытие); коды: 400 (пустое сообщение), 404 (неизвестная сессия), 409 (корпус не проиндексирован, неизвестный режим), 422 (тело), 502 (сбой отбора) |
+| `mini_chat/app.py` | Точка входа отдельного Streamlit-приложения (порт 8502): корень дня в `sys.path`, заголовок страницы и две отрисовки панелей; 28 строк |
+| `mini_chat/api.py` | HTTP-запросы `/mini-chat/...` поверх общего `frontend.api_client.request_json` (второй HTTP-клиент не заводится) |
+| `mini_chat/panels.py` | Разметка: боковая панель («Новая сессия», слайдер `top_k` 1–10, «Показывать цитаты», панель «Память задачи» с `goal`/`terms`/`constraints`/`clarifications`) и ход диалога (ответ, предупреждения режимов, expanders «Источники» и «Цитаты») |
+| `backend/data/mini_chat_scenarios.json` | Два сценария прогона (14 и 12 реплик: RAG по документации проекта и агент обработки заявок) с целью каждого — читают и скрипт прогона, и slow-тест |
+| `scripts/mini_chat_report.py` | Чистый рендер отчёта: слова цели, `goal_lost` (покрытие слов базовой цели против `GOAL_SHARE_MIN`), `goal_verdict` (доля реплик, удержавших цель, против `GOAL_KEEP_MIN`), таблицы сценариев и итог |
+| `scripts/run_mini_chat_scenarios.py` | Прогон сценариев настоящей моделью и запись `docs/reports/mini_chat_scenarios.md`; флаги `--scenarios`, `--report`, `--top-k`, `--limit`, `--quiet` |
+| `tests/mini_chat_fakes.py`, `tests/fixtures_mini_chat.py` | Фейки и фикстуры: стаб-клиент с двумя ответами (ответ и JSON памяти), заглушка отбора, службы — сильная, слабая (режим «не знаю») и сломанная (режим ошибки) |
+| `tests/unit/test_mini_chat_service.py`, `tests/integration/test_mini_chat_flow.py` | 16 unit-тестов сервиса (источники и цитаты, память, история, режимы, сессии) и slow-тест прогона сценария на настоящем корпусе с заглушками модели и эмбеддера |
+
+Промпт собирает сам сервис, а не `RAGService.rag_query`: у `rag_query` нет ни памяти, ни
+истории, а при сбое модели он уходит в ответ без контекста, тогда как мини-чату нужен
+`mode="error"`. Поэтому файлы дней 22–24 не правятся — RAG-служба используется только как
+источник отбора (`rag_service.retrieval`). Основной `app.py` и его разделы тоже не
+меняются: мини-чат живёт отдельным входом, а «Память задачи» — обычные записи рабочей
+памяти в той же БД `agents.db`.
+
 ### Экономия контекста агента: корень дня, `.gitignore` и настройки окружения
 
 | Файл / место | Назначение |
@@ -342,14 +387,14 @@ tiktoken-счётчиком, скидка непика — тариф прова
 
 | Слой | Файлов | Что там |
 |---|---|---|
-| `api/` | 17 | HTTP: 14 роутеров по доменам (в том числе `indexing.py` — индексация, `llm.py` — расходы, `rag.py` — RAG, `orchestration.py` — запуски, `mcp_servers.py` — флот), `lifespan.py` (старт и остановка фоновых служб, чтение индексов, прогрев модели) и `main.py` (сборка `app`) |
+| `api/` | 18 | HTTP: 15 роутеров по доменам (в том числе `indexing.py` — индексация, `llm.py` — расходы, `rag.py` — RAG, `mini_chat.py` — мини-чат, `orchestration.py` — запуски, `mcp_servers.py` — флот), `lifespan.py` (старт и остановка фоновых служб, чтение индексов, прогрев модели) и `main.py` (сборка `app`) |
 | `core/` | 5 | `config.py` (настройки дня: файл флота, каталоги документов и индексов, модель эмбеддингов, границы поиска и **весь раздел оптимизации затрат** — маршрутизация моделей, пределы ответа, тарифы, доля цены кэша, окна непика и параметры журнала), `mcp_server_config.py` (чтение `mcp_servers.json` и запись `tools_cache`), `dependencies.py` (доступ роутов к менеджеру, реестру, планировщику, службам пайплайна, оркестрации, индексации, RAG и клиенту LLM), `prompt_builder.py` |
-| `domain/` | 54 | Чистые правила и данные без БД и сети: FSM задачи/сжатия/MCP/планировщика/пайплайна/оркестрации/**индексации**, графы переходов, расписания, агрегация, распознавание реплик, маппинг аргументов, стратегии, профиль, инварианты, тексты промптов, план шагов, **источники документов, блоки, метрики сравнения, тестовые запросы**, **стоимость запросов и правило непиковых часов**, **RAG-промпт, источники корпуса и контрольные вопросы**, **режимы отбора RAG с порогом и реранкером (день 23)**. Знают только stdlib, `core.config` и соседей по слою |
-| `services/` | 39 | Прикладные сервисы: компрессор контекста, состояние задачи, инварианты, `mcp_*` (клиент, транспорт, ошибки, реестр с флотом, состояние сервера, раннер инструмента), планировщик и его службы, пайплайн, оркестратор, **чанкер, эмбеддинги, векторный индекс, загрузчик документов, прогон индексации, сборка метрик, служба индексации**, **клиент LLM, сжатие промптов и перенос запуска в непик**, а также **загрузчик корпуса RAG, служба RAG, этапы отбора, рекорды ответа, повторы вызова и служба кросс-энкодера (день 23)** |
+| `domain/` | 56 | Чистые правила и данные без БД и сети: FSM задачи/сжатия/MCP/планировщика/пайплайна/оркестрации/**индексации**, графы переходов, расписания, агрегация, распознавание реплик, маппинг аргументов, стратегии, профиль, инварианты, тексты промптов, план шагов, **источники документов, блоки, метрики сравнения, тестовые запросы**, **стоимость запросов и правило непиковых часов**, **RAG-промпт, источники корпуса и контрольные вопросы**, **режимы отбора RAG с порогом и реранкером (день 23)**. Знают только stdlib, `core.config` и соседей по слою |
+| `services/` | 42 | Прикладные сервисы: компрессор контекста, состояние задачи, инварианты, `mcp_*` (клиент, транспорт, ошибки, реестр с флотом, состояние сервера, раннер инструмента), планировщик и его службы, пайплайн, оркестратор, **чанкер, эмбеддинги, векторный индекс, загрузчик документов, прогон индексации, сборка метрик, служба индексации**, **клиент LLM, сжатие промптов и перенос запуска в непик**, **загрузчик корпуса RAG, служба RAG, этапы отбора, рекорды ответа, повторы вызова и служба кросс-энкодера (день 23)**, а также **служба мини-чата с правилами памяти задачи (день 25)** |
 | `storage/` | 17 | Доступ к БД: `database.py` (движок, сессии, реэкспорт ORM), хранилища задач, инвариантов, памяти, планировщика, пайплайна, оркестрации, **чанков с журналом индексации** и **журнала расходов на LLM** (+ модули «строка → словарь») |
 | `agents/` | 12 | `Agent`, `MemoryManager`, `ProfileStore`, `AgentManager` из миксинов; менеджер передаёт агентам реестр MCP, службы пайплайна, оркестрации, **индексации (шаг поиска по документам в `generate`)** и **клиент LLM со строителем промптов** |
 | `models/` | 13 | ORM-таблицы SQLAlchemy по доменам, включая **`indexing.py`** (`document_chunks`, `index_runs`), **`llm_usage.py`**, `orchestration.py` |
-| `schemas/` | 15 | Pydantic-схемы API по доменам, включая **`indexing.py`**, **`llm.py`**, **`rag.py`**, `orchestration.py` и `mcp_servers.py` |
+| `schemas/` | 16 | Pydantic-схемы API по доменам, включая **`indexing.py`**, **`llm.py`**, **`rag.py`**, **`mini_chat.py`**, `orchestration.py` и `mcp_servers.py` |
 | `utils/` | 1 | Своего кода нет (`__init__.py`): общий клиент DeepSeek, база, токены и логи — в repo-level `shared/` |
 
 Девять слоёв обязательны и все содержат `__init__.py` с реэкспортом публичных
@@ -370,8 +415,8 @@ orchestration_fsm, …`), а не реэкспортирует их
 
 ## Тесты: `tests/`
 
-Набор дня — **2601 тест**: `unit/` — 1781 (64 файла), `integration/` — 582
-(51 файл), `e2e/` — 238 (16 файлов). Классификация по фикстурам: чистые модули /
+Набор дня — **2629 тестов**: `unit/` — 1804 (66 файлов), `integration/` — 585
+(53 файла), `e2e/` — 240 (16 файлов). Классификация по фикстурам: чистые модули /
 временная БД и агент / `TestClient`. Унаследованные наборы дней 11–20 (память и
 стратегии, профиль, задача и переходы, инварианты, MCP, планировщик, пайплайн, флот и
 оркестрация) остаются на месте; их раскладка по файлам — в
@@ -381,8 +426,9 @@ orchestration_fsm, …`), а не реэкспортирует их
 и делят одну схему БД на прогон: session-scoped `schema_template` строит её один
 раз, а `session_factory` копирует файл (2,65 мс вместо 934 мс у `create_all`) —
 изоляция сохранена (файл на тест), время полного прогона упало с 370 с до 68 с.
-Тяжёлые тесты (79 штук: подпроцессы MCP-серверов по stdio и часть e2e) помечены
-`slow` и по умолчанию пропускаются: `uv run pytest` идёт ~31 с и покрывает 2522
+Тяжёлые тесты (82 штуки: подпроцессы MCP-серверов по stdio, сборка реального
+RAG-корпуса и часть e2e) помечены
+`slow` и по умолчанию пропускаются: `uv run pytest` идёт ~45 с и покрывает 2547
 теста, полный набор — `uv run pytest -m ""` или `--run-slow`. Autouse-фикстура
 `no_real_network` запрещает тестам TCP на нелокальные адреса (внешние API
 подменены фейками). Замеры и разбор — в
@@ -452,9 +498,17 @@ singleton протекал бы между тестами вместе с фаб
 | Полный цикл (slow) | `integration/test_rag_flow.py` (141), `integration/test_rag_quotes_flow.py` (112) | Сборка корпуса из 36 реальных источников и обоих индексов, минимумы страниц и чанков на стратегию; `rag_query` находит нужный фрагмент и отдаёт источники с восемью полями; реранк стабом переставляет кандидатов на реальном корпусе и порог оставляет хотя бы один фрагмент; день 24 — `run_demo` на десяти вопросах из `backend/data/demo_questions.json`: режимы, источники и цитаты у `rag`-строк, пустые источники и текст «не знаю» у `dont_know`-строк, сводка; при недостижимом пороге все десять строк становятся «не знаю» без единого вызова модели |
 | API | `e2e/test_rag_api.py` (327) | Шесть эндпоинтов `/rag`: запрос с RAG и без, конфигурация корпуса, режимы и эхо-поля отбора, `POST /rag/compare_modes`, `GET /rag/demo-questions` (десять вопросов), `POST /rag/demo-run` (все вопросы или один), коды 400 (пустой вопрос, неизвестная стратегия, неизвестный режим), 409 (пустой индекс), 422 (`min_score` вне 0…1, `top_k_candidates` вне 1…60), 502 (сбой клиента), `POST /rag/compare`; порог, срезавший все фрагменты, возвращает «не знаю» |
 
+### Мини-чат (день 25)
+
+| Группа | Файлы (строк) | Что проверяют |
+|---|---|---|
+| Фейки и фикстуры | `tests/mini_chat_fakes.py` (161), `tests/fixtures_mini_chat.py` (61) | Стаб-клиент с двумя ответами (текст ответа и JSON памяти, различаются по вопросу извлекателя), клиент с неразобранным JSON памяти, заглушка отбора (`FakeRetrieval`/`FakeRagService`: сильная и слабая выдача, запись вызовов); фикстуры службы на фейковом отборе — сильная, слабая (режим «не знаю») и сломанная (режим ошибки) |
+| Сервис | `unit/test_mini_chat_service.py` (272) | Ответ с источниками и цитатами (восемь полей источника, `chunks_used`, расходы, отбор вызван без реранка); память задачи после реплики и JSON-строки рабочей памяти; история реплик и `limit`; порядок блоков промпта (RAG → память с напоминанием о цели → диалог); режим «не знаю» на слабой выдаче без вызова модели; режим ошибки после повторов; сохранение прежней памяти при неразобранном ответе извлекателя; неизвестная сессия и пустое сообщение; закрытие сессии (реплики удалены, повтор идемпотентен, история недоступна) и `make_mini_chat_client` без ключа; сессия переживает перезапуск службы; ленивые зависимости и синглтон |
+| Полный цикл (slow) | `integration/test_mini_chat_flow.py` (111) | Сборка реального корпуса фейковым эмбеддером, прогон первого сценария целиком (14 реплик): непустые ответы, режимы `rag`/`dont_know`, не менее 80 % ответов с источниками, цель не потеряна, история и рабочая память на месте, закрытие удаляет все реплики |
+
 ## Что изменилось относительно дня 20
 
-Новые модули дней 21–24 перечислены выше. Здесь — только правки **унаследованного** кода
+Новые модули дней 21–25 перечислены выше. Здесь — только правки **унаследованного** кода
 (проверены сравнением с `day20/`; в скобках — было → стало строк):
 
 | Модуль | Строк | Что изменилось |
@@ -463,14 +517,14 @@ singleton протекал бы между тестами вместе с фаб
 | `backend/agents/agent_manager.py` | 110 (105) | Параметры `indexing_service` и `llm_client`/`prompt_builder` — службы передаются агентам |
 | `backend/agents/manager_agents.py` | 257 (255) | Передача новых служб в обоих местах создания `Agent` |
 | `backend/core/config.py` | 400 (291) | Два новых раздела: «Индексация документов и поиск» (каталоги, модель эмбеддингов, чанкинг, границы топ-k, длины полей) и «Оптимизация затрат на LLM» (`MODEL_PRICES`, `LLM_CACHE_INPUT_RATIO`, типы задач и маршрутизация `LLM_TASK_MODELS`, пределы ответа `LLM_TASK_MAX_TOKENS`, `OFF_PEAK_WEEKDAY_HOURS_UTC`/`PEAK_WEEKDAY_HOURS_UTC`); заголовок и описание API дня 24 — «ОБЯЗАТЕЛЬНЫЕ ИСТОЧНИКИ, ЦИТАТЫ И РЕЖИМ «НЕ ЗНАЮ»», счётчик `/rag/... (6)`, `API_VERSION = "17.0.0"` |
-| `backend/core/dependencies.py` | 208 (115) | `get_indexing_service`, `get_index_service`, `get_embedding_service`, `get_prompt_builder`, `get_llm_client`, `get_rag_service`, `get_rerank_service` |
-| `backend/api/main.py` | 80 (66) | Подключены роутеры `indexing`, `llm` и `rag` и точки подмены служб индексации, клиента LLM, службы RAG и реранкера |
-| `backend/api/__init__.py` | 69 (56) | Реэкспорт роутеров `indexing`, `llm` и `rag`; контракт ошибок дня (409 на пустой индекс, 400 на стратегию/запрос/документы, неизвестный период расходов, пустой вопрос RAG и неизвестный режим отбора, 422 на порог вне 0…1 и пул вне 1…60, 502 на сбой LLM-вызова RAG) |
+| `backend/core/dependencies.py` | 221 (115) | `get_indexing_service`, `get_index_service`, `get_embedding_service`, `get_prompt_builder`, `get_llm_client`, `get_rag_service`, `get_rerank_service`, `get_mini_chat_service` |
+| `backend/api/main.py` | 78 (66) | Подключены роутеры `indexing`, `llm`, `rag` и `mini_chat` и точки подмены служб индексации, клиента LLM, службы RAG, реранкера и мини-чата |
+| `backend/api/__init__.py` | 73 (56) | Реэкспорт роутеров `indexing`, `llm`, `rag` и `mini_chat`; контракт ошибок дня (409 на пустой индекс, 400 на стратегию/запрос/документы, неизвестный период расходов, пустой вопрос RAG и неизвестный режим отбора, 422 на порог вне 0…1 и пул вне 1…60, 502 на сбой LLM-вызова RAG; у мини-чата — 404 на неизвестную сессию и 400 на пустое сообщение) |
 | `backend/api/lifespan.py` | 88 (60) | Пятый и шестой шаги старта — `get_index_service().load_all()` и прогрев моделей демон-потоком `model-warmup` (эмбеддинги, затем реранкер); остановка пишет индексы (`save_all`) |
-| `backend/api/agents.py` | 345 (314) | В инвентаре `GET /` — группы `indexing` (9), `llm` (5) и `rag` (6, включая `POST /rag/compare_modes` и эндпоинты демо `GET /rag/demo-questions`/`POST /rag/demo-run`) и имя приложения дня 24 |
+| `backend/api/agents.py` | 356 (314) | В инвентаре `GET /` — группы `indexing` (9), `llm` (5), `rag` (6, включая `POST /rag/compare_modes` и эндпоинты демо `GET /rag/demo-questions`/`POST /rag/demo-run`) и `mini_chat` (5) и имя приложения дня 24 |
 | `backend/api/scheduler.py` | 361 (355) | Описание флага `prefer_off_peak` и полей `off_peak`/`next_off_peak`/`discount_percent` в ответе `GET /scheduler/status` |
 | `backend/domain/__init__.py` | 400 (395) | Импорт модулей индексации, стоимости, непика и RAG как модулей; исторические абзацы докстринга сжаты, чтобы файл остался в лимите |
-| `backend/services/__init__.py` | 257 (165) | Реэкспорт чанкера, эмбеддингов, индекса, загрузчика документов, службы индексации и её кодов отказа, `LLMClient`/`get_llm_client`, `PromptCompressor`, `shift_to_off_peak`, `RagCorpusLoader`/`get_rag_corpus_loader`, `RAGService`/`get_rag_service`, ошибок RAG и модулей дня 23 (`rag_errors`, `rag_corpus_index`, `rag_llm`, `rag_records`, `rag_retrieval`, `rerank_service`) |
+| `backend/services/__init__.py` | 277 (165) | Реэкспорт чанкера, эмбеддингов, индекса, загрузчика документов, службы индексации и её кодов отказа, `LLMClient`/`get_llm_client`, `PromptCompressor`, `shift_to_off_peak`, `RagCorpusLoader`/`get_rag_corpus_loader`, `RAGService`/`get_rag_service`, ошибок RAG, модулей дня 23 (`rag_errors`, `rag_corpus_index`, `rag_llm`, `rag_records`, `rag_retrieval`, `rerank_service`) и мини-чата (`mini_chat_service`, `mini_chat_memory`, `MiniChatService`, `MiniChatSessionError`, `get_mini_chat_service`, `make_mini_chat_client`, `MINI_CHAT_AGENT_ID`) |
 | `backend/services/compressor.py` | 330 (329) | Вызов LLM идёт с `task_type=config.LLM_TASK_SUMMARY` — работа сжатия контекста попадает под маршрутизацию моделей и журнал |
 | `backend/services/invariant_checker.py` | 305 (296) | `task_type=config.LLM_TASK_CLASSIFY` при вызове модели и текст ошибки про `day21/.env` |
 | `backend/services/orchestration_planner.py` | 98 (94) | Клиент вызова — `LLMClient` (`call` с `task_type`), фабрика вынесена в свойство |
@@ -481,12 +535,12 @@ singleton протекал бы между тестами вместе с фаб
 | `backend/storage/__init__.py` | 189 (155) | `ChunkStore`, `IndexRunStore`, `IndexRunNotFoundError`, `chunk_dict`, `index_run_dict`, `LLMUsageStore`, `llm_usage_dict` |
 | `backend/storage/database.py` | 63 (59) | Реэкспорт ORM-таблиц индексации и журнала расходов |
 | `backend/models/__init__.py` | 87 (77) | `DocumentChunk`, `IndexRun`, `LLMUsage` |
-| `backend/schemas/__init__.py` | 370 (269) | Реэкспорт схем индексации, расходов и RAG (включая `RagModeOut`/`RagModesIn`/`RagModesOut`, `RagQuoteOut` и схемы демо дня 24) |
+| `backend/schemas/__init__.py` | 391 (269) | Реэкспорт схем индексации, расходов, RAG (включая `RagModeOut`/`RagModesIn`/`RagModesOut`, `RagQuoteOut` и схемы демо дня 24) и мини-чата (восемь `MiniChat*`) |
 | `backend/schemas/agent.py` | 362 (352) | Поля `indexing` и `llm` ответа генерации |
 | `frontend/chat_section.py` | 386 (346) | Девятый раздел «📦 Индексация», десятый «💰 Расходы», одиннадцатый «🆚 RAG-сравнение» и двенадцатый «🧪 RAG-демо»; панель «🔍 RAG-запрос по корпусу» в конце ветки чата; строки `indexing_note` и сводка расходов в отчёте хода |
-| `tests/conftest.py` | 273 (228) | Общие фикстуры (`schema_template`, `no_real_network`); фикстуры индексации и RAG (включая стаб-реранкер) вынесены в `fixtures_indexing.py` и `fixtures_rag.py` и импортируются обратно |
+| `tests/conftest.py` | 279 (228) | Общие фикстуры (`schema_template`, `no_real_network`); фикстуры индексации, RAG (включая стаб-реранкер) и мини-чата вынесены в `fixtures_indexing.py`, `fixtures_rag.py` и `fixtures_mini_chat.py` и импортируются обратно |
 | `app.py` | 85 (67) | Заголовок страницы и описание двенадцати разделов дня 24 |
-| `README.md`, `docs/architecture.md`, `docs/usage.md`, `docs/api.md` | 673, 851, 382, 6637 | Документация дня переписана под текущее состояние: `README` и `architecture` описывают день 24 (источники и цитаты, проверка опоры, порог с режимом «не знаю», демо-прогон), `usage.md` — инструкция дня, в `api.md` есть разделы индексации, расходов на LLM и RAG |
+| `README.md`, `docs/architecture.md`, `docs/usage.md`, `docs/api.md` | 685, 910, 464, 6797 | Документация дня переписана под текущее состояние: `README` и `architecture` описывают дни 24–25 (источники и цитаты, проверка опоры, порог с режимом «не знаю», демо-прогон, раздел мини-чата), `usage.md` — инструкция дня (в том числе запуск мини-чата), в `api.md` есть разделы индексации, расходов на LLM, RAG и мини-чата |
 | `pyproject.toml` | 30 (24) | Имя `day21` и описание дня; добавлены `sentence-transformers`, `faiss-cpu`, `numpy` |
 | `.env.example` | 31 (15) | `DAY21_BACKEND_URL` вместо `DAY20_BACKEND_URL`, добавлены `DAY21_EMBEDDING_MODEL`, закомментированный `RAG_RERANK_MODEL` и порог дня 24 `RAG_RELEVANCE_THRESHOLD=0.6` |
 | `pytest.ini` | — | Комментарий про день 21 |
@@ -516,6 +570,8 @@ singleton протекал бы между тестами вместе с фаб
 | `backend/domain/rag_mode.py` | `shared.token_counter.count_tokens`, `shared.logging_utils.get_logger` | Бюджет блока контекста считается тем же счётчиком, логи отбора фрагментов и оценки опоры |
 | `backend/services/rag_corpus_loader.py` | `shared.logging_utils.get_logger` | Логи сборки корпуса RAG и проверки его состава |
 | `backend/services/rag_service.py` | `shared.deepseek_client.make_client`, `shared.logging_utils.get_logger`, `shared.token_counter.count_tokens` | Клиент DeepSeek (когда фабрику не подставило приложение), логи повторов и отката на ответ без RAG, счёт токенов контекста |
+| `backend/services/mini_chat_service.py` | `shared.deepseek_client.make_client`, `shared.logging_utils.get_logger`, `shared.token_counter.count_tokens` | Собственная фабрика клиента (`make_mini_chat_client`), логи, счёт токенов собранного контекста |
+| `backend/services/mini_chat_memory.py` | `shared.logging_utils.get_logger` | Лог «память задачи не извлечена» (ответ модели не разобран или сбой вызова) |
 | `backend/services/embedding_service.py`, `index_service.py`, `document_loader.py`, `indexing_service.py`, `index_runner.py`, `index_comparison.py` | `shared.logging_utils.get_logger` | Логи загрузки модели, сборки документов, индексации (чей-то размер, время), смены этапа и сбоя фонового потока |
 | `backend/services/compressor.py`, `orchestration_planner.py`, `invariant_checker.py`, `scheduler.py`, `schedule_service.py`, `apscheduler_bridge.py`, `mcp_client.py`, `mcp_registry.py`, `mcp_tool_runner.py`, `pipeline.py`, `pipeline_service.py`, `orchestrator.py`, `orchestration_service.py` | `shared.logging_utils.get_logger`; у `orchestration_planner` и `invariant_checker` ещё `shared.deepseek_client.make_client` | Логи служб дня и клиент LLM там, где вызов идёт мимо `LLMClient` |
 | `backend/storage/database.py` | `shared.db_base.Base`, `init_db`, `make_engine`, `make_session_factory` | Движок и сессии SQLite |
@@ -542,7 +598,7 @@ singleton протекал бы между тестами вместе с фаб
 | `frontend/common.py` | 400 | 400 | Ровно на границе, поэтому дни 20 и 21 его не правили: подписи разделов живут в `orchestration_*.py`, `indexing_*.py` и `cost_section.py` |
 | `backend/core/config.py` | 400 | 400 | Ровно на границе: копились разделы дней 11–21 (день 21 добавил индексацию и оптимизацию затрат). Следующий раздел потребует выноса части настроек в отдельный модуль конфигурации |
 | `backend/domain/__init__.py` | 400 | 400 | Модули планировщика, пайплайна, оркестрации, индексации, стоимости, непика и RAG импортируются как модули (`from . import …`), а не реэкспортируются именами: иначе список имён слоя вышел бы за лимит |
-| `GET /` — счётчик эндпоинтов | 103 записи / 84 пути | — | Инвентарь `endpoints` перечисляет эндпоинты по методу (103 записи, включая четыре `/rag/*`), тогда как OpenAPI группирует их по пути — уникальных путей 84. Расхождение не ошибка, а разная форма счёта |
+| `GET /` — счётчик эндпоинтов | 110 записей / 92 пути | — | Инвентарь `endpoints` перечисляет эндпоинты по методу (110 записей, включая четыре `/rag/*` и пять `/mini-chat/*`), тогда как OpenAPI группирует их по пути — уникальных путей 92. Расхождение не ошибка, а разная форма счёта |
 | `backend/services/mcp_client.py` | 398 | 400 | Клиент запускает свой daemon-поток с циклом событий и долгоживущую задачу сессии (контексты MCP SDK обязаны входить и выходить в одной задаче anyio); цикл событий и адаптеры SDK вынесены в `mcp_loop.py` и `mcp_transport.py` |
 | `.agents/skills/**` | 416–449 | — | Вендорные скиллы сторонних пакетов (`uvx library-skills --copy`): в трёх шаблонах Streamlit-приложений больше 400 строк. Это код библиотеки, а не дня |
 | `chunk_id` не уникален | — | — | Повторный прогон по тем же документам ДОПИСЫВАЕТ индекс и таблицу (числа растут — это видно в статистике и истории запусков). Уникальный `chunk_id` превратил бы кнопку демо-прогона в одноразовую: второй клик падал бы на ограничении вместо того, чтобы либо дописать, либо честно попросить очистку. Переиндексация с нуля — явная кнопка «🧹 Очистить обе стратегии» |
@@ -568,11 +624,14 @@ uv run python -c "from pathlib import Path; print([(str(p), len(p.read_text(enco
 [('backend\\agents\\agent.py', 2284)]
 ```
 
-`app.py` (85 ≤ 100) и `backend/api/main.py` (80 ≤ 80) в лимитах; `frontend/common.py`,
+`app.py` (85 ≤ 100) и `backend/api/main.py` (78 ≤ 80) в лимитах; `frontend/common.py`,
 `backend/core/config.py` и `backend/domain/__init__.py` (по 400) — ровно на границе,
 в пределах лимита. Скрипт отчёта об оптимизации тоже перестал быть превышением: замер
 (`scripts/cost_optimization_measure.py`, 382) вынесен из рендера
 (`scripts/cost_optimization_report.py`, 285) — вместе они были длиннее 400. Самый
+длинный файл дня 25 — `backend/services/mini_chat_service.py` (360): правила памяти
+задачи вынесены в `backend/services/mini_chat_memory.py` (191) именно по лимиту, а
+разметка мини-чата уложилась в `mini_chat/panels.py` (206) без выноса рендера. Самый
 длинный файл дня 24 — `backend/services/rag_service.py` (397): правки дня 24 (гейт
 порога в `_answer`, `citation_block`, `verify_citations`, `relevance_threshold` в
 `config()`) держатся в лимите за счёт того, что запись режима «не знаю» живёт в

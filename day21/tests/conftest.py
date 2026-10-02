@@ -55,6 +55,12 @@ from fixtures_indexing import (  # noqa: F401  (фикстуры: pytest чит�
     indexing_service,
     isolated_indexing,
 )
+from fixtures_mini_chat import (  # noqa: F401  (фикстуры: pytest читает их как свои)
+    mini_chat_broken_service,
+    mini_chat_service,
+    mini_chat_stub,
+    mini_chat_weak_service,
+)
 from fixtures_rag import (  # noqa: F401  (фикстуры: pytest читает их как свои)
     empty_index_service,
     rag_client,
