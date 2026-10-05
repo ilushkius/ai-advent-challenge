@@ -92,12 +92,12 @@ def test_threshold_resolution(tmp_path):
 def test_verify_citations(rag_service):
     """Проверка опоры: цитата либо входит в ответ, либо пересекается с ним по словам."""
     quotes = rag_service.rag_query("Чему равен CHARS_PER_PAGE?")["quotes"]
-    assert rag_service.verify_citations(GROUNDED_REPLY, quotes) is True
-    assert rag_service.verify_citations(UNGROUNDED_REPLY, quotes) is False
+    assert rag_quotes.verify_citations(GROUNDED_REPLY, quotes) is True
+    assert rag_quotes.verify_citations(UNGROUNDED_REPLY, quotes) is False
     overlapping = [{"quote": "Одной странице равен CHARS_PER_PAGE: 1800 символов на страницу."}]
     answer = "На страницу приходится 1800 символов, значение задаёт CHARS_PER_PAGE."
-    assert rag_service.verify_citations(answer, overlapping) is True
-    assert rag_service.verify_citations(EMPTY_ANSWER, quotes) is False
+    assert rag_quotes.verify_citations(answer, overlapping) is True
+    assert rag_quotes.verify_citations(EMPTY_ANSWER, quotes) is False
 
 
 def test_no_rag_query_has_no_quotes(rag_service):

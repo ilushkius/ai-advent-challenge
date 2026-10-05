@@ -12,7 +12,8 @@
 Перевод отказов в коды ответов: ``RAGRejected`` с кодом ``bad_strategy``,
 ``empty_query`` или ``bad_mode`` — 400 (ошибка запроса), ``index_empty`` — 409 (корпус
 ещё не проиндексирован), ``RAGUpstreamError`` — 502 (вызов модели не удался после всех
-повторов и откат на ответ без RAG тоже).
+повторов и откат на ответ без RAG тоже). Незнакомое имя провайдера (поле
+``provider``) — тоже 400: отвечать при этом другим провайдером было бы подменой.
 """
 from __future__ import annotations
 
@@ -74,11 +75,15 @@ def rag_query(payload: RagQueryIn) -> RagQueryOut:
                                        rewrite=payload.rewrite,
                                        rerank=payload.rerank,
                                        min_score=payload.min_score,
-                                       top_k_candidates=payload.top_k_candidates)
+                                       top_k_candidates=payload.top_k_candidates,
+                                       provider=payload.provider)
         else:
-            result = service.no_rag_query(payload.question)
+            result = service.no_rag_query(payload.question,
+                                          provider=payload.provider)
     except RAGRejected as exc:
         raise _rejected(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RAGUpstreamError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return RagQueryOut(**result)

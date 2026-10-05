@@ -46,6 +46,13 @@ class RagQueryIn(BaseModel):
         True,
         description="true — ответ с контекстом корпуса, false — тот же вопрос без контекста",
     )
+    provider: Optional[str] = Field(
+        None, max_length=16,
+        description=(
+            "Провайдер ответа: deepseek | local; по умолчанию — LLM_PROVIDER из "
+            "конфига. Незнакомое имя — 400"
+        ),
+    )
     rewrite: bool = Field(
         False,
         description="Переформулировать запрос моделью перед поиском (день 23)",
@@ -120,6 +127,9 @@ class RagQueryOut(BaseModel):
     )
     question: str = Field(..., description="Вопрос, на который отвечали")
     answer: str = Field(..., description="Текст ответа модели")
+    provider: str = Field(
+        "", description="Кто ответил: deepseek (облако) или local (Ollama по HTTP)"
+    )
     fallback: bool = Field(
         False, description="true — вызов с RAG не удался и ответ дан без контекста"
     )

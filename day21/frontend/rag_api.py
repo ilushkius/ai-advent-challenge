@@ -13,11 +13,13 @@
 Панель чата и раздел сравнения (``frontend/rag_section.py``) ходят в бэкенд только
 через эти функции: правила поиска и сборки промпта живут на бэкенде.
 """
-from .api_client import request_json
+from backend.domain.llm_provider import PROVIDER_LOCAL
+
+from .api_client import LONG_TIMEOUT, request_json
 
 
 def api_rag_query(question, top_k=None, strategy=None, use_rag=True, rewrite=False,
-                  rerank=False, min_score=None, top_k_candidates=None):
+                  rerank=False, min_score=None, top_k_candidates=None, provider=None):
     """POST /rag/query -> ответ по корпусу (``use_rag``) или ответ без контекста.
 
     ``rewrite``/``rerank`` — ступени отбора дня 23: переформулировка вопроса моделью
@@ -25,9 +27,12 @@ def api_rag_query(question, top_k=None, strategy=None, use_rag=True, rewrite=Fal
     ``top_k_candidates`` — сколько кандидатов запросить у поиска. Нулевой порог и
     пустой ``top_k_candidates`` не отправляются: это значения дня 22 по умолчанию.
 
-    400 — пустой вопрос, неизвестная стратегия и неизвестный режим, 422 — порог вне
-    диапазона, 409 — корпус не проиндексирован, 502 — сбой вызова модели, когда
-    откат на ответ без RAG тоже не удался.
+    ``provider`` (день 26) — кто отвечает: ``deepseek`` или ``local``; для локальной
+    модели предел ожидания длиннее (первый запрос грузит веса в память).
+
+    400 — пустой вопрос, неизвестная стратегия, неизвестный режим и незнакомый
+    провайдер, 422 — порог вне диапазона, 409 — корпус не проиндексирован, 502 —
+    сбой вызова модели, когда откат на ответ без RAG тоже не удался.
     """
     payload = {"question": question, "use_rag": bool(use_rag),
                "rewrite": bool(rewrite), "rerank": bool(rerank)}
@@ -39,7 +44,10 @@ def api_rag_query(question, top_k=None, strategy=None, use_rag=True, rewrite=Fal
         payload["min_score"] = float(min_score)
     if top_k_candidates:
         payload["top_k_candidates"] = int(top_k_candidates)
-    return request_json("POST", "/rag/query", json=payload)
+    if provider:
+        payload["provider"] = provider
+    return request_json("POST", "/rag/query", json=payload,
+                        timeout=LONG_TIMEOUT if provider == PROVIDER_LOCAL else None)
 
 
 def api_rag_compare(question, top_k=None, strategy=None):

@@ -167,3 +167,46 @@ class RagStubReranker:
     def reset(self) -> None:
         """Сброс «модели»: у заглушки — только флаг."""
         self._loaded = False
+
+
+class LocalDictStubClient:
+    """Клиент локального провайдера для тестов: словарь вместо ``LLMCallResult``.
+
+    Копия формы ``LocalLLMClient`` (день 26) без HTTP: ``generate_with_context`` и
+    ``generate`` отдают словарь с ``answer``/``duration_ms``/``tokens``. Именно так
+    проверяется, что службы читают ответ через ``rag_llm.response_text`` и
+    ``usage_dict``, а не через атрибуты объекта SDK.
+    """
+
+    def __init__(self, answer: str = None, error: Exception = None,
+                 model: str = "stub-local:1b") -> None:
+        self.answer = GROUNDED_REPLY if answer is None else answer
+        self.error = error
+        self.model = model
+        self.calls: list = []
+
+    def _result(self, call: dict) -> dict:
+        """Ответ в форме ``LocalLLMClient``: те же поля, нулевые кэш и цена."""
+        self.calls.append(call)
+        if self.error is not None:
+            raise self.error
+        return {
+            "provider": "local",
+            "model": self.model,
+            "answer": str(self.answer).strip(),
+            "duration_ms": 12,
+            "tokens": {
+                "model": self.model, "prompt_tokens": 100,
+                "completion_tokens": 0, "cache_hit_tokens": 0,
+                "cache_miss_tokens": 100, "cache_hit_percent": 0.0,
+                "cost_estimate": 0.0,
+            },
+        }
+
+    def generate_with_context(self, **kwargs) -> dict:
+        """Тот же вызов, что у сервисного клиента RAG и мини-чата."""
+        return self._result(dict(kwargs))
+
+    def generate(self, prompt: str, max_tokens=None) -> dict:
+        """Один запрос демо локальной модели: промпт и предел ответа."""
+        return self._result({"prompt": prompt, "max_tokens": max_tokens})

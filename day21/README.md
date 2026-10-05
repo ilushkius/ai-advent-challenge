@@ -1,4 +1,37 @@
-# День 25 — мини-чат с RAG, источниками и памятью задачи
+# День 26 — локальная LLM (Ollama) как второй провайдер ответа
+
+Задание дня — **развернуть локальную LLM и подключить её к приложению**: рядом с
+DeepSeek появляется второй провайдер, локальная модель на Ollama, и переключатель в
+интерфейсе решает, кто отвечает. Запросы уходят из программы по HTTP — это и есть
+демонстрация, а не `curl`:
+
+* **провайдер — поле запроса, а не конфиг на импорте** — `backend/domain/llm_provider.py`
+  знает два имени (`deepseek`, `local`) и решает, кто отвечает: явный аргумент →
+  `config.LLM_PROVIDER` → `deepseek`. Незнакомое имя — `400`, а не тихая подмена;
+* **клиент** — `backend/services/local_llm_client.py`: `POST /api/chat` с
+  системным промптом отдельным сообщением, ответ словарём (`answer`, `duration_ms`,
+  `tokens`), ошибки — `LocalLLMError` → `502`;
+* **точка выбора** — одна на день: `backend/services/llm_factory.get_llm_client`
+  (`local` → клиент Ollama, `deepseek` → обёртка дня 21);
+* **две службы уже понимают оба клиента** — `rag_llm.response_text`/`usage_dict`
+  читают и `LLMCallResult`, и словарь, поэтому `RAGService` и `MiniChatService` о
+  провайдере не знают.
+
+Переключатель `«🤖 Провайдер LLM»` в боковой панели действует на RAG-запрос по
+корпусу в разделе «💬 Чат и память»; агентский чат (`POST /agents/{id}/generate`)
+остаётся на DeepSeek — задание дня его не называет, и подпись под переключателем это
+проговаривает. У мини-чата свой такой же переключатель. Раздел «🖥 Локальная LLM»
+прогоняет три контрольных запроса (факт, логика, генерация кода) кнопкой или из
+терминала: `uv run python scripts/demo_local_llm.py`.
+
+Развёртывание и замеры — в отчёте
+[docs/reports/local_llm_demo.md](docs/reports/local_llm_demo.md): RTX 5070 (12227 MiB
+VRAM), модель `qwen2.5-coder:14b` Q4_K_M (9.0 GB, 100 % GPU), её ответы на три
+запроса (2.4–6.8 с), проверки CLI и `/api/generate`, а также честные ограничения —
+локальная модель медленнее облака, не пишет журнал расходов и поднимается с
+контекстом 4096 токенов.
+
+## День 25 — мини-чат с RAG, источниками и памятью задачи
 
 Задание дня — **сделать отдельное production-like приложение мини-чата**: чат по
 корпусу проекта, под каждым ответом — источники и цитаты, в боковой панели — память
@@ -113,16 +146,16 @@ uv run pytest -m "" --cov=backend --cov-report=html   # покрытие по в
 
 | Команда | Когда запускать | Сколько идёт |
 |---|---|---|
-| `uv run pytest -m "not slow"` | во время работы, после каждой правки | ~30 с (2522 теста) |
-| `uv run pytest -m ""` или `--run-slow` | перед коммитом — проверка всего набора | ~70 с (2601 тест) |
+| `uv run pytest -m "not slow"` | во время работы, после каждой правки | ~30 с (2579 тестов) |
+| `uv run pytest -m ""` или `--run-slow` | перед коммитом — проверка всего набора | ~70 с (2661 тест) |
 | `uv run pytest -m "" --cov=backend --cov-report=html` | когда нужно убедиться, что покрытие не упало | ~80 с, отчёт в `htmlcov/` |
 
 Команду покрытия запускайте **вместе с `-m ""`**: без него HTML-отчёт считается
-только по быстрому набору (2522 теста) и цифра будет не про весь набор. Число из
+только по быстрому набору (2579 тестов) и цифра будет не про весь набор. Число из
 отчёта дня (96 %) снято на полном наборе.
 
 **Медленные тесты помечены `slow` и по умолчанию не запускаются.** Это
-интеграционные и e2e-тесты (78 штук: они поднимают подпроцессы MCP-серверов по
+интеграционные и e2e-тесты (82 штуки: они поднимают подпроцессы MCP-серверов по
 stdio и собирают полный клиент приложения) — чтобы не тормозить разработку. Что
 именно ускорило набор (параллельный запуск `-n auto`, общая схема БД на прогон,
 общие фикстуры) и как читать замеры — в
@@ -510,6 +543,50 @@ uv run streamlit run mini_chat/app.py --server.port 8502   # терминал 2
 Запуск, флаги и таблица разбора ошибок — в разделе 8 «Мини-чат с RAG и памятью
 задачи» файла [docs/usage.md](docs/usage.md).
 
+### Сценарий дня 26: локальная LLM по шагам
+
+Второй провайдер: тот же RAG-запрос и тот же мини-чат могут отвечать моделью,
+поднятой на своей машине. Ниже — проверка, которую стоит повторить целиком.
+
+```powershell
+winget install --id Ollama.Ollama -e     # установка (служба поднимается сама)
+ollama pull qwen2.5-coder:14b            # 9.0 GB; корзина «8–12 GB VRAM»
+ollama ps                                # PROCESSOR: 100% GPU, CONTEXT: 4096
+cd day21
+uv run uvicorn backend.api.main:app --port 8000   # терминал 1
+uv run streamlit run app.py                       # терминал 2
+```
+
+1. **Модель отвечает из терминала.** `ollama run qwen2.5-coder:14b "Сколько будет
+   2+2?"` → «4»; `curl.exe http://localhost:11434/api/generate` с тем же вопросом →
+   JSON с `response` и `eval_count`. Первый запуск долгий: 9 ГБ весов грузятся в VRAM.
+2. **Демо из программы, без бэкенда.** `uv run python scripts/demo_local_llm.py` →
+   три ответа (факт, логика, код) с временем, токенами и эвристической оценкой 1–5;
+   ненулевой код возврата бывает только при недоступной Ollama.
+3. **Раздел «🖥 Локальная LLM».** Кнопка «▶ Прогнать 3 запроса» → `POST /llm/local-demo`:
+   таблица из трёх строк, колонка «провайдер» = `local`, время и токены заполнены.
+   Подпись над кнопкой показывает модель, адрес и таймаут из `GET /llm/provider`.
+4. **Переключатель провайдера.** Боковая панель → «🖥 Local LLM (Ollama)», раздел
+   «💬 Чат и память» → RAG-запрос по корпусу: ответ даёт локальная модель, в метриках
+   «Провайдер: 🖥 Local LLM (Ollama)». Переключение на «🌐 DeepSeek (облако)»
+   возвращает «Провайдер: 🌐 DeepSeek (облако)» и долю попаданий в кэш контекста.
+5. **Мини-чат.** `uv run streamlit run mini_chat/app.py --server.port 8502` →
+   «🖥 Local LLM (Ollama)» → реплика: под ответом «Провайдер: local · модель:
+   qwen2.5-coder:14b», а панель «🧠 Память задачи» обновляет **тот же** локальный
+   клиент (у него общий предел ожидания 120 с вместо 5 с облачного извлечения).
+6. **Отказ провайдера.** Остановить службу Ollama и повторить запрос: красная плашка
+   «Демо локальной модели не выполнено: Ollama недоступен по адресу …» и `502` в
+   ответе API — страница не падает.
+7. **Порог релевантности работает и здесь.** Вопрос, чей лучший фрагмент не дотянул
+   до `RAG_RELEVANCE_THRESHOLD` (0.6), даёт «не знаю» **до** вызова модели, поэтому
+   провайдер в этой строке ни при чём: порог дня 24 общий для обоих.
+8. **Тесты.** `uv run pytest tests/unit/test_local_llm_client.py
+   tests/unit/test_llm_factory.py tests/unit/test_rag_provider.py tests/e2e/test_rag_api.py
+   tests/e2e/test_llm_api.py -q` — офлайн (HTTP подменяется фейком `post`).
+
+Числа, скриншоты и ограничения локальной модели — в отчёте
+[docs/reports/local_llm_demo.md](docs/reports/local_llm_demo.md).
+
 ## Оптимизация затрат на LLM
 
 Четыре рычага снижают счёт за запросы; формулы и модули перечислены в
@@ -629,7 +706,11 @@ copy .env.example .env   # затем впишите DEEPSEEK_API_KEY=sk-...
 * `DAY21_BACKEND_URL=http://127.0.0.1:8000` — адрес бэкенда для интерфейса и
   собственного MCP-сервера (указывают, только если бэкенд слушает другой порт);
 * `DAY21_EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
-  — необязательная модель эмбеддингов.
+  — необязательная модель эмбеддингов;
+* `LLM_PROVIDER=deepseek` — провайдер ответа по умолчанию (день 26):
+  `deepseek` или `local`;
+* `LOCAL_LLM_MODEL=qwen2.5-coder:14b`, `LOCAL_LLM_URL=http://localhost:11434` —
+  модель и адрес локальной Ollama (день 26).
 
 Терминал 1 (бэкенд) и терминал 2 (интерфейс, <http://localhost:8501>):
 
@@ -638,15 +719,16 @@ uv run uvicorn backend.api.main:app --port 8000
 uv run streamlit run app.py
 ```
 
-Разделов интерфейса одиннадцать (`frontend/chat_section.py`): «💬 Чат и память»,
+Разделов интерфейса двенадцать (`frontend/chat_section.py`): «💬 Чат и память»,
 «👤 Профиль пользователя», «🧭 Состояние задачи», «📏 Инварианты», «🔌 MCP»,
-«🗓 Планировщик», «🔀 Пайплайны», «🌐 Оркестрация», новые дня 21 —
-**«📦 Индексация»** и **«💰 Расходы»**, а дня 22 — **«🆚 RAG-сравнение»**.
+«🗓 Планировщик», «🔀 Пайплайны», «🌐 Оркестрация», «📦 Индексация» (день 21),
+**«🖥 Локальная LLM»** (день 26), «💰 Расходы» (день 21) и «🆚 RAG-сравнение»
+(день 22).
 
 Полный набор эндпоинтов и примеры — в [docs/api.md](docs/api.md), как всё устроено
 внутри — в [docs/architecture.md](docs/architecture.md), Swagger — на
-`http://127.0.0.1:8000/docs`. В API 102 записи, включая девять `/indexing/*`,
-три `/rag/*` и пять `/llm/*`.
+`http://127.0.0.1:8000/docs`. В списке `GET /` 112 записей, включая девять
+`/indexing/*`, шесть `/rag/*`, пять `/mini-chat/*` и семь `/llm/*`.
 
 ## Тесты: что проверяется
 
@@ -690,20 +772,20 @@ day21/
 ├── mcp_server/               # собственный MCP-сервер дня (унаследован от дней 17–19)
 ├── frontend/                 # Streamlit UI по секциям (включая indexing_api.py, indexing_section.py,
 │                             # indexing_compare.py, indexing_search.py, cost_api.py, cost_section.py,
-│                             # rag_api.py, rag_section.py)
+│                             # rag_api.py, rag_section.py, llm_api.py, local_llm_section.py)
 ├── mini_chat/                # отдельное приложение дня 25 (Streamlit, порт 8502): app.py (точка входа),
 │                             # api.py (запросы /mini-chat/...), panels.py (боковая панель и ход диалога)
 ├── backend/
 │   ├── api/                  # FastAPI: роутеры по доменам (в том числе indexing.py, llm.py, rag.py и mini_chat.py), main.py, lifespan.py
-│   ├── core/                 # config.py, prompt_builder.py, mcp_server_config.py, dependencies.py
+│   ├── core/                 # config.py, env_file.py, prompt_builder.py, mcp_server_config.py, dependencies.py
 │   ├── domain/               # чистые правила: chunking, document_sources, index_metrics, index_scenarios,
-│   │                         # indexing_fsm, indexing_prompt, llm_cost, peak_hours,
+│   │                         # indexing_fsm, indexing_prompt, llm_cost, llm_provider, peak_hours,
 │   │                         # rag_filter, rag_mode, rag_corpus_spec, rag_eval + унаследованные домены
 │   ├── services/             # chunker, embedding_service, index_service, document_loader, index_runner,
 │   │                         # index_comparison, indexing_service, llm_client, prompt_compressor, off_peak,
 │   │                         # rag_corpus_loader, rag_corpus_index, rag_errors, rag_llm, rag_records,
-│   │                         # rag_retrieval, rag_service, rerank_service, mini_chat_service, mini_chat_memory
-│   │                         # + унаследованные
+│   │                         # rag_retrieval, rag_service, rerank_service, mini_chat_service, mini_chat_memory,
+│   │                         # llm_factory, local_llm_client, local_llm_demo + унаследованные
 │   ├── storage/              # database.py, chunk_store.py, index_run_store.py, index_rows.py, llm_usage_store.py,
 │   │                         # llm_usage_rows.py + унаследованные хранилища
 │   ├── agents/               # Agent (в generate — шаги поиска по индексу и метрики llm), MemoryManager, AgentManager
@@ -715,7 +797,7 @@ day21/
 ├── scripts/                  # прогоны демонстраций и сборка отчётов (indexing_demo.py, prepare_documents.py,
 │                             # indexing_scenarios.py, indexing_report.py, indexing_ui_shot.py, cost_optimization_report.py,
 │                             # prepare_rag_corpus.py, index_rag_corpus.py, run_rag_eval.py, rag_eval_report.py,
-│                             # rag_eval_cells.py, …)
+│                             # rag_eval_cells.py, demo_local_llm.py, …)
 ├── STRUCTURE.md              # карта модулей дня по слоям и лимит 400 строк
 ├── pyproject.toml, uv.lock   # зависимости (uv): sentence-transformers, sentencepiece, faiss-cpu, numpy, mcp, sqlalchemy…
 ├── pytest.ini, conftest.py   # конфигурация pytest (pythonpath = . tests)
@@ -751,3 +833,11 @@ day21/
   воспроизводится (тесты работают офлайн на стабе клиента).
 - **Журнал `llm_usage` растёт и не чистится автоматически.** Есть окна периодов
   (`day`/`week`/`month`/`all`) для чтения, но удаления старых строк нет.
+- **Локальная модель — не замена облака.** Замер дня 26: короткий ответ 2.4–6.8 с,
+  генерация кода ~12 с, первый запрос после простоя — десятки секунд (9.5 ГБ весов
+  грузятся в VRAM). Она не пишет журнал расходов, не имеет кэша контекста и
+  поднимается Ollama с `num_ctx = 4096`, хотя модель заявляет 32768: длинный
+  корпусный контекст у локального провайдера ближе к границе, чем у облачного.
+- **Агентский чат остаётся на DeepSeek.** Переключатель провайдера действует на
+  `POST /rag/query` и мини-чат; `POST /agents/{id}/generate` идёт через
+  `Agent.llm_client` и `PromptBuilder` и провайдером не управляется.

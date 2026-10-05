@@ -1,22 +1,42 @@
-"""Обвязка вызова модели в режиме RAG: повторы, текст ответа и расход (день 22).
+"""Обвязка вызова модели в режиме RAG: клиент, повторы, текст ответа и расход.
 
 Вынесено из ``rag_service`` (день 23), чтобы служба не росла за предел строк: здесь
 технические подробности клиента, а не правила отбора фрагментов. Повторы живут тут
 же, чтобы переформулировка запроса (день 23) шла через ту же политику, что и ответ.
+Фабрика клиента DeepSeek (``make_rag_client``) переехала сюда по той же причине
+(день 26): ключ и адрес провайдера — деталь клиента, а не режима RAG.
 """
 from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
+from shared.deepseek_client import make_client
 from shared.logging_utils import get_logger
 
+from ..core import config
 from ..domain import rag_mode
 from .llm_client import LLMCallResult
 from .rag_errors import RAGUpstreamError
 
 logger = get_logger(__name__)
 
-__all__ = ["call_with_retry", "response_text", "usage_dict"]
+__all__ = ["call_with_retry", "completion_tokens", "make_rag_client", "response_text",
+           "usage_dict"]
+
+
+def make_rag_client() -> Any:
+    """Клиент DeepSeek для режима RAG: ключ резолвится в момент вызова.
+
+    Как у проверки инвариантов: служба собирается на старте приложения, а ключ к
+    моменту первого обращения к модели может быть ещё не задан.
+    """
+    api_key = config.resolve_api_key()
+    if not api_key:
+        raise RuntimeError(
+            "Ключ API не задан: укажите DEEPSEEK_API_KEY в файле day21/.env "
+            "или в переменной окружения"
+        )
+    return make_client(api_key, config.DEEPSEEK_BASE_URL, config.REQUEST_TIMEOUT)
 
 
 def call_with_retry(sleep: Callable[[float], None],
@@ -41,17 +61,26 @@ def call_with_retry(sleep: Callable[[float], None],
     raise RAGUpstreamError(f"RAG-запрос не выполнен: {last}") from last
 
 
-def response_text(result: LLMCallResult) -> str:
-    """Текст ответа модели: пустой ответ — пустая строка, а не ошибка."""
+def response_text(result) -> str:
+    """Текст ответа модели: пустой ответ — пустая строка, а не ошибка.
+
+    Локальный провайдер отвечает словарём (``LocalLLMClient``), облачный —
+    ``LLMCallResult``; различие форм живёт только здесь, поэтому RAG и мини-чат
+    о провайдере не знают.
+    """
+    if isinstance(result, dict):
+        return str(result.get("answer") or "").strip()
     choices = getattr(result.response, "choices", None) or []
     message = getattr(choices[0], "message", None) if choices else None
     return str(getattr(message, "content", "") or "").strip()
 
 
-def usage_dict(result: LLMCallResult) -> Optional[dict]:
+def usage_dict(result) -> Optional[dict]:
     """Расход вызова: те же поля, что у ``LLMCallResult.to_dict``, без типа задачи."""
     if result is None:
         return None
+    if isinstance(result, dict):
+        return dict(result.get("tokens") or {}) or None
     return {
         "model": result.model,
         "prompt_tokens": result.prompt_tokens,
@@ -61,3 +90,10 @@ def usage_dict(result: LLMCallResult) -> Optional[dict]:
         "cache_hit_percent": result.cache_hit_percent,
         "cost_estimate": result.cost_estimate,
     }
+
+
+def completion_tokens(result) -> int:
+    """Токенов в ответе: у ``LLMCallResult`` — атрибут, у локального словаря — из tokens."""
+    if isinstance(result, dict):
+        return int((result.get("tokens") or {}).get("completion_tokens") or 0)
+    return int(getattr(result, "completion_tokens", 0) or 0)

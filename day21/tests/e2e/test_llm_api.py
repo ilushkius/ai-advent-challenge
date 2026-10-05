@@ -16,6 +16,8 @@ from backend.agents.agent import Agent
 from backend.agents.agent_manager import AgentManager
 from backend.core import config
 from backend.core.prompt_builder import PromptBuilder, reset_prompt_builder
+from backend.services import llm_factory
+from backend.services.local_llm_client import LocalLLMError
 from backend.storage import database
 from backend.storage.llm_usage_store import LLMUsageStore
 
@@ -228,3 +230,83 @@ def test_root_lists_llm_group(client):
     assert "/llm/usage" in body["llm"]
     assert "GET /llm/status" in body["endpoints"]
     assert body["endpoints"].count("POST /llm/estimate") == 1
+
+
+class LocalDemoClient:
+    """Клиент локального демо: ответ подбирается по промпту (Париж / 9 / код).
+
+    Форма ответа — как у ``LocalLLMClient``: демо читает ``answer``, ``duration_ms``,
+    ``model`` и ``tokens``, поэтому заглушка обязана отдать именно эти поля.
+    """
+
+    def __init__(self) -> None:
+        self.prompts: list = []
+
+    def generate(self, prompt, max_tokens=None) -> dict:
+        """Словарь ответа локальной модели; промпт и предел сохраняются для проверки."""
+        self.prompts.append({"prompt": prompt, "max_tokens": max_tokens})
+        text = str(prompt).lower()
+        if "столица" in text:
+            answer = "Париж."
+        elif "яблок" in text:
+            answer = "Всего 9 яблок."
+        else:
+            answer = ("def bubble(items):\n    for item in items:\n        pass\n"
+                      "    return items")
+        return {"provider": "local", "model": "stub-local:1b", "answer": answer,
+                "duration_ms": 5,
+                "tokens": {"model": "stub-local:1b", "prompt_tokens": 10,
+                           "completion_tokens": 3, "cache_hit_tokens": 0,
+                           "cache_miss_tokens": 10, "cache_hit_percent": 0.0,
+                           "cost_estimate": 0.0}}
+
+
+def test_local_demo_runs_three_requests(client, monkeypatch):
+    """POST /llm/local-demo: три запроса, ответы, токены и эвристика качества."""
+    stub = LocalDemoClient()
+    monkeypatch.setattr(llm_factory, "get_llm_client", lambda *args, **kwargs: stub)
+
+    response = client.post("/llm/local-demo")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["provider"] == "local"
+    assert body["model"] == config.LOCAL_LLM_MODEL
+    assert [row["key"] for row in body["rows"]] == ["fact", "logic", "code"]
+    assert [row["quality"] for row in body["rows"]] == [5, 5, 5]
+    assert body["rows"][0]["answer"] == "Париж."
+    assert body["rows"][0]["tokens"]["prompt_tokens"] == 10
+    assert body["total_ms"] == 15
+    # Каждому вопросу — свой предел ответа: тип задачи берётся из набора демо.
+    assert [call["max_tokens"] for call in stub.prompts] == [
+        config.LOCAL_LLM_DEMO_MAX_TOKENS["fact"],
+        config.LOCAL_LLM_DEMO_MAX_TOKENS["logic"],
+        config.LOCAL_LLM_DEMO_MAX_TOKENS["code"],
+    ]
+
+
+def test_local_demo_reports_unavailable_ollama(client, monkeypatch):
+    """Ollama недоступна: 502 с текстом причины, а не пустая таблица ответов."""
+    def broken(*args, **kwargs):
+        raise LocalLLMError(f"Ollama недоступен по адресу {config.LOCAL_LLM_URL}")
+
+    monkeypatch.setattr(llm_factory, "get_llm_client", broken)
+
+    response = client.post("/llm/local-demo")
+
+    assert response.status_code == 502, response.text
+    assert "Ollama недоступен" in response.json()["detail"]
+
+
+def test_provider_endpoint_reports_current_config(client, monkeypatch):
+    """GET /llm/provider: провайдер процесса читается на момент запроса, не на импорте."""
+    monkeypatch.setattr(config, "LLM_PROVIDER", "local")
+
+    body = client.get("/llm/provider").json()
+
+    assert body["provider"] == "local"
+    assert body["providers"] == ["deepseek", "local"]
+    assert body["labels"]["local"] and body["labels"]["deepseek"]
+    assert body["local_model"] == config.LOCAL_LLM_MODEL
+    assert body["local_url"] == config.LOCAL_LLM_URL
+    assert body["local_timeout"] == config.LOCAL_LLM_TIMEOUT

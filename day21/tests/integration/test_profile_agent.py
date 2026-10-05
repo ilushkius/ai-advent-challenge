@@ -131,7 +131,12 @@ def test_generate_reports_profile_even_when_api_fails(session_factory,
 
 
 def test_generate_without_api_key_reports_profile(session_factory, monkeypatch):
-    """Нет ключа — ошибка вызывается до сети, но профиль в отчёте виден."""
+    """Нет ключа — ошибка вызывается до сети, но профиль в отчёте виден.
+
+    Патч ставится на ``config.read_key_from_env_file``: резолвер ключа живёт в
+    ``config`` и читает именно эту точку входа (день 26 вынес её разбор в
+    ``backend/core/env_file.py``, но ``config`` реэкспортирует имя).
+    """
     from backend.core import config
     monkeypatch.setattr(config, "read_key_from_env_file", lambda *a, **k: None)
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)

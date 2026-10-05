@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import streamlit as st
 
+from backend.domain import llm_provider
+
 from . import api
 
 #: Режим ответа человеческими словами: подпись под источниками и предупреждения.
@@ -33,6 +35,12 @@ def render_sidebar() -> None:
     if st.sidebar.button("✨ Новая сессия", key="mc_new_session", width="stretch"):
         _start_new_session()
     session = ensure_session()
+    # Провайдер ответа (день 26): ключ свой (`mc_provider`), а не общий с основной
+    # песочницей — приложения независимы, и общее значение путало бы два радио.
+    st.sidebar.subheader("🤖 Провайдер ответа")
+    st.sidebar.radio("Провайдер ответа", list(llm_provider.PROVIDERS),
+                     format_func=llm_provider.label, label_visibility="collapsed",
+                     key="mc_provider")
     st.sidebar.slider("Фрагментов в контексте (top_k)", api.TOP_K_MIN, api.TOP_K_MAX,
                       api.TOP_K_DEFAULT, key="mc_top_k",
                       help="Сколько фрагментов корпуса идёт в контекст ответа")
@@ -131,6 +139,18 @@ def _render_turn(entry: dict) -> None:
             _render_notices(entry)
             _render_sources(entry)
             _render_quotes(entry)
+            _render_provider(entry)
+
+
+def _render_provider(entry: dict) -> None:
+    """Кто отвечал и какая модель: подпись под ответом (день 26).
+
+    Токенов расхода у локальной модели нет (``tokens`` — словарь с нулями), модель
+    приходит из ответа Ollama, поэтому подпись собирается из двух полей записи.
+    """
+    tokens = entry.get("tokens") or {}
+    st.caption(f"Провайдер: {entry.get('provider') or '—'} · "
+               f"модель: {tokens.get('model') or '—'}")
 
 
 def _ask(session: dict, prompt: str) -> None:
@@ -144,7 +164,8 @@ def _ask(session: dict, prompt: str) -> None:
     try:
         with st.spinner("Ищу по корпусу и обновляю память задачи…"):
             record = api.send_message(session["session_id"], prompt,
-                                      top_k=st.session_state["mc_top_k"])
+                                      top_k=st.session_state["mc_top_k"],
+                                      provider=st.session_state.get("mc_provider"))
     except api.BackendError as exc:
         st.error(f"Ответ не получен: {exc}")
         return

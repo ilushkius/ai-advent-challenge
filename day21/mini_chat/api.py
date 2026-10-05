@@ -9,8 +9,9 @@
 пишутся числами: схема ``MiniChatMessageIn`` проверяет те же границы, и разойтись
 им нельзя.
 """
+from backend.domain.llm_provider import PROVIDER_LOCAL
 from backend.domain.rag_mode import RAG_DEFAULT_TOP_K, RAG_MAX_TOP_K
-from frontend.api_client import BackendError, request_json
+from frontend.api_client import LONG_TIMEOUT, BackendError, request_json
 
 #: Границы поля ``top_k`` в схеме ``MiniChatMessageIn`` (``ge=1``, ``le=RAG_MAX_TOP_K``).
 TOP_K_MIN = 1
@@ -31,17 +32,23 @@ def start_session(user_id=None) -> dict:
     return request_json("POST", "/mini-chat/sessions", json={"user_id": user_id})
 
 
-def send_message(session_id, message, top_k=None) -> dict:
+def send_message(session_id, message, top_k=None, provider=None) -> dict:
     """POST /mini-chat/sessions/{sid}/messages -> ответ с источниками и памятью.
 
     Ответ содержит ``mode`` (``rag`` / ``dont_know`` / ``error``), ``answer``,
-    ``sources``, ``quotes``, ``task_memory`` и ``memory_updated``. 404 — сессии нет,
-    400 — пустая реплика, 409 — корпус не проиндексирован, 502 — сбой отбора.
+    ``sources``, ``quotes``, ``task_memory``, ``memory_updated`` и ``provider`` —
+    того, кто отвечал. ``provider`` из поля отдаётся бэкенду как выбор из боковой
+    панели (``deepseek`` или ``local``); у локальной модели предел ожидания длиннее,
+    потому что первый запрос грузит веса в память. 404 — сессии нет, 400 — пустая
+    реплика или незнакомый провайдер, 409 — корпус не проиндексирован, 502 — сбой отбора.
     """
     payload = {"message": message,
                "top_k": TOP_K_DEFAULT if top_k is None else int(top_k)}
+    if provider:
+        payload["provider"] = provider
     return request_json("POST", f"/mini-chat/sessions/{session_id}/messages",
-                        json=payload)
+                        json=payload,
+                        timeout=LONG_TIMEOUT if provider == PROVIDER_LOCAL else None)
 
 
 def fetch_memory(session_id) -> dict:

@@ -21,6 +21,9 @@ import requests
 # Куда стучится фронтенд (можно переопределить переменной окружения).
 BACKEND_URL = os.environ.get("DAY21_BACKEND_URL", "http://127.0.0.1:8000")
 TIMEOUT = 90.0  # сек; compare с вызовами API делает два запроса к DeepSeek
+#: Длинный предел для локальной модели (день 26): первый запрос грузит веса в память
+#: и отвечает десятками секунд, поэтому 90 с по умолчанию ей мало.
+LONG_TIMEOUT = 600.0
 
 
 class BackendError(Exception):
@@ -54,11 +57,16 @@ def _extract_error(resp) -> str:
     return f"Бэкенд вернул HTTP {resp.status_code}"
 
 
-def request_json(method, path, **kwargs):
-    """Делает запрос к бэкенду; HTTP-ошибки превращает в BackendError."""
+def request_json(method, path, timeout=None, **kwargs):
+    """Делает запрос к бэкенду; HTTP-ошибки превращает в BackendError.
+
+    ``timeout`` переопределяет общий предел ожидания: локальная модель (день 26)
+    отвечает дольше облачной, и её вызовы идут с ``LONG_TIMEOUT``.
+    """
     try:
         resp = requests.request(method, BACKEND_URL.rstrip("/") + path,
-                                timeout=TIMEOUT, **kwargs)
+                                timeout=TIMEOUT if timeout is None else timeout,
+                                **kwargs)
     except requests.RequestException as exc:
         raise BackendError(
             f"Бэкенд недоступен ({BACKEND_URL}). Запустите его из папки day21/: "

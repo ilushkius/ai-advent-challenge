@@ -94,7 +94,8 @@ def send_message(session_id: str, payload: MiniChatMessageIn) -> MiniChatAnswerO
     """Ответ мини-чата с источниками, цитатами и памятью задачи."""
     service = dependencies.get_mini_chat_service()
     try:
-        result = service.chat(session_id, payload.message, top_k=payload.top_k)
+        result = service.chat(session_id, payload.message, top_k=payload.top_k,
+                              provider=payload.provider)
     except (MiniChatSessionError, ValueError, RAGRejected, RAGUpstreamError) as exc:
         raise _http_error(exc) from exc
     return MiniChatAnswerOut(**result)

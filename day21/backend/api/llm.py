@@ -1,6 +1,7 @@
 """Роутер API дня 21: расходы на LLM и рычаги их снижения.
 
-Четыре эндпоинта — журнал, состояние, прогноз и справка по моделям:
+Шесть эндпоинтов — журнал, состояние, прогноз, справка по моделям, провайдер и
+демо локальной модели:
 
 - ``GET /llm/usage`` — агрегированная статистика расходов за период (токены, доля
   попаданий в кэш контекста, стоимость, разбивка по моделям и типам задач) плюс
@@ -10,7 +11,11 @@
   взят из кэша) и сжатия;
 - ``POST /llm/estimate`` — прогноз экономии по числам токенов: вклад кэша, сжатия,
   предела длины ответа и непиковых часов по отдельности;
-- ``GET /llm/models`` — какие модели и пределы выбраны для каких типов задач.
+- ``GET /llm/models`` — какие модели и пределы выбраны для каких типов задач;
+- ``GET /llm/provider`` — провайдер ответа по умолчанию (день 26) и параметры
+  локальной модели: имя, адрес и таймаут Ollama;
+- ``POST /llm/local-demo`` — три запроса к локальной модели (факт, логика, код):
+  ответы, время, токены и эвристика качества; запросы идут из программы по HTTP.
 
 Числа нигде не пересчитываются на стороне роутера: их дают хранилище журнала
 (``storage/llm_usage_store.py``) и домен стоимости (``domain/llm_cost.py``), поэтому
@@ -24,7 +29,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from ..core import config
 from ..core import dependencies
-from ..domain import peak_hours
+from ..domain import llm_provider, peak_hours
 from ..domain.llm_cost import prices_for, savings_summary
 from ..schemas import (
     LLMEstimateIn,
@@ -32,7 +37,10 @@ from ..schemas import (
     LLMSavingsOut,
     LLMStatusOut,
     LLMUsageResponse,
+    LocalDemoOut,
 )
+from ..services import local_llm_demo
+from ..services.local_llm_client import LocalLLMError
 
 router = APIRouter()
 
@@ -160,6 +168,46 @@ def llm_peak() -> dict:
         "weekends_off_peak": True,
         "discount_percent": config.OFF_PEAK_DISCOUNT_PERCENT,
         "status": peak_hours.peak_status(config_now()),
+    }
+
+
+@router.post(
+    "/llm/local-demo",
+    response_model=LocalDemoOut,
+    summary="Три запроса к локальной модели (Ollama)",
+    description=(
+        "Прогоняет три запроса — простой факт, логическую задачу и генерацию кода — "
+        "через локальную модель по HTTP (Ollama, ``POST /api/chat``) и возвращает "
+        "ответы вместе со временем, токенами и эвристической оценкой качества. "
+        "Платных токенов не тратит; недоступная Ollama — 502 с текстом причины."
+    ),
+)
+def llm_local_demo() -> LocalDemoOut:
+    """Демо локальной модели: запросы идут из программы, а не из ``curl``."""
+    try:
+        return LocalDemoOut(**local_llm_demo.run_demo())
+    except LocalLLMError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.get(
+    "/llm/provider",
+    summary="Провайдер ответа по умолчанию и параметры локальной модели",
+    description=(
+        "Провайдер процесса (``deepseek`` или ``local``), список допустимых имён и "
+        "подписи для интерфейса плюс модель, адрес и таймаут локальной LLM: "
+        "переключатель в интерфейсе и подпись раздела показывают ровно это."
+    ),
+)
+def llm_provider_state() -> dict:
+    """Что выбрано провайдером по умолчанию и какая модель стоит локально."""
+    return {
+        "provider": config.LLM_PROVIDER,
+        "providers": list(llm_provider.PROVIDERS),
+        "labels": dict(llm_provider.PROVIDER_LABELS),
+        "local_model": config.LOCAL_LLM_MODEL,
+        "local_url": config.LOCAL_LLM_URL,
+        "local_timeout": config.LOCAL_LLM_TIMEOUT,
     }
 
 

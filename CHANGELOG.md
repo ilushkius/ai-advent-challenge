@@ -5,6 +5,112 @@
 структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
 `chore` (прочее: инфраструктура, скиллы, служебные изменения).
 
+## 2026-10-05 — feat — день 26: локальная LLM (Ollama) как второй провайдер
+
+Локальная модель развёрнута на Ollama и подключена к приложению как **второй
+провайдер**: DeepSeek остаётся провайдером по умолчанию, локальная выбирается
+переключателем в интерфейсе, и тогда ответы приходят из Ollama по HTTP — **из
+программы, а не из `curl`**. Переключатель действует на `POST /rag/query` и
+на мини-чат; агентский чат (`POST /agents/{id}/generate`, путь `Agent.llm_client` +
+`PromptBuilder`) остаётся на DeepSeek — задание дня его не называет, и подпись под
+переключателем это проговаривает.
+
+* Домен и конфигурация: `backend/domain/llm_provider.py` — имена провайдеров
+  (`deepseek`/`local`), подписи для интерфейса, `normalize_provider`, `resolve`
+  (явный аргумент → `config.LLM_PROVIDER` → `deepseek`; незнакомое имя — `ValueError`,
+  роутер переводит в 400 — молчаливая подмена показала бы в ответе не того
+  провайдера) и `label`; значение по умолчанию читается в момент вызова, а не на
+  импорте. Раздел «Локальная LLM (день 26)» в `backend/core/config.py`:
+  `LLM_PROVIDER_DEFAULT`, `LOCAL_LLM_MODEL_DEFAULT` (`qwen2.5-coder:14b`),
+  `LOCAL_LLM_URL_DEFAULT`, `LLM_PROVIDER` (окружение → `.env` → дефолт),
+  `LOCAL_LLM_MODEL`, `LOCAL_LLM_URL`, `LOCAL_LLM_TIMEOUT` (120 с — первый запрос
+  грузит веса в память), `LOCAL_LLM_DEMO_MAX_TOKENS`. Чтение `.env` вынесено в новый
+  `backend/core/env_file.py` (`ENV_FILE`, `read_env_value` — парсер `NAME=VALUE`
+  с `export` и кавычками, `read_key_from_env_file`; `resolve_api_key` остался в
+  `config.py`, потому что читает ещё и окружение процесса): конфигурация
+  стоит ровно на пределе 400 строк, а чтение `.env` — отдельная обязанность.
+* Клиент: `backend/services/local_llm_client.py` — `LocalLLMClient` поверх
+  `POST {url}/api/chat` (`stream: false`, системный промпт отдельным сообщением,
+  контекст корпуса блоком в пользовательском — поэтому не `/api/generate`); ответ —
+  **словарь** (`provider`, `model`, `answer`, `duration_ms`, `tokens`), предел ответа
+  `max_tokens` → `LLM_TASK_MAX_TOKENS[task_type]` → `LLM_MAX_RESPONSE_TOKENS`,
+  `post` — точка подмены HTTP в тестах, а любой сбой (нет службы, статус ≠ 200,
+  не-JSON, пустой ответ, `error` в теле) собирается в `LocalLLMError` → 502.
+  `backend/services/llm_factory.py` — единственная точка выбора клиента
+  (`get_llm_client(provider)`); в `services/__init__.py` не реэкспортируется, потому
+  что там уже есть одноимённая функция-синглтон DeepSeek из `llm_client`.
+* Совместимость двух форм ответа: `rag_llm.response_text`/`usage_dict` читают и
+  `LLMCallResult`, и словарь локального клиента, плюс добавлен
+  `rag_llm.completion_tokens`; благодаря этому `RAGService` и `MiniChatService`
+  о провайдере не знают. Фабрика `make_rag_client` переехала из `rag_service` в
+  `rag_llm` (та же причина — предел строк), а pass-through `RAGService.verify_citations`
+  удалён: тесты зовут `rag_quotes.verify_citations` напрямую.
+* Службы: `RAGService.llm_client_for(provider)` и `MiniChatService.llm_client_for` /
+  `memory_client_for` собирают клиента фабрикой и кэшируют по имени провайдера;
+  `provider` протянут через `rag_query`/`no_rag_query`/`_answer`/`_stages`/`_rewrite`
+  и `chat`/`_answer_record`/`extract_task_memory`/`update_task_memory`; в записи
+  ответа появилось поле `provider`. У извлечения памяти мини-чата предел ожидания
+  зависит от провайдера (`memory_timeout`): 5 с у облака и общий таймаут у Ollama —
+  иначе первый (с прогревом весов) запрос памяти не прошёл бы никогда.
+* HTTP: `POST /llm/local-demo` (тело пустое — демо всегда локальное: три запроса
+  «факт/логика/код» через `backend/services/local_llm_demo.py`, ответы с временем,
+  токенами и эвристикой качества 1…5; недоступная Ollama — 502) и `GET /llm/provider`
+  (провайдер процесса, список имён, подписи, модель, адрес, таймаут); поле `provider`
+  добавлено в `RagQueryIn`/`RagQueryOut` и `MiniChatMessageIn`/`MiniChatAnswerOut`,
+  схемы `LocalDemoOut`/`LocalDemoRowOut`; в инвентаре `GET /` группа `llm` выросла
+  до семи эндпоинтов.
+* Интерфейс: переключатель «🤖 Провайдер LLM» в начале боковой панели песочницы
+  (ключ `llm_provider`) и свой такой же в мини-чате (ключ `mc_provider`); метрика
+  «Провайдер» в ответе RAG-панели; новая вкладка «🖥 Локальная LLM»
+  (`frontend/local_llm_section.py` + `frontend/llm_api.py`): подпись провайдера,
+  модели и адреса, кнопка «▶ Прогнать 3 запроса», таблица ответов и полные ответы
+  в expanders; `frontend/api_client.request_json` получил параметр `timeout`
+  (локальная модель отвечает десятками секунд, поэтому `LONG_TIMEOUT = 600`).
+* Скрипт и отчёт: `scripts/demo_local_llm.py` (три запроса напрямую в Ollama, без
+  бэкенда, ненулевой код возврата только при недоступной службе) и
+  `docs/reports/local_llm_demo.md` — характеристики системы, обоснование выбора
+  модели, установка, проверки CLI и `/api/generate`, три запроса, таблица
+  «вопрос → эндпоинт → клиент → что уходит в Ollama», скриншоты и ограничения.
+* Развёртывание и замеры: Ollama 0.35.1 (`winget install Ollama.Ollama`), модель
+  `qwen2.5-coder:14b` Q4_K_M, 9.0 GB, 14.8B параметров — в корзине «8–12 GB VRAM» под
+  RTX 5070 (12227 MiB), `ollama ps` показывает `100% GPU` при 9.5 GB резидентной
+  памяти; три запроса из программы — 2.41/3.03/6.76 с (факт/логика/код) и 12.2 с
+  итого, HTTP-бэкенд на тех же вопросах — 18.8 с; из интерфейса RAG-ответ локальной
+  модели — 7.43 с и 2556 токенов, обратное переключение на DeepSeek — 4.75 с
+  с попаданием в кэш контекста 10.4 %; мини-чат с `provider=local` обновил память
+  задачи тем же локальным клиентом.
+* Тесты (офлайн, `requests.post` подменяется фейком): `unit/test_local_llm_client.py`
+  (URL `/api/chat`, payload, `stream=false`, системное сообщение, `num_predict` по
+  типу задачи, форма ответа и пять негативных случаев),
+  `unit/test_llm_factory.py`, `unit/test_rag_llm_dict.py`, `unit/test_rag_provider.py`
+  (путь `provider=local` через RAG-службу и мини-чат, незнакомое имя — `ValueError`),
+  `tests/rag_fakes.py` (`LocalDictStubClient`), `e2e/test_rag_api.py` (200 при
+  `local`, 400 на незнакомое имя), `e2e/test_llm_api.py` (демо из трёх строк,
+  токены, 502 при сбое Ollama, `GET /llm/provider`); набор дня — 2661 тест
+  (быстрый прогон 2579).
+* Документация: раздел «Локальная LLM (Ollama) — день 26» в `docs/architecture.md`,
+  раздел 9 в `docs/usage.md` (прежние «Частые ошибки» стали разделом 10, в таблицу
+  добавлены шесть строк про локальную модель), подраздел и сценарий дня 26 в
+  `README.md`, обновлены `STRUCTURE.md` и `docs/api.md` (таблица маршрутов, формы
+  данных, инвентарь `GET /`, примеры `/llm/provider` и `/llm/local-demo`).
+
+**Затронуто:** `day21/backend/domain/llm_provider.py`,
+`day21/backend/core/` (`env_file.py`, `config.py`),
+`day21/backend/services/` (`local_llm_client.py`, `llm_factory.py`,
+`local_llm_demo.py`, `llm_client.py` — без правок, `rag_llm.py`, `rag_service.py`,
+`mini_chat_service.py`), `day21/backend/api/` (`llm.py`, `rag.py`, `mini_chat.py`,
+`agents.py`), `day21/backend/schemas/` (`llm.py`, `rag.py`, `mini_chat.py`,
+`__init__.py`), `day21/frontend/` (`api_client.py`, `llm_api.py`,
+`local_llm_section.py`, `sidebar.py`, `rag_api.py`, `rag_section.py`,
+`chat_section.py`), `day21/mini_chat/` (`api.py`, `panels.py`),
+`day21/scripts/demo_local_llm.py`, `day21/docs/reports/local_llm_demo.md`
+(+ три скриншота), `day21/tests/` (`rag_fakes.py`, `unit/test_local_llm_client.py`,
+`unit/test_llm_factory.py`, `unit/test_rag_llm_dict.py`, `unit/test_rag_provider.py`,
+`unit/test_rag_quotes.py`, `unit/test_rag_service.py`, `e2e/test_rag_api.py`,
+`e2e/test_llm_api.py`), документация `day21/` (`README.md`, `STRUCTURE.md`,
+`docs/architecture.md`, `docs/usage.md`, `docs/api.md`, `.env.example`),
+корневой `CHANGELOG.md`.
+
 ## 2026-10-02 — feat — день 25: мини-чат с RAG, источниками и памятью задачи
 
 Отдельное production-like приложение `mini_chat/` (Streamlit, порт 8502), изолированное

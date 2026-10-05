@@ -13,10 +13,9 @@
 import os
 from pathlib import Path
 
-from shared.deepseek_utils import (
-    DEEPSEEK_BASE_URL,
-    read_key_from_env_file as _read_key_from_env_file,
-)
+from shared.deepseek_utils import DEEPSEEK_BASE_URL
+
+from .env_file import ENV_FILE, read_env_value, read_key_from_env_file
 
 # Доступные модели DeepSeek (ограничения deepseek-reasoner — см. docs/api.md).
 MODEL_CHAT = "deepseek-chat"          # основная модель, по умолчанию
@@ -379,22 +378,23 @@ API_VERSION = "17.0.0"
 DB_PATH = Path(__file__).resolve().parents[2] / "agents.db"
 DATABASE_URL = f"sqlite:///{DB_PATH.as_posix()}"
 
-# Путь к .env дня: этот файл лежит в day21/backend/core/, значит .env — в day21/.
-ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
-
-
-def read_key_from_env_file(path=ENV_FILE):
-    """Достаёт DEEPSEEK_API_KEY из файла .env (общий парсер без python-dotenv).
-
-    Понимает строки `KEY=VALUE` и `export KEY=VALUE`, пропускает пустые строки и
-    комментарии, снимает кавычки со значения. При отсутствии файла — None.
-    """
-    return _read_key_from_env_file(path)
+# --- Локальная LLM (день 26) ---------------------------------------------------
+# Второй провайдер ответа — Ollama по HTTP; `provider` в запросе перекрывает дефолт.
+LLM_PROVIDER_DEFAULT = "deepseek"
+LOCAL_LLM_MODEL_DEFAULT = "qwen2.5-coder:14b"
+LOCAL_LLM_URL_DEFAULT = "http://localhost:11434"
+LLM_PROVIDER = (os.environ.get("LLM_PROVIDER") or read_env_value("LLM_PROVIDER")
+                or LLM_PROVIDER_DEFAULT).strip().lower()
+LOCAL_LLM_MODEL = (os.environ.get("LOCAL_LLM_MODEL")
+                   or read_env_value("LOCAL_LLM_MODEL") or LOCAL_LLM_MODEL_DEFAULT)
+LOCAL_LLM_URL = (os.environ.get("LOCAL_LLM_URL") or read_env_value("LOCAL_LLM_URL")
+                 or LOCAL_LLM_URL_DEFAULT).rstrip("/")
+# Таймаут: локальная модель отвечает десятками секунд, включая прогрев весов.
+LOCAL_LLM_TIMEOUT = 120.0
+# Пределы ответа демо-запросов локальной модели по типу задачи (fact/logic/code).
+LOCAL_LLM_DEMO_MAX_TOKENS = {"fact": 128, "logic": 256, "code": 800}
 
 
 def resolve_api_key():
     """Возвращает ключ DeepSeek: day21/.env → переменная окружения → None."""
-    key = read_key_from_env_file()
-    if key:
-        return key
-    return os.environ.get("DEEPSEEK_API_KEY") or None
+    return read_key_from_env_file() or os.environ.get("DEEPSEEK_API_KEY") or None

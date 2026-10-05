@@ -24,16 +24,15 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
-from shared.deepseek_client import make_client
 from shared.logging_utils import get_logger
 from shared.token_counter import count_tokens
 
 from ..core import config
-from ..domain import rag_filter, rag_mode, rag_quotes
+from ..domain import llm_provider, rag_filter, rag_mode, rag_quotes
 from ..storage.chunk_store import ChunkStore
-from . import rag_corpus_index, rag_llm, rag_records
+from . import llm_factory, rag_corpus_index, rag_llm, rag_records
 from .index_service import IndexService, get_index_service
 from .llm_client import LLMClient
 from .rag_corpus_loader import RagCorpusLoader, get_rag_corpus_loader
@@ -47,26 +46,10 @@ __all__ = [
     "AGENT_ID",
     "RAGService",
     "get_rag_service",
-    "make_rag_client",
 ]
 
 #: Идентификатор в журнале расходов: строки RAG видно отдельно от агентских.
 AGENT_ID = "rag"
-
-
-def make_rag_client() -> Any:
-    """Клиент DeepSeek для режима RAG: ключ резолвится в момент вызова.
-
-    Как у проверки инвариантов: служба собирается на старте приложения, а ключ к
-    моменту первого обращения к модели может быть ещё не задан.
-    """
-    api_key = config.resolve_api_key()
-    if not api_key:
-        raise RuntimeError(
-            "Ключ API не задан: укажите DEEPSEEK_API_KEY в файле day21/.env "
-            "или в переменной окружения"
-        )
-    return make_client(api_key, config.DEEPSEEK_BASE_URL, config.REQUEST_TIMEOUT)
 
 
 class RAGService:
@@ -82,6 +65,7 @@ class RAGService:
         self._loader = loader
         self._store = store
         self._llm_client = llm_client
+        self._llm_clients: Dict[str, Any] = {}
         self._rerank_service = rerank_service
         self.sleep = sleep
 
@@ -108,12 +92,24 @@ class RAGService:
         return self._store
 
     @property
-    def llm_client(self) -> LLMClient:
+    def llm_client(self) -> Any:
         """Обёртка вызова LLM: переданная или собранная на фабрике ключа."""
-        if self._llm_client is None:
-            self._llm_client = LLMClient(agent_id=AGENT_ID,
-                                        client_factory=make_rag_client)
-        return self._llm_client
+        return self.llm_client_for(None)
+
+    def llm_client_for(self, provider: Optional[str] = None) -> Any:
+        """Клиент провайдера запроса: подменённый (тесты) или собранный фабрикой.
+
+        Без явного провайдера отдаётся подменённый клиент, если он был передан в
+        конструктор: тесты и скрипты подставляют заглушку именно так. Иначе клиент
+        собирается один раз на имя провайдера и живёт в службе процесса.
+        """
+        if provider is None and self._llm_client is not None:
+            return self._llm_client
+        name = llm_provider.resolve(provider)
+        if name not in self._llm_clients:
+            self._llm_clients[name] = llm_factory.get_llm_client(
+                name, agent_id=AGENT_ID, client_factory=rag_llm.make_rag_client)
+        return self._llm_clients[name]
 
     @property
     def rerank_service(self) -> RerankService:
@@ -151,7 +147,8 @@ class RAGService:
                 min_score: Optional[float] = None,
                 top_k_candidates: Optional[int] = None,
                 rewrite: Optional[bool] = None,
-                rerank: Optional[bool] = None) -> RAGStages:
+                rerank: Optional[bool] = None,
+                provider: Optional[str] = None) -> RAGStages:
         """Прогоняет режим целиком: переформулировка, поиск, реранк, порог.
 
         Режим задаёт ручки по умолчанию, явные аргументы их перекрывают: интерфейс
@@ -165,7 +162,7 @@ class RAGService:
         wants_rewrite = bool(knobs["rewrite"] if rewrite is None else rewrite)
         query, warning = ("", "")
         if wants_rewrite:
-            query, warning = self._rewrite(question)
+            query, warning = self._rewrite(question, provider)
         stages = self.retrieval.run(question, query=query, top_k=top_k,
                                     strategy=strategy, mode=name,
                                     min_score=min_score,
@@ -174,11 +171,11 @@ class RAGService:
                                     rewrite_warning=warning)
         return stages
 
-    def _rewrite(self, question: str) -> tuple[str, str]:
+    def _rewrite(self, question: str, provider: Optional[str] = None) -> tuple[str, str]:
         """Переформулировка запроса моделью: сбой не отменяет поиск по вопросу."""
         try:
             result = rag_llm.call_with_retry(
-                self.sleep, self.llm_client.generate_with_context,
+                self.sleep, self.llm_client_for(provider).generate_with_context,
                 system=rag_filter.RAG_REWRITE_SYSTEM_PROMPT, context="",
                 question=str(question or "").strip(),
                 task_type=config.LLM_TASK_CHAT, agent_id=AGENT_ID)
@@ -198,14 +195,17 @@ class RAGService:
                   min_score: Optional[float] = None,
                   top_k_candidates: Optional[int] = None,
                   rerank: Optional[bool] = None,
-                  rewrite: Optional[bool] = None) -> dict:
+                  rewrite: Optional[bool] = None,
+                  provider: Optional[str] = None) -> dict:
         """Ответ по корпусу: поиск, блок контекста, вызов модели, оценка опоры.
 
         Сбой вызова не отменяет запрос: результат помечается ``fallback`` и
         предупреждением, и сравнение не выдаёт его за обычный ответ с RAG.
+        ``provider`` выбирает, кто отвечает (``deepseek``/``local``); он же попадает
+        в запись ответа, чтобы отчёт и интерфейс не догадывались об этом по тексту.
         """
         started = time.perf_counter()
-        knobs = {"mode": mode, "min_score": min_score,
+        knobs = {"mode": mode, "min_score": min_score, "provider": provider,
                  "top_k_candidates": top_k_candidates,
                  "rerank": rerank, "rewrite": rewrite}
         try:
@@ -213,7 +213,7 @@ class RAGService:
                                 strategy=strategy, **knobs)
         except RAGUpstreamError as exc:
             logger.warning("RAG: откат на ответ без RAG (%s)", exc)
-            result = self._answer(question, use_rag=False)
+            result = self._answer(question, use_rag=False, provider=provider)
             result.update({
                 "mode": "rag",
                 "fallback": True,
@@ -229,17 +229,14 @@ class RAGService:
             result["duration_ms"] = int((time.perf_counter() - started) * 1000)
             return result
 
-    def no_rag_query(self, question: str) -> dict:
+    def no_rag_query(self, question: str,
+                     provider: Optional[str] = None) -> dict:
         """Ответ на тот же вопрос без контекста: база сравнения.
 
         Системный промпт тот же, что и у режима с RAG: различие ровно одно — блок
         контекста, иначе сравнение мерило бы ещё и разные инструкции.
         """
-        return self._answer(question, use_rag=False)
-
-    def verify_citations(self, answer: str, quotes: list[dict]) -> bool:
-        """Проверяет, опирается ли ответ на цитаты контекста."""
-        return rag_quotes.verify_citations(answer, quotes)
+        return self._answer(question, use_rag=False, provider=provider)
 
     def compare(self, question: str, top_k: Optional[int] = None,
                 strategy: Optional[str] = None,
@@ -291,13 +288,15 @@ class RAGService:
                 min_score: Optional[float] = None,
                 top_k_candidates: Optional[int] = None,
                 rerank: Optional[bool] = None,
-                rewrite: Optional[bool] = None) -> dict:
+                rewrite: Optional[bool] = None,
+                provider: Optional[str] = None) -> dict:
         """Общий путь обоих режимов: собрать контекст, вызвать модель, описать результат."""
         text = str(question or "").strip()
         if not text:
             raise RAGRejected(rag_mode.REASON_RAG_EMPTY_QUERY,
                               "Вопрос пуст: введите текст запроса")
         name = "rag" if use_rag else "no_rag"
+        provider_name = llm_provider.resolve(provider)
         started = time.perf_counter()
         stages: Optional[RAGStages] = None
         items: List[dict] = []
@@ -306,20 +305,21 @@ class RAGService:
             stages = self._stages(text, top_k=top_k, strategy=strategy, mode=mode,
                                   min_score=min_score,
                                   top_k_candidates=top_k_candidates,
-                                  rerank=rerank, rewrite=rewrite)
+                                  rerank=rerank, rewrite=rewrite, provider=provider)
             # Слабый контекст — режим «не знаю» без вызова модели. Порог сравнивается с
             # косинусом лучшего из рассмотренных кандидатов, а не только с итоговыми
             # фрагментами: гибридный отбор ранжирует буквальные совпадения выше
             # векторных, и максимум по пяти фрагментам падает до нуля у вопросов,
             # ответ на которые в корпусе есть (замер: 0.0 против 0.62 по пулу).
             if not stages.hits or rag_quotes.is_weak(stages.candidates):
-                return rag_records.dont_know(
-                    text, stages, int((time.perf_counter() - started) * 1000))
+                return {**rag_records.dont_know(
+                    text, stages, int((time.perf_counter() - started) * 1000)),
+                    "provider": provider_name}
             items = rag_mode.fit_context(rag_mode.render_context(stages.hits))
             context_block = rag_mode.render_rag_block(items)
         context_tokens = count_tokens(context_block) if context_block else 0
         result = rag_llm.call_with_retry(
-            self.sleep, self.llm_client.generate_with_context,
+            self.sleep, self.llm_client_for(provider).generate_with_context,
             system=rag_mode.RAG_SYSTEM_PROMPT, context=context_block,
             question=text, task_type=config.LLM_TASK_CHAT, agent_id=AGENT_ID)
         answer = rag_llm.response_text(result)
@@ -336,13 +336,14 @@ class RAGService:
             len(stages.hits) if stages else 0,
             len(stages.candidates) if stages else 0,
             context_tokens,
-            int(getattr(result, "completion_tokens", 0) or 0), duration_ms,
+            rag_llm.completion_tokens(result), duration_ms,
             grounding or "—",
         )
         record = {
             "mode": name,
             "question": text,
             "answer": answer,
+            "provider": provider_name,
             "sources": [rag_records.source(hit)
                         for hit in (stages.hits if stages else [])],
             "chunks_used": len(items),

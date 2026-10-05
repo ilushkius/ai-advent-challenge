@@ -27,7 +27,7 @@ from backend.domain.rag_mode import (
     REASON_RAG_EMPTY_QUERY,
     REASON_RAG_INDEX_EMPTY,
 )
-from backend.services import rag_service as rag_service_module
+from backend.services import llm_factory, rag_llm, rag_service as rag_service_module
 from backend.services.rag_corpus_loader import RagCorpusLoader
 from backend.services.rag_errors import RAGError, RAGRejected, RAGUpstreamError
 from backend.services.rag_service import RAGService
@@ -264,10 +264,10 @@ def test_make_rag_client_requires_api_key(monkeypatch):
     """Клиент RAG собирается на ключе: без ключа вызов модели невозможен."""
     monkeypatch.setattr(config, "resolve_api_key", lambda: "")
     with pytest.raises(RuntimeError):
-        rag_service_module.make_rag_client()
+        rag_llm.make_rag_client()
 
     monkeypatch.setattr(config, "resolve_api_key", lambda: "sk-test")
-    assert rag_service_module.make_rag_client() is not None
+    assert rag_llm.make_rag_client() is not None
 
 
 def test_lazy_dependencies_built_once(monkeypatch, rag_loader, rag_index_service,
@@ -283,7 +283,8 @@ def test_lazy_dependencies_built_once(monkeypatch, rag_loader, rag_index_service
 
     monkeypatch.setattr(rag_service_module, "get_rag_corpus_loader", build_loader)
     monkeypatch.setattr(rag_service_module, "ChunkStore", lambda: chunk_store)
-    monkeypatch.setattr(rag_service_module, "LLMClient", lambda **kwargs: rag_client)
+    # Обёртку DeepSeek собирает фабрика провайдера (день 26) — подменяем там же.
+    monkeypatch.setattr(llm_factory, "LLMClient", lambda **kwargs: rag_client)
 
     service = RAGService()
 
@@ -393,3 +394,4 @@ def test_rank_candidates_exposes_lexical_and_vector_scores():
     # Гибридная формула дня 22 не изменилась: слова плюс 0.2 от близости.
     assert by_id["v1"]["score"] == round(
         by_id["v1"]["lexical_score"] + rag_mode.RAG_VECTOR_WEIGHT * 0.1, 4)
+

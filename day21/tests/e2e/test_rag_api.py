@@ -13,9 +13,11 @@ from fastapi.testclient import TestClient
 
 from backend.domain import rag_filter, rag_quotes
 from backend.domain.rag_mode import RAG_DEFAULT_STRATEGY, RAG_LLM_ATTEMPTS
+from backend.services import llm_factory
 from backend.services.rag_service import RAGService
 from backend.storage import database
 
+from rag_fakes import GROUNDED_REPLY, LocalDictStubClient
 from support import FakeClient
 
 #: Ровно те поля, которые видит интерфейс: текст фрагмента через API не уходит.
@@ -325,3 +327,35 @@ def test_rag_config_lists_modes_and_threshold(client):
     assert body["rerank_model"] == rag_filter.RAG_RERANK_MODEL
     assert body["min_score_default"] == rag_filter.RAG_FILTER_MIN_SCORE
     assert body["candidates_max"] == rag_filter.RAG_MAX_CANDIDATES
+
+
+def test_rag_query_local_provider_reaches_factory(client, monkeypatch):
+    """Провайдер local (день 26): запрос уходит в фабрику, ответ помечен ``local``.
+
+    Службе подменён облачный клиент, поэтому успех возможен только если поле
+    ``provider`` действительно выбирает провайдера, а словарь локального клиента
+    читается так же, как ответ DeepSeek.
+    """
+    stub = LocalDictStubClient()
+    monkeypatch.setattr(llm_factory, "get_llm_client", lambda *args, **kwargs: stub)
+
+    response = client.post("/rag/query",
+                           json={"question": QUESTION, "provider": "local"})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["provider"] == "local"
+    assert body["mode"] == "rag"
+    assert body["answer"] == GROUNDED_REPLY.strip()
+    assert body["tokens"]["completion_tokens"] == 0
+    assert body["tokens"]["cost_estimate"] == 0.0
+    assert stub.calls, "фабрика провайдера не вызвана"
+
+
+def test_rag_query_unknown_provider_is_bad_request(client):
+    """Незнакомое имя провайдера — 400: подменять провайдера молча нельзя."""
+    response = client.post("/rag/query",
+                           json={"question": QUESTION, "provider": "nope"})
+
+    assert response.status_code == 400, response.text
+    assert "nope" in response.json()["detail"]

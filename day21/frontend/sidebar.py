@@ -6,6 +6,8 @@
 """
 import streamlit as st
 
+from backend.domain import llm_provider
+
 from . import api_client, common
 
 
@@ -18,6 +20,17 @@ def render_sidebar() -> None:
                            f"{len(st.session_state['agents'])}")
     else:
         st.sidebar.caption(f"🔴 Бэкенд недоступен: {api_client.BACKEND_URL}")
+
+    # --- провайдер ответа (день 26) ---
+    # Значение ключа заводит сам виджет (`index=0` — DeepSeek): раздел RAG читает
+    # st.session_state["llm_provider"] уже после отрисовки панели.
+    st.sidebar.subheader("🤖 Провайдер LLM")
+    st.sidebar.radio("Провайдер LLM", list(llm_provider.PROVIDERS),
+                     format_func=llm_provider.label, label_visibility="collapsed",
+                     key="llm_provider")
+    st.sidebar.caption("Действует на ответ по корпусу в разделе «💬 Чат и память». "
+                       "Агентский чат всегда идёт в DeepSeek; вкладка «🖥 Локальная "
+                       "LLM» и мини-чат отвечают локальной моделью сами.")
     if st.sidebar.button("🔄 Обновить список"):
         common.load_agents()
 

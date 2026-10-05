@@ -18,7 +18,7 @@ import streamlit as st
 
 from . import (
     api_client, common, context_panels, cost_section, indexing_section,
-    invariant_panel, mcp_section, memory_panels, notifications,
+    invariant_panel, local_llm_section, mcp_section, memory_panels, notifications,
     orchestration_section, pipeline_section, profile_section,
     rag_demo_section, rag_section, scheduler_section, task_panel,
 )
@@ -79,8 +79,8 @@ def render_main_area() -> None:
             "Раздел",
             ["💬 Чат и память", "👤 Профиль пользователя", "🧭 Состояние задачи",
              "📏 Инварианты", "🔌 MCP", "🗓 Планировщик", "🔀 Пайплайны",
-             "🌐 Оркестрация", "📦 Индексация", "💰 Расходы", "🆚 RAG-сравнение",
-             "🧪 RAG-демо"],
+             "🌐 Оркестрация", "📦 Индексация", "🖥 Локальная LLM", "💰 Расходы",
+             "🆚 RAG-сравнение", "🧪 RAG-демо"],
             horizontal=True, key="main_section", label_visibility="collapsed",
         )
         if section.startswith("👤"):
@@ -107,6 +107,10 @@ def render_main_area() -> None:
             # Индексация дня 21: документы, два индекса FAISS и поиск по ним.
             # Тоже служба процесса: индекс один на бэкенд, а не на агента.
             indexing_section.render_indexing_section()
+        elif section.startswith("🖥"):
+            # Локальная LLM (день 26): второй провайдер — Ollama по HTTP. Раздел
+            # глобальный: модель живёт вне агентов и вне корпуса.
+            local_llm_section.render_local_llm_section()
         elif section.startswith("💰"):
             # Расходы на LLM (день 21): журнал, кэш контекста, непиковые часы.
             # Раздел глобальный: считает запросы всех агентов процесса.

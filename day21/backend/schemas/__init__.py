@@ -96,6 +96,8 @@ from .llm import (
     LLMStatusOut,
     LLMUsageOut,
     LLMUsageResponse,
+    LocalDemoOut,
+    LocalDemoRowOut,
 )
 
 from .memory import (
@@ -286,6 +288,8 @@ __all__ = [
     "LLMStatusOut",
     "LLMUsageOut",
     "LLMUsageResponse",
+    "LocalDemoOut",
+    "LocalDemoRowOut",
     "LongTermMemoryOut",
     "MCPCallIn",
     "MCPCallReportOut",

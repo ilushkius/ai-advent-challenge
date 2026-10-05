@@ -271,14 +271,16 @@ FastAPI сводит методы одного пути
 | POST | `/llm/estimate` | прогноз экономии по числам токенов: вклад кэша, сжатия, непика и предела ответа | 200 LLMSavingsOut |
 | GET | `/llm/models` | маршрутизация моделей: тип задачи → модель и предел ответа, доля цены кэша, тарифы моделей | 200 LLMModelsOut |
 | GET | `/llm/peak` | правило непиковых окон DeepSeek (UTC) и текущий статус окна | 200 `{off_peak_weekday_hours_utc, peak_weekday_hours_utc, weekends_off_peak, discount_percent, status}` |
-| POST | `/rag/query` | ответ по корпусу RAG (`use_rag`) или тот же вопрос без контекста; слабый контекст — режим «не знаю» без вызова модели (400 — пустой вопрос или неизвестная стратегия; 409 — корпус не проиндексирован) | 200 RagQueryOut |
+| GET | `/llm/provider` | провайдер ответа по умолчанию (день 26), список допустимых имён, подписи и параметры локальной модели (`local_model`, `local_url`, `local_timeout`) | 200 `{provider, providers, labels, local_model, local_url, local_timeout}` |
+| POST | `/llm/local-demo` | три запроса к локальной модели (факт, логика, код) через Ollama по HTTP: ответы, время, токены и эвристика качества | 200 LocalDemoOut; 502 — Ollama недоступна |
+| POST | `/rag/query` | ответ по корпусу RAG (`use_rag`) или тот же вопрос без контекста; поле `provider` (`deepseek`/`local`, день 26) выбирает отвечающего и возвращается в ответе; слабый контекст — режим «не знаю» без вызова модели (400 — пустой вопрос, неизвестная стратегия или незнакомый провайдер; 409 — корпус не проиндексирован) | 200 RagQueryOut |
 | GET | `/rag/config` | готовность режима, состав корпуса, чанки по стратегиям и лимиты (включая порог дня 24) | 200 RagConfigOut |
 | POST | `/rag/compare` | один вопрос — два ответа: без RAG и с контекстом корпуса | 200 RagCompareOut |
 | POST | `/rag/compare_modes` | один вопрос через несколько режимов отбора сразу (`modes`) | 200 RagModesOut |
 | GET | `/rag/demo-questions` | контрольные вопросы RAG-демо из `backend/data/demo_questions.json` | 200 RagDemoQuestionsOut |
 | POST | `/rag/demo-run` | прогон демо: `rows` с режимом, ответом, источниками, цитатами и вердиктом по каждому вопросу + `summary` | 200 RagDemoOut |
 | POST | `/mini-chat/sessions` | новая сессия мини-чата (8 hex-символов) вместе с `task_id` памяти задачи `mc-<session_id>` | 201 MiniChatSessionOut |
-| POST | `/mini-chat/sessions/{session_id}/messages` | реплика: ответ по корпусу с источниками и цитатами, обновление памяти задачи; слабый контекст — режим «не знаю», повторный сбой модели — `mode="error"` (404 — неизвестная сессия) | 200 MiniChatAnswerOut |
+| POST | `/mini-chat/sessions/{session_id}/messages` | реплика: ответ по корпусу с источниками и цитатами, обновление памяти задачи; поле `provider` (`deepseek`/`local`, день 26) выбирает, кто отвечает и обновляет память; слабый контекст — режим «не знаю», повторный сбой модели — `mode="error"` (404 — неизвестная сессия, 400 — незнакомый провайдер) | 200 MiniChatAnswerOut |
 | GET | `/mini-chat/sessions/{session_id}/memory` | память задачи: `goal`, `terms`, `constraints`, `clarifications` и число реплик | 200 MiniChatTaskMemoryOut |
 | GET | `/mini-chat/sessions/{session_id}/history` | реплики сессии в порядке добавления (необязательный `limit`) | 200 MiniChatHistoryOut |
 | DELETE | `/mini-chat/sessions/{session_id}` | закрыть сессию: удалить реплики (идемпотентно); память задачи остаётся | 200 MiniChatCloseOut |
@@ -313,7 +315,7 @@ curl.exe http://127.0.0.1:8000/
   "pipelines": "/pipelines/run, /pipelines/runs, /pipelines/runs/{run_id}, /pipelines/runs/{run_id}/steps, /pipelines/runs/{run_id} (5 эндпоинтов)",
   "orchestration": "/orchestration/run, /orchestration/demo, /orchestration/runs, /orchestration/runs/{run_id}, /orchestration/runs/{run_id}/steps, DELETE /orchestration/runs/{run_id} (6 эндпоинтов)",
   "indexing": "POST /indexing/run, POST /indexing/demo, GET /indexing/status, GET /indexing/stats, GET /indexing/search, GET /indexing/chunks, GET /indexing/runs, GET /indexing/runs/{run_id}, POST /indexing/clear (9 эндпоинтов)",
-  "llm": "/llm/usage, /llm/status, /llm/estimate, /llm/models, /llm/peak (5 эндпоинтов — журнал расходов, кэш контекста, непиковые часы)",
+  "llm": "/llm/usage, /llm/status, /llm/estimate, /llm/models, /llm/peak, /llm/provider, /llm/local-demo (7 эндпоинтов — журнал расходов, кэш контекста, непиковые часы, провайдер и демо локальной модели)",
   "rag": "POST /rag/query, GET /rag/config, POST /rag/compare, POST /rag/compare_modes, GET /rag/demo-questions, POST /rag/demo-run (6 эндпоинтов — поиск по корпусу, режим без RAG, сравнение, сравнение режимов, вопросы демо, прогон демо)",
   "mini_chat": "POST /mini-chat/sessions, POST /mini-chat/sessions/{session_id}/messages, GET /mini-chat/sessions/{session_id}/memory, GET /mini-chat/sessions/{session_id}/history, DELETE /mini-chat/sessions/{session_id} (5 эндпоинтов — мини-чат с RAG и памятью задачи)",
   "endpoints": [
@@ -416,6 +418,8 @@ curl.exe http://127.0.0.1:8000/
     "POST /llm/estimate",
     "GET /llm/models",
     "GET /llm/peak",
+    "GET /llm/provider",
+    "POST /llm/local-demo",
     "POST /rag/query",
     "GET /rag/config",
     "POST /rag/compare",
@@ -5579,6 +5583,7 @@ curl.exe -X POST http://127.0.0.1:8000/mcp/servers/refresh \
 | `rerank` | bool | `true` — пересортировать кандидатов кросс-энкодером (день 23) |
 | `min_score` | float/null | порог отсечения фрагментов, 0.0…1.0; `null` — без отсечения (день 23) |
 | `top_k_candidates` | int/null | сколько кандидатов запросить у поиска (1…60); `null` — как в дне 22 (`RAG_CANDIDATE_POOL` = 30) |
+| `provider` | строка/null | кто отвечает (день 26): `deepseek` | `local`; `null` — провайдер конфига (`LLM_PROVIDER`), незнакомое имя — `400` |
 
 Без новых полей (`rewrite`, `rerank`, `min_score`, `top_k_candidates`) ответ и
 числа совпадают с днём 22: гибридный порядок, отсечения нет, пул 30 кандидатов.
@@ -5995,6 +6000,52 @@ curl -X POST http://127.0.0.1:8000/llm/estimate -H "Content-Type: application/js
 что отдаёт `GET /llm/status`: пик/непик, подпись окна, момент следующего дешёвого
 окна и секунды до него.
 
+### GET /llm/provider
+
+Провайдер ответа процесса и параметры локальной модели (день 26): `provider` —
+`deepseek` (значение по умолчанию) или `local`, `providers` — список допустимых
+имён, `labels` — подписи для интерфейса, `local_model`, `local_url`,
+`local_timeout`. Значение читается из `config.LLM_PROVIDER` на момент запроса, а не
+на импорте, поэтому после правки `day21/.env` и перезапуска бэкенда ответ меняется.
+Переключатель в песочнице подписывает себя этими же данными.
+
+```bash
+curl.exe http://127.0.0.1:8000/llm/provider
+```
+
+```json
+{"provider":"deepseek","providers":["deepseek","local"],
+ "labels":{"deepseek":"🌐 DeepSeek (облако)","local":"🖥 Local LLM (Ollama)"},
+ "local_model":"qwen2.5-coder:14b","local_url":"http://localhost:11434",
+ "local_timeout":120.0}
+```
+
+### POST /llm/local-demo
+
+Три запроса к локальной модели (простой факт, логическая задача, генерация кода) —
+**тело не отправляется**: демо всегда локальное, платных токенов не тратит. Ответ —
+`LocalDemoOut`: `provider` (`local`), `model` (`LOCAL_LLM_MODEL`), `url`,
+`total_ms` и `rows` — по строке на запрос с `key` (`fact`/`logic`/`code`),
+`title`, `question`, `answer`, `duration_ms` (включая прогрев модели), `quality`
+(эвристика 1…5 по тексту ответа) и `tokens`. Недоступная Ollama — **502** с текстом
+причины; молчаливо пустых ответов не бывает.
+
+```bash
+curl.exe -X POST http://127.0.0.1:8000/llm/local-demo
+```
+
+```json
+{"provider":"local","model":"qwen2.5-coder:14b","url":"http://localhost:11434",
+ "total_ms":18815,
+ "rows":[{"key":"fact","title":"Простой факт","question":"Столица Франции?",
+          "answer":"Столица Франции - это Париж.","duration_ms":2670,"quality":5,
+          "provider":"local","model":"qwen2.5-coder:14b",
+          "tokens":{"model":"qwen2.5-coder:14b","prompt_tokens":37,
+                    "completion_tokens":14,"cache_hit_tokens":0,
+                    "cache_miss_tokens":37,"cache_hit_percent":0.0,
+                    "cost_estimate":0.0}}]}
+```
+
 ## RAG-режим
 
 RAG-режим — подсистема дня 22, дополненная в дне 23 вторым этапом отбора и в
@@ -6034,7 +6085,10 @@ RAG-режим — подсистема дня 22, дополненная в д�
 (`rag_corpus_structural` по умолчанию | `rag_corpus_fixed`), `use_rag`
 (`true` — ответ с контекстом корпуса, `false` — тот же вопрос без него; различие
 запросов ровно одно — наличие блока контекста) и рычаги дня 23: `rewrite`,
-`rerank`, `min_score`, `top_k_candidates`. Ответ — `RagQueryOut`: `mode`, `answer`,
+`rerank`, `min_score`, `top_k_candidates`, а также `provider` (день 26):
+`deepseek` (по умолчанию — `LLM_PROVIDER`) или `local` (Ollama по HTTP); незнакомое
+имя — 400 `Неизвестный провайдер LLM`. Ответ — `RagQueryOut`: `mode`, `answer`,
+`provider` (кто ответил),
 `sources` (восемь полей фрагмента с четырьмя баллами), `quotes` (по цитате на
 фрагмент, день 24), `quotes_verified` и `confidence` (опора ответа на цитаты),
 `chunks_used`,
@@ -6427,8 +6481,11 @@ curl.exe -X POST http://127.0.0.1:8000/mini-chat/sessions ^
 
 ### POST /mini-chat/sessions/{session_id}/messages
 
-Реплика пользователя. Тело — `MiniChatMessageIn`: `message` (1…500 символов) и
-`top_k` (1…10, по умолчанию 5). Сервер: достаёт фрагменты отбором
+Реплика пользователя. Тело — `MiniChatMessageIn`: `message` (1…500 символов),
+`top_k` (1…10, по умолчанию 5) и `provider` (день 26: `deepseek` по умолчанию или
+`local` — тогда и ответ, и извлечение памяти идут в Ollama; незнакомое имя — 400).
+Автор ответа возвращается полем `provider` записи.
+Сервер: достаёт фрагменты отбором
 `rag_service.retrieval`, собирает контекст из трёх блоков, вызывает модель
 (`rag_llm.call_with_retry`, до 3 попыток), пишет обе реплики в краткосрочную память и
 извлекает память задачи отдельным вызовом модели с пределом ожидания
@@ -6482,7 +6539,8 @@ curl.exe -X POST http://127.0.0.1:8000/mini-chat/sessions/464d0f5f/messages ^
 обновлена: модель не ответила за 5.0 с, показано предыдущее состояние».
 
 Коды: `200`, `404` (неизвестная сессия), `400` (сообщение пусто после обрезки
-пробелов, пустой вопрос отбора, неизвестная стратегия), `409` (неизвестный режим
+пробелов, пустой вопрос отбора, неизвестная стратегия, незнакомый `provider`),
+`409` (неизвестный режим
 отбора), `422` (тело: `message` пустой или длиннее 500 символов, `top_k` вне 1…10),
 `502` (сбой этапа отбора до вызова модели).
 
@@ -6519,9 +6577,9 @@ curl.exe -X POST http://127.0.0.1:8000/mini-chat/sessions/464d0f5f/messages ^
 |---|---|
 | `MiniChatSessionIn` | `user_id` (строка ≤ 64, необязательное) |
 | `MiniChatSessionOut` | `session_id`, `task_id`, `user_id`, `created_at` |
-| `MiniChatMessageIn` | `message` (1…500), `top_k` (1…10, по умолчанию 5) |
+| `MiniChatMessageIn` | `message` (1…500), `top_k` (1…10, по умолчанию 5), `provider` (`deepseek`/`local`, день 26) |
 | `MiniChatTaskMemoryOut` | `session_id`, `task_id`, `goal`, `terms`, `constraints`, `clarifications`, `message_count`, `updated`, `updated_at` |
-| `MiniChatAnswerOut` | `session_id`, `task_id`, `question`, `mode`, `answer`, `sources` ([RagSourceOut](#ragsourceout)), `quotes` ([RagQuoteOut](#ragquoteout)), `quotes_verified`, `confidence`, `grounding`, `warning`, `memory_warning`, `fallback`, `chunks_used`, `context_tokens`, `duration_ms`, `tokens` ([RagTokensOut](#ragtokensout)), `task_memory` ([MiniChatTaskMemoryOut](#minichattaskmemoryout)), `memory_updated` |
+| `MiniChatAnswerOut` | `session_id`, `task_id`, `question`, `mode`, `answer`, `provider` (кто ответил, день 26), `sources` ([RagSourceOut](#ragsourceout)), `quotes` ([RagQuoteOut](#ragquoteout)), `quotes_verified`, `confidence`, `grounding`, `warning`, `memory_warning`, `fallback`, `chunks_used`, `context_tokens`, `duration_ms`, `tokens` ([RagTokensOut](#ragtokensout)), `task_memory` ([MiniChatTaskMemoryOut](#minichattaskmemoryout)), `memory_updated` |
 | `MiniChatHistoryMessageOut` | `role`, `content`, `created_at` |
 | `MiniChatHistoryOut` | `session_id`, `task_id`, `messages` ([MiniChatHistoryMessageOut](#minichathistorymessageout)) |
 | `MiniChatCloseOut` | `session_id`, `task_id`, `deleted` |

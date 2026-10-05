@@ -21,7 +21,7 @@ from __future__ import annotations
 import threading
 import time
 from datetime import datetime, timezone
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from shared.deepseek_client import make_client
 from shared.logging_utils import get_logger
@@ -29,10 +29,9 @@ from shared.token_counter import count_tokens
 
 from ..agents.memory import MemoryManager, new_session_id
 from ..core import config
-from ..domain import rag_mode, rag_quotes
+from ..domain import llm_provider, rag_mode, rag_quotes
 from ..storage.database import AgentRecord, SessionLocal
-from . import mini_chat_memory, rag_llm, rag_records
-from .llm_client import LLMClient
+from . import llm_factory, mini_chat_memory, rag_llm, rag_records
 from .mini_chat_memory import MINI_CHAT_AGENT_ID
 from .rag_errors import RAGUpstreamError
 from .rag_retrieval import RAGStages
@@ -86,14 +85,16 @@ class MiniChatService:
     """Мини-чат: отбор фрагментов дня 22–24 плюс память задачи и история диалога."""
 
     def __init__(self, *, rag_service=None, memory: Optional[MemoryManager] = None,
-                 session_factory=None, llm_client: Optional[LLMClient] = None,
-                 memory_client: Optional[LLMClient] = None,
+                 session_factory=None, llm_client: Optional[Any] = None,
+                 memory_client: Optional[Any] = None,
                  sleep: Callable[[float], None] = time.sleep) -> None:
         self._rag_service = rag_service
         self._memory = memory
         self._session_factory = session_factory
         self._llm_client = llm_client
+        self._llm_clients: Dict[str, Any] = {}
         self._memory_client = memory_client
+        self._memory_clients: Dict[str, Any] = {}
         self._sleep = sleep
         self._sessions: Dict[str, dict] = {}
         self._lock = threading.Lock()
@@ -121,26 +122,51 @@ class MiniChatService:
         return self._rag_service
 
     @property
-    def llm_client(self) -> LLMClient:
+    def llm_client(self) -> Any:
         """Клиент ответа: предел ожидания ``config.REQUEST_TIMEOUT``, повторы дня 22."""
-        if self._llm_client is None:
-            self._llm_client = LLMClient(
-                agent_id=MINI_CHAT_AGENT_ID,
+        return self.llm_client_for(None)
+
+    def llm_client_for(self, provider: Optional[str] = None) -> Any:
+        """Клиент провайдера запроса: подменённый (тесты) или собранный фабрикой.
+
+        Клиент из конструктора важнее фабрики; остальное кэшируется по провайдеру.
+        """
+        if provider is None and self._llm_client is not None:
+            return self._llm_client
+        name = llm_provider.resolve(provider)
+        if name not in self._llm_clients:
+            self._llm_clients[name] = llm_factory.get_llm_client(
+                name, agent_id=MINI_CHAT_AGENT_ID,
                 client_factory=make_mini_chat_client,
-                session_factory=self.session_factory,
-            )
-        return self._llm_client
+                session_factory=self.session_factory)
+        return self._llm_clients[name]
 
     @property
-    def memory_client(self) -> LLMClient:
+    def memory_client(self) -> Any:
         """Клиент извлечения памяти: свой предел ожидания и одна попытка."""
-        if self._memory_client is None:
-            self._memory_client = LLMClient(
-                agent_id=MINI_CHAT_AGENT_ID,
-                client_factory=lambda: make_mini_chat_client(MINI_CHAT_EXTRACT_TIMEOUT),
+        return self.memory_client_for(None)
+
+    def memory_client_for(self, provider: Optional[str] = None) -> Any:
+        """Клиент извлечения памяти: у облака предел 5 с, у локальной — общий.
+
+        Пятисекундный предел заведён про облако: извлечение памяти — вспомогательный
+        шаг, а локальная модель отвечает дольше (первый запрос — с прогревом весов).
+        """
+        if provider is None and self._memory_client is not None:
+            return self._memory_client
+        name = llm_provider.resolve(provider)
+        if name not in self._memory_clients:
+            self._memory_clients[name] = llm_factory.get_llm_client(
+                name, agent_id=MINI_CHAT_AGENT_ID, timeout=self.memory_timeout(name),
                 session_factory=self.session_factory,
-            )
-        return self._memory_client
+                client_factory=lambda: make_mini_chat_client(MINI_CHAT_EXTRACT_TIMEOUT))
+        return self._memory_clients[name]
+
+    @staticmethod
+    def memory_timeout(provider: str) -> float:
+        """Предел ожидания извлечения памяти: 5 с у облака, общий — у Ollama."""
+        return (config.LOCAL_LLM_TIMEOUT if provider == llm_provider.PROVIDER_LOCAL
+                else MINI_CHAT_EXTRACT_TIMEOUT)
 
     # ---------- сессии ----------
     def _ensure_agent(self, session_id: str, task_id: str, user_id: str) -> None:
@@ -212,12 +238,18 @@ class MiniChatService:
 
     # ---------- ответ ----------
     def chat(self, session_id: str, user_message: str,
-             top_k: Optional[int] = None) -> dict:
-        """Ответ по корпусу с источниками, памятью задачи и обновлением памяти."""
+             top_k: Optional[int] = None,
+             provider: Optional[str] = None) -> dict:
+        """Ответ по корпусу с источниками, памятью задачи и обновлением памяти.
+
+        ``provider`` выбирает, кто отвечает и обновляет память (``deepseek`` или
+        ``local``); он же попадает в запись ответа.
+        """
         entry = self._require_session(session_id)
         text = str(user_message or "").strip()
         if not text:
             raise ValueError("Введите текст сообщения")
+        provider_name = llm_provider.resolve(provider)
         history = self.memory.get_short_term(
             MINI_CHAT_AGENT_ID, session_id, limit=MINI_CHAT_HISTORY_MESSAGES)
         self.memory.add_short_term(MINI_CHAT_AGENT_ID, session_id, "user", text)
@@ -228,20 +260,25 @@ class MiniChatService:
         if not stages.hits or rag_quotes.is_weak(stages.candidates):
             record = rag_records.dont_know(text, stages, elapsed)
         else:
-            record = self._answer_record(entry, history, stages, text, elapsed)
+            # Клиент выбирается по ИСХОДНОМУ аргументу: ``None`` — значит «как у
+            # службы» (подменённый клиент тестов или провайдер конфига), а не
+            # обязательно облако.
+            record = self._answer_record(entry, history, stages, text, elapsed,
+                                         self.llm_client_for(provider))
         self.memory.add_short_term(
             MINI_CHAT_AGENT_ID, session_id, "assistant", record["answer"])
         dialog = self.memory.get_short_term(
             MINI_CHAT_AGENT_ID, session_id, limit=MINI_CHAT_MEMORY_MESSAGES)
-        updated = self.update_task_memory(session_id, dialog)
+        updated = self.update_task_memory(session_id, dialog, provider=provider)
         record.update({
             "session_id": session_id, "task_id": entry["task_id"], "question": text,
+            "provider": provider_name,
             "duration_ms": self._elapsed_ms(started),
             "task_memory": self.get_task_memory(session_id),
             "memory_updated": updated,
             "memory_warning": ("" if updated else
                                MINI_CHAT_MEMORY_STALE_WARNING.format(
-                                   timeout=MINI_CHAT_EXTRACT_TIMEOUT)),
+                                   timeout=self.memory_timeout(provider_name))),
         })
         return record
 
@@ -251,13 +288,13 @@ class MiniChatService:
         return int((time.perf_counter() - started) * 1000)
 
     def _answer_record(self, entry: dict, history: List[dict], stages: RAGStages,
-                       text: str, elapsed: int) -> dict:
+                       text: str, elapsed: int, client: Any) -> dict:
         """Ответ по контексту: промпт с памятью и историей, повторы дня 22, режим ``error``."""
         items = rag_mode.fit_context(rag_mode.render_context(stages.hits))
         context = self._prompt_context(entry, history, items)
         try:
             result = rag_llm.call_with_retry(
-                self._sleep, self.llm_client.generate_with_context,
+                self._sleep, client.generate_with_context,
                 system=MINI_CHAT_SYSTEM_PROMPT, context=context, question=text,
                 task_type=config.LLM_TASK_CHAT, agent_id=MINI_CHAT_AGENT_ID)
         except RAGUpstreamError as exc:
@@ -328,17 +365,20 @@ class MiniChatService:
         return {"session_id": session_id, "task_id": entry["task_id"],
                 "messages": messages}
 
-    def extract_task_memory(self, dialog_history: List[dict]) -> Optional[dict]:
+    def extract_task_memory(self, dialog_history: List[dict],
+                            provider: Optional[str] = None) -> Optional[dict]:
         """Память задачи из диалога: ``None`` — не удалось, предыдущее сохраняется."""
-        return mini_chat_memory.extract_payload(self.memory_client, dialog_history)
+        return mini_chat_memory.extract_payload(self.memory_client_for(provider),
+                                                dialog_history)
 
     def update_task_memory(self, session_id: str,
-                           dialog_history: Optional[List[dict]] = None) -> bool:
+                           dialog_history: Optional[List[dict]] = None,
+                           provider: Optional[str] = None) -> bool:
         """Переписывает четыре ключа памяти задачи целиком; ``False`` — не удалось."""
         entry = self._require_session(session_id)
         dialog = (self.memory.get_short_term(MINI_CHAT_AGENT_ID, session_id)
                   if dialog_history is None else dialog_history)
-        payload = self.extract_task_memory(dialog)
+        payload = self.extract_task_memory(dialog, provider=provider)
         if payload is None:
             return False
         mini_chat_memory.store_payload(self.memory, entry["task_id"], payload)

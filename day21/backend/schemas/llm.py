@@ -5,7 +5,9 @@
 переупаковывает данные, а только объявляет контракт: запись журнала
 (``LLMUsageOut``), агрегированная статистика (``LLMStatsOut``), ответ журнала
 (``LLMUsageResponse``), состояние рычагов экономии (``LLMStatusOut``) и прогноз
-(``LLMSavingsOut``).
+(``LLMSavingsOut``). День 26 добавил сюда контракт демо локальной модели
+(``LocalDemoOut``/``LocalDemoRowOut``): та же вкладка «Расходы» показывает, что
+второй провайдер возвращает без единого платного токена.
 
 Никаких «своих» чисел в схемах нет: всё считается в домене и хранилище, иначе
 интерфейс и отчёт показывали бы разные суммы по одним и тем же запросам.
@@ -17,6 +19,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from ..core import config
+from .rag import RagTokensOut
 
 
 class LLMUsageOut(BaseModel):
@@ -152,3 +155,27 @@ class LLMModelsOut(BaseModel):
     cache_input_ratio: float = Field(config.LLM_CACHE_INPUT_RATIO,
                                      description="Цена попадания в кэш как доля цены ввода")
     prices: Dict[str, Any] = Field(default_factory=dict, description="Тарифы моделей за 1M токенов")
+
+
+class LocalDemoRowOut(BaseModel):
+    """Строка демо локальной модели: вопрос, ответ, время, токены и качество."""
+
+    key: str = Field(..., description="Тип запроса: fact | logic | code")
+    title: str = Field("", description="Подпись запроса для интерфейса и отчёта")
+    question: str = Field("", description="Текст запроса к локальной модели")
+    answer: str = Field("", description="Текст ответа")
+    duration_ms: int = Field(0, description="Сколько шёл запрос (включая прогрев модели)")
+    quality: int = Field(0, description="Оценка качества ответа эвристикой, 1…5")
+    provider: str = Field("local", description="Кто ответил (всегда local)")
+    model: str = Field("", description="Модель Ollama, ответившая на запрос")
+    tokens: RagTokensOut = Field(..., description="Токены запроса и ответа")
+
+
+class LocalDemoOut(BaseModel):
+    """POST /llm/local-demo — три запроса к локальной модели и их суммарное время."""
+
+    provider: str = Field("local", description="Провайдер демо (всегда local)")
+    model: str = Field("", description="Модель Ollama (LOCAL_LLM_MODEL)")
+    url: str = Field("", description="Адрес HTTP API Ollama (LOCAL_LLM_URL)")
+    rows: List[LocalDemoRowOut] = Field([], description="Строка на каждый запрос")
+    total_ms: int = Field(0, description="Суммарное время трёх запросов")

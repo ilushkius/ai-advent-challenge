@@ -53,6 +53,13 @@ class MiniChatMessageIn(BaseModel):
         rag_mode.RAG_DEFAULT_TOP_K, ge=1, le=rag_mode.RAG_MAX_TOP_K,
         description="Сколько фрагментов корпуса брать в контекст",
     )
+    provider: Optional[str] = Field(
+        None, max_length=16,
+        description=(
+            "Провайдер ответа и извлечения памяти: deepseek | local; по умолчанию — "
+            "LLM_PROVIDER из конфига. Незнакомое имя — 400"
+        ),
+    )
 
 
 class MiniChatTaskMemoryOut(BaseModel):
@@ -80,6 +87,9 @@ class MiniChatAnswerOut(BaseModel):
         ..., description="rag — ответ по корпусу, dont_know — контекст слабее порога, "
                          "error — повторный сбой модели")
     answer: str = Field(..., description="Текст ответа ассистента")
+    provider: str = Field(
+        "", description="Кто ответил: deepseek (облако) или local (Ollama по HTTP)"
+    )
     sources: List[RagSourceOut] = Field(
         [], description="Фрагменты корпуса, попавшие в контекст")
     quotes: List[RagQuoteOut] = Field(

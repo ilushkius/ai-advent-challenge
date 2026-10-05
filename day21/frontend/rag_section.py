@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import streamlit as st
 
+from backend.domain import llm_provider
+
 from . import api_client, common, rag_api
 
 #: Границы и значение по умолчанию для размера контекста (лимит бэкенда — 10).
@@ -51,6 +53,8 @@ RAG_MODES_KEY = "rag_modes_last"
 
 #: Метрики ответа: подпись и как её посчитать (``tokens`` — словарь расхода или {}).
 METRICS = {
+    "provider": ("Провайдер",
+                 lambda record, tokens: llm_provider.label(record.get("provider")) or "—"),
     "time": ("Время", lambda record, tokens: f"{int(record.get('duration_ms') or 0) / 1000:.2f} с"),
     "tokens": ("Токены", lambda record, tokens: common.fmt_int(_token_total(tokens)) if tokens else "—"),
     "chunks": ("Фрагментов", lambda record, tokens: str(int(record.get("chunks_used") or 0))),
@@ -129,7 +133,7 @@ def render_rag_compare_section() -> None:
         with left:
             st.markdown("**🚫 Без RAG**")
             _render_result(record.get("no_rag") or {},
-                           keys=("time", "tokens", "chunks"))
+                           keys=("provider", "time", "tokens", "chunks"))
         with right:
             st.markdown("**✅ С RAG**")
             _render_result(record.get("rag") or {}, show_sources=True)
@@ -184,13 +188,17 @@ def _render_modes_result() -> None:
 # ---------- действия ----------
 def _ask(question: str, top_k: int, strategy: str, use_rag: bool, rewrite: bool,
          rerank: bool, min_score: float | None) -> None:
-    """Отправляет вопрос и кладёт ответ в состояние сессии (пустой — плашкой)."""
+    """Отправляет вопрос и кладёт ответ в состояние сессии (пустой — плашкой).
+
+    Провайдер берётся из боковой панели: она рисуется раньше основной области.
+    """
     if not question.strip():
         common.flash("error", "Введите вопрос: пустой запрос бэкенд отвергает.")
         st.rerun()
     try:
         record = rag_api.api_rag_query(question, top_k, strategy, use_rag, rewrite,
-                                       rerank, min_score)
+                                       rerank, min_score,
+                                       provider=st.session_state.get("llm_provider"))
     except api_client.BackendError as exc:
         common.flash("error", f"RAG-запрос не выполнен: {exc.message}")
     else:
@@ -228,8 +236,8 @@ def _compare_modes(question: str, top_k: int, strategy: str, modes: list) -> Non
 
 # ---------- отображение ----------
 def _render_result(record: dict, show_sources: bool = False,
-                   keys=("time", "tokens", "chunks", "candidates", "kept", "min_score",
-                         "cache")) -> None:
+                   keys=("provider", "time", "tokens", "chunks", "candidates", "kept",
+                         "min_score", "cache")) -> None:
     """Ответ одного запроса: текст, предупреждения отбора, метрики и фрагменты."""
     st.markdown(common.esc(record.get("answer") or "—"))
     if record.get("rewritten") and record.get("query_used"):
