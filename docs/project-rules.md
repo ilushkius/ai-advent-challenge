@@ -617,7 +617,24 @@ txt/md/json только в каталог дня `output/`). Пайплайн �
 роутер `/llm` (5 эндпоинтов), вкладка «💰 Расходы», флаг `prefer_off_peak` у задач
 планировщика и отчёт `docs/reports/cost_optimization.md`.
 
-Эндпоинтов у приложения 99 записей (81 уникальный путь OpenAPI). Расхождения дня
+`day21/` получил затем четыре слоя поверх индексации: **режим RAG** (день 22 —
+корпус `documents/rag_corpus/`, два индекса FAISS, `RAGService`, роутер `/rag` с
+шестью эндпоинтами и ответ с источниками), **второй этап отбора** (день 23 —
+переформулировка запроса моделью, реранкер-кросс-энкодер, порог отсечения, четыре
+режима отбора и `POST /rag/compare_modes`), **контур доверия** (день 24 —
+обязательные источники и цитаты, порог `RAG_RELEVANCE_THRESHOLD` и режим «не знаю»
+без вызова модели, раздел «🧪 RAG-демо»), **отдельный мини-чат** (день 25 —
+`mini_chat/` на порту 8502, память задачи из четырёх ключей рабочей памяти дня 11,
+роутер `/mini-chat` с пятью эндпоинтами) и **второй провайдер ответа** (день 26 —
+локальная модель на Ollama по HTTP: `backend/domain/llm_provider.py`,
+`backend/services/local_llm_client.py` и `llm_factory.py`, поле `provider` в
+`POST /rag/query` и в мини-чате, переключатель в боковой панели, раздел
+«🖥 Локальная LLM», `GET /llm/provider` и `POST /llm-local-demo`). Подробности —
+`day21/docs/architecture.md` (раздел «Локальная LLM (Ollama) — день 26») и отчёт
+`day21/docs/reports/local_llm_demo.md`.
+
+Эндпоинтов у приложения 112 записей в инвентаре `GET /` (94 уникальных пути и 113
+операций в OpenAPI). Расхождения дня
 записаны в `day21/STRUCTURE.md` («Известные расхождения»): блоки документа образуют
 разбиение текста (иначе один текст попадал бы в индекс дважды или выпадал бы),
 `chunk_id` не уникален (прогон дописывает индекс, переиндексация — явная очистка),
@@ -626,8 +643,12 @@ txt/md/json только в каталог дня `output/`). Пайплайн �
 JSON уже минифицирован — это видно в отчёте об экономии), а скидка непиковых часов —
 тариф провайдера, а не измерение. Единственное превышение лимита — тот же
 унаследованный `backend/agents/agent.py` (2284 строки; было 2094 в `day20/`).
-Лимиты `app.py` (≤ 100) и `backend/api/main.py` (≤ 80) соблюдены;
-`frontend/common.py` (400) и `backend/domain/__init__.py` (400) — ровно на границе.
+Лимиты `app.py` (≤ 100) и `backend/api/main.py` (≤ 80) соблюдены; ровно на границе
+400 строк стоят `frontend/common.py`, `backend/core/config.py`,
+`backend/domain/__init__.py` и `backend/services/mini_chat_service.py`. День 26 удержал
+`config.py` выносом чтения `.env` в `backend/core/env_file.py`, а `frontend/common.py`
+и `backend/domain/__init__.py` не тронул вовсе: подписи провайдера и переключатель
+живут в `backend/domain/llm_provider.py` и `frontend/sidebar.py`.
 
 ## Целевой стек и запуск
 
@@ -636,6 +657,7 @@ JSON уже минифицирован — это видно в отчёте о�
 | Язык | Python 3.14+ (Windows, PowerShell) |
 | UI демо | Streamlit ≥ 1.30 |
 | API | OpenAI SDK → DeepSeek (`https://api.deepseek.com`) |
+| Локальная LLM (опция) | Ollama, HTTP `POST /api/chat` (день 26: второй провайдер ответа `local` рядом с `deepseek`) |
 | Стейт-машина | `enum.Enum` + паттерн State (чистый Python) |
 | Тесты | `pytest` |
 | Зависимости | `uv` (`pyproject.toml` + `uv.lock`), интерпретатор — `.python-version` (day13 и далее) |
