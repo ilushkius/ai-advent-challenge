@@ -1,4 +1,4 @@
-# Архитектура приложения — индексация документов, RAG с цитатами, режимом «не знаю», мини-чат и локальная LLM (дни 21–26)
+# Архитектура приложения — индексация документов, RAG с цитатами, режимом «не знаю», мини-чат и локальная LLM (дни 21–28)
 
 Приложение (копия агента DeepSeek дня 20: FastAPI-бэкенд + Streamlit, SQLite) с
 тремя надстройками дней 21–24:
@@ -19,9 +19,11 @@
    четыре режима отбора), а день 24 закрыл контур доверия к ответу: обязательные
    источники и цитаты, проверку опоры ответа на цитаты (`quotes_verified`,
    `confidence`), порог релевантности `RAG_RELEVANCE_THRESHOLD` с режимом
-   «не знаю» и демо-прогон десяти контрольных вопросов. Шесть эндпоинтов
-   `/rag/*`, отчёты сравнения режимов `docs/reports/rag_modes.md` и оценки цитат
-   `docs/reports/rag_quotes_eval.md`.
+   «не знаю» и демо-прогон десяти контрольных вопросов. День 28 добавил парный
+   прогон «тот же вопрос — локальная (Ollama) и облачная модель рядом» с эндпоинтом
+   `POST /rag/compare_providers`. Семь эндпоинтов `/rag/*`, отчёты сравнения режимов
+   `docs/reports/rag_modes.md`, оценки цитат `docs/reports/rag_quotes_eval.md` и
+   сравнения провайдеров `docs/reports/local_rag_comparison.md`.
 
 Унаследованное: память, стратегии контекста, профиль, состояние задачи и переходы,
 инварианты, MCP-клиент и собственный сервер, флот MCP-серверов, планировщик,
@@ -459,6 +461,55 @@ Ollama → qwen2.5-coder:14b (100 % GPU)
 `scripts/demo_local_llm.py` (без бэкенда, прямо в Ollama) и отчёт
 [`reports/local_llm_demo.md`](reports/local_llm_demo.md).
 
+## Локальный RAG — день 28
+
+День 28 показывает RAG-контур целиком без облака и сравнивает его с облачным на
+одном наборе вопросов. Отбор фрагментов и раньше был локальным (FAISS-индекс дня 22
+на диске + sentence-transformers), генерация умела идти через Ollama (день 26), —
+день 28 добавил парный прогон «тот же вопрос — локальная и облачная модель рядом»,
+кнопку в интерфейсе, отчёт со сравнением и тесты. Новый эндпоинт —
+`POST /rag/compare_providers`.
+
+### Поток данных
+
+```
+UI: раздел «🏠 Локальный RAG» (frontend/local_rag_section.py)
+  │  POST /rag/compare_providers { questions, top_k }
+  ▼
+backend/api/rag.py → backend/services/rag_compare_service.py
+  │                          │
+  │                          ├─ RAGService.rag_query(provider="local")  ──┐
+  │                          └─ RAGService.rag_query(provider="deepseek") ┤
+  ▼                                                                       │
+локальный retrieval (общий для обеих сторон):                             │
+  FAISS-индекс дня 22 с диска + sentence-transformers (query embedding)   │
+  → гибридный отбор → реранкер/порог → блок контекста                     │
+                                                                          │
+генерация:  Ollama /api/chat (qwen2.5-coder:14b)  ◄───────────────────────┤
+            DeepSeek chat.completions (облако)    ◄───────────────────────┘
+```
+
+### Отличие от облачного режима
+
+Облачный RAG меняет только **генерацию**: поиск по корпусу у обеих сторон один и
+тот же и всегда локальный — FAISS-индекс дня 22 на диске плюс
+sentence-transformers; различается лишь тот, кто генерирует ответ. Поле `provider`
+в записи ответа (`local` / `deepseek`) говорит, кто отвечал. Локальная модель живёт
+в Ollama и вызывается HTTP-клиентом `backend/services/local_llm_client.py`, а выбор
+клиента — `backend/services/llm_factory.py` (день 26).
+
+### Вердикт и сводка
+
+Правило вердикта живёт в `backend/domain/rag_compare.py`: сначала сравнение по
+режиму — ответил ли провайдер по корпусу (`mode == "rag"` и не `fallback`;
+`dont_know` и `error` проигрывают любому ответу по корпусу), затем среди ответивших —
+подтверждённые цитаты (`quotes_verified`), уверенность (`confidence`) и число
+источников. Общий вердикт прогона — по большинству строк («локально лучше» /
+«облако лучше» / «равно»). Строки со слабым контекстом уходят в `dont_know` без
+вызова модели, а сбой одного вызова не срывает прогон: строка приходит с
+`mode="error"` и предупреждением. Сводку парного прогона собирает
+`backend/services/rag_compare_service.run`.
+
 ## Схема БД (`day21/agents.db`)
 
 День 21 добавляет к схеме дня 20 три таблицы: две индексации (`document_chunks`,
@@ -818,12 +869,17 @@ DeepSeek сопоставляет самый длинный общий преф�
 `rag_errors.py` —
 исключения режима, `rag_corpus_index.py` — подготовка корпуса и его состояние,
 `rag_corpus_loader.py` — сборка корпуса, `rag_eval.py` — вопросы и вердикт,
-`schemas/rag.py` + `api/rag.py` — HTTP (шесть эндпоинтов `/rag/*`),
+`schemas/rag.py` + `api/rag.py` — HTTP (семь эндпоинтов `/rag/*`),
 `frontend/rag_section.py` — панель в чате и раздел сравнения,
 `frontend/rag_demo_section.py` — раздел «🧪 RAG-демо», `scripts/rag_eval_report.py` +
 `scripts/run_rag_eval.py` — прогон режимов и печать отчёта,
 `scripts/run_rag_quotes_eval.py` — демо-прогон и отчёт по цитатам,
-`backend/data/demo_questions.json` — данные десяти вопросов.
+`backend/data/demo_questions.json` — данные десяти вопросов. День 28 добавил
+`domain/rag_compare.py` — вердикт пары провайдеров и сводка парного прогона,
+`services/rag_compare_service.py` — прогон вопросов локальной и облачной моделью,
+`schemas/rag_compare.py` — HTTP-схемы сравнения, `frontend/local_rag_section.py` —
+раздел «🏠 Локальный RAG», `scripts/run_local_rag_comparison.py` — прогон через
+эндпоинт и markdown-отчёт.
 
 ## Мини-чат с RAG и памятью задачи (день 25)
 

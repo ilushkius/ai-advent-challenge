@@ -235,10 +235,11 @@ def root():
                 "/llm/provider, /llm/local-demo (7 эндпоинтов — журнал расходов, кэш "
                 "контекста, непиковые часы, провайдер и демо локальной модели)"),
         "rag": ("POST /rag/query, GET /rag/config, POST /rag/compare, "
-                "POST /rag/compare_modes, GET /rag/demo-questions, POST /rag/demo-run "
-                "(6 эндпоинтов — поиск по корпусу, режим без "
-                "RAG, сравнение ответов, сравнение режимов отбора, вопросы демо, "
-                "прогон демо)"),
+                "POST /rag/compare_modes, GET /rag/demo-questions, POST /rag/demo-run, "
+                "POST /rag/compare_providers "
+                "(7 эндпоинтов — поиск по корпусу, режим без RAG, сравнение ответов, "
+                "сравнение режимов отбора, вопросы демо, прогон демо, сравнение "
+                "провайдеров)"),
         "mini_chat": ("POST /mini-chat/sessions, "
                       "POST /mini-chat/sessions/{session_id}/messages, "
                       "GET /mini-chat/sessions/{session_id}/memory, "
@@ -348,6 +349,7 @@ def root():
             "GET /rag/config",
             "POST /rag/compare",
             "POST /rag/compare_modes",
+            "POST /rag/compare_providers",
             "GET /rag/demo-questions",
             "POST /rag/demo-run",
             "POST /mini-chat/sessions",

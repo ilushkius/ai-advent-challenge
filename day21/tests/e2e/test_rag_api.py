@@ -171,13 +171,13 @@ def test_compare_returns_both_answers(client):
 
 
 def test_root_lists_rag_group(client):
-    """Корневая точка перечисляет группу RAG и все шесть её эндпоинтов."""
+    """Корневая точка перечисляет группу RAG и все семь её эндпоинтов."""
     body = client.get("/").json()
 
     assert "/rag/query" in body["rag"]
     for path in ("POST /rag/query", "GET /rag/config", "POST /rag/compare",
                  "POST /rag/compare_modes", "GET /rag/demo-questions",
-                 "POST /rag/demo-run"):
+                 "POST /rag/demo-run", "POST /rag/compare_providers"):
         assert body["endpoints"].count(path) == 1
     assert "rag" in body
 

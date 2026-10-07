@@ -5,6 +5,62 @@
 структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
 `chore` (прочее: инфраструктура, скиллы, служебные изменения).
 
+## 2026-10-07 — feat — день 28: локальный RAG — сравнение локальной и облачной модели
+
+RAG-контур целиком без облака: поиск по корпусу **всегда локальный** (FAISS-индекс
+дня 22 на диске + `sentence-transformers`), а различается только тот, кто генерирует
+ответ. Новый парный прогон «тот же вопрос — локальная и облачная модель рядом»,
+кнопка в интерфейсе, отчёт со сравнением и тесты.
+
+* HTTP: `POST /rag/compare_providers` в `backend/api/rag.py` (теперь семь
+  эндпоинтов `/rag/*`) — тело `RagCompareProvidersIn` (`questions`, пусто/null →
+  десять контрольных вопросов демо; `top_k` 1…10; `strategy`), ответ
+  `RagCompareProvidersOut` (`rows` — по строке на вопрос с обоими ответами
+  `RagQueryOut` (`provider="local"` Ollama, затем `provider="deepseek"`) и
+  `verdict`, плюс `summary` из 15 полей). Поиск у обеих сторон один и тот же и всегда
+  локальный — различается только генерация. Сбой одного вызова не срывает прогон:
+  строка приходит с `mode="error"` (502 на этом пути нет); отказы запроса
+  (`RAGRejected`: пустой вопрос, незнакомая стратегия, пустой индекс) по-прежнему
+  400/409. В инвентаре `GET /` (`backend/api/agents.py`) группа `rag` — семь
+  эндпоинтов и путь в списке `endpoints`.
+* Домен и служба: `backend/domain/rag_compare.py` — правило вердикта строки
+  (ответил ли провайдер по корпусу: режим `rag` и не `fallback`; затем подтверждённые
+  цитаты → уверенность → число источников; общий вердикт прогона — по большинству
+  строк) и сводка прогона; `backend/services/rag_compare_service.py` — прогон списка
+  вопросов двумя провайдерами, сбой одного вызова = строка `error`.
+* Схемы: `backend/schemas/rag_compare.py` (`RagCompareProvidersIn/Out`,
+  `RagProviderRowOut`, `RagProviderSummaryOut`), зарегистрированы в
+  `backend/schemas/__init__.py` (докстринг сжат до лимита 400 строк).
+* Интерфейс: `frontend/local_rag_section.py` — раздел «🏠 Локальный RAG» (вопросы,
+  слайдер `top_k`, кнопка «🚀 Прогнать сравнение», таблица, метрики, раскрывашки),
+  `frontend/rag_api.py` (`api_rag_compare_providers`), `frontend/chat_section.py`
+  (новый раздел в переключателе), `app.py` (тринадцать разделов).
+* Журнал: `backend/services/rag_service.py` — в журнал `_answer` добавлен провайдер;
+  в докстринге `retrieve` сказано, что провайдера у поиска нет.
+* Скрипт и отчёт: `scripts/run_local_rag_comparison.py` — прогон через HTTP-эндпоинт
+  и markdown-отчёт (`docs/reports/local_rag_comparison.md`, шапка, правило вердикта,
+  таблица, приложение, итог + дописанные вручную «Выводы» и «Ручная оценка»).
+  Прогон 2026-10-07 (`qwen2.5-coder:14b`): обе стороны ответили по корпусу на 8
+  вопросах, `dont_know` на 2; среднее время 3.61 с (local) против 0.97 с (cloud);
+  вердикты строк — локально лучше 1, облако лучше 4, равно 5 → «облако лучше».
+* Тесты: `tests/unit/test_rag_service_providers.py` (сборка клиента по провайдеру,
+  парный прогон, строка-ошибка, вердикт, сводка — 15 тестов) и
+  `tests/integration/test_local_rag_flow.py` (slow: реальный индекс дня 22,
+  настоящая модель эмбеддингов, настоящая Ollama — 2 теста);
+  `tests/e2e/test_rag_api.py` — корневой тест знает семь путей `/rag`;
+  набор дня — 2678 тестов (быстрый прогон 2594).
+
+**Затронуто:** `day21/backend/domain/rag_compare.py`,
+`day21/backend/services/` (`rag_compare_service.py`, `rag_service.py`),
+`day21/backend/schemas/` (`rag_compare.py`, `__init__.py`),
+`day21/backend/api/` (`rag.py`, `agents.py`),
+`day21/frontend/` (`local_rag_section.py`, `rag_api.py`, `chat_section.py`),
+`day21/app.py`, `day21/scripts/run_local_rag_comparison.py`,
+`day21/docs/reports/local_rag_comparison.md`, `day21/tests/`
+(`unit/test_rag_service_providers.py`, `integration/test_local_rag_flow.py`,
+`e2e/test_rag_api.py`), документация `day21/` (`docs/usage.md`, `docs/architecture.md`,
+`docs/api.md`, `README.md`, `STRUCTURE.md`), корневой `CHANGELOG.md`.
+
 ## 2026-10-05 — feat — день 26: локальная LLM (Ollama) как второй провайдер
 
 Локальная модель развёрнута на Ollama и подключена к приложению как **второй

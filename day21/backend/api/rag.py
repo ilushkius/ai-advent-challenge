@@ -1,12 +1,13 @@
 """Роутер API: режим RAG — поиск по корпусу, ответ с контекстом и без.
 
-Шесть эндпоинтов: ``POST /rag/query`` (ответ по корпусу или без него — переключатель
+Семь эндпоинтов: ``POST /rag/query`` (ответ по корпусу или без него — переключатель
 ``use_rag``), ``POST /rag/compare`` (оба ответа на один вопрос), ``POST
 /rag/compare_modes`` (тот же вопрос по нескольким режимам отбора: базовый гибридный
 поиск, переформулировка, реранкер, реранкер с порогом), ``GET /rag/config``
 (готовность корпуса, лимиты режима и каталог режимов), ``GET /rag/demo-questions``
-(контрольные вопросы демо) и ``POST /rag/demo-run`` (прогон демо с источниками,
-цитатами и режимом «не знаю»). Отдельного эндпоинта поиска
+(контрольные вопросы демо), ``POST /rag/demo-run`` (прогон демо с источниками и
+цитатами) и ``POST /rag/compare_providers`` (тот же список вопросов на локальной и
+облачной модели). Отдельного эндпоинта поиска
 нет: интерфейсу нужен ответ модели, а выдача поиска приходит в нём же полем ``sources``.
 
 Перевод отказов в коды ответов: ``RAGRejected`` с кодом ``bad_strategy``,
@@ -26,6 +27,8 @@ from ..domain import rag_demo, rag_filter, rag_mode
 from ..schemas import (
     RagCompareIn,
     RagCompareOut,
+    RagCompareProvidersIn,
+    RagCompareProvidersOut,
     RagConfigOut,
     RagDemoIn,
     RagDemoOut,
@@ -35,7 +38,7 @@ from ..schemas import (
     RagQueryIn,
     RagQueryOut,
 )
-from ..services import rag_demo_service
+from ..services import rag_compare_service, rag_demo_service
 from ..services.rag_errors import RAGRejected, RAGUpstreamError
 
 router = APIRouter()
@@ -189,3 +192,29 @@ def rag_demo_run(payload: Optional[RagDemoIn] = None) -> RagDemoOut:
     else:
         items = None
     return RagDemoOut(**rag_demo_service.run_demo(service, items))
+
+
+@router.post(
+    "/rag/compare_providers",
+    response_model=RagCompareProvidersOut,
+    summary="Сравнение локальной и облачной модели на списке вопросов",
+    description=(
+        "Каждый вопрос прогоняется дважды: локальной моделью Ollama (provider=local) и "
+        "облаком DeepSeek (provider=deepseek). Поиск по корпусу в обоих случаях "
+        "локальный — FAISS и sentence-transformers; различается только тот, кто "
+        "генерирует ответ. Строка несёт оба ответа со своими источниками, цитатами, "
+        "временем и режимом плюс вердикт сравнения; в конце — сводка. Пустое поле "
+        "questions прогоняет десять контрольных вопросов демо. Сбой одного вызова не "
+        "срывает прогон: строка приходит с режимом error."
+    ),
+)
+def rag_compare_providers(payload: RagCompareProvidersIn) -> RagCompareProvidersOut:
+    """Каждый вопрос — на локальной и облачной модели; строки и сводка."""
+    service = dependencies.get_rag_service()
+    try:
+        result = rag_compare_service.run(service, payload.questions,
+                                         top_k=payload.top_k,
+                                         strategy=payload.strategy)
+    except RAGRejected as exc:
+        raise _rejected(exc) from exc
+    return RagCompareProvidersOut(**result)

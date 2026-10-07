@@ -3,8 +3,9 @@
 Транспорт общий — ``frontend/api_client.py`` (``request_json``, ``BackendError``);
 здесь лежат только запросы RAG: ответ по корпусу (с контекстом и без него),
 сравнение двух ответов на один вопрос, сравнение режимов отбора (день 23),
-состояние корпуса с лимитами режима и демо-сценарий дня 24 (контрольные вопросы и
-их прогон с источниками, цитатами и режимом «не знаю»).
+состояние корпуса с лимитами режима, демо-сценарий дня 24 (контрольные вопросы и
+их прогон с источниками, цитатами и режимом «не знаю») и сравнение провайдеров дня
+28 (тот же вопрос — на локальной модели Ollama и на облаке DeepSeek).
 
 Отдельный модуль, а не дополнение ``api_client``, по той же причине, что у
 ``indexing_api.py``, ``mcp_api.py`` и ``cost_api.py``: ``api_client`` держит
@@ -102,3 +103,21 @@ def api_rag_demo_run(question=None):
     """
     return request_json("POST", "/rag/demo-run",
                         json={"question": question} if question else {})
+
+
+def api_rag_compare_providers(questions=None, top_k=None, strategy=None):
+    """POST /rag/compare_providers -> ответы локальной и облачной модели на вопросы.
+
+    Тело: ``questions`` (список текстов; пусто — десять вопросов демо), ``top_k``,
+    ``strategy``. Предел ожидания — ``LONG_TIMEOUT``: на вопрос приходится два вызова,
+    и первый запрос к Ollama грузит веса модели в память.
+    """
+    payload = {}
+    if questions:
+        payload["questions"] = [str(item) for item in questions]
+    if top_k is not None:
+        payload["top_k"] = int(top_k)
+    if strategy:
+        payload["strategy"] = strategy
+    return request_json("POST", "/rag/compare_providers", json=payload,
+                        timeout=LONG_TIMEOUT)

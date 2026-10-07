@@ -135,7 +135,8 @@ class RAGService:
 
         Публичная форма — то, что нужно интерфейсу: источник, заголовок, раздел,
         идентификатор чанка и три балла (гибридный, векторный, лексический), плюс
-        балл реранкера, если он работал. Текст фрагментов остаётся внутри.
+        балл реранкера, если он работал. Текст фрагментов остаётся внутри; провайдера
+        здесь нет — отбор локальный, ``provider`` выбирает лишь отвечающего.
         """
         stages = self._stages(question, top_k=top_k, strategy=strategy, mode=mode,
                               min_score=min_score,
@@ -330,9 +331,9 @@ class RAGService:
                 rag_mode.grounding_share(answer, texts))
         duration_ms = int((time.perf_counter() - started) * 1000)
         logger.info(
-            "RAG: режим %s, запрос %s, чанков %d из %d, контекст %d токенов, "
+            "RAG: режим %s, провайдер %s, запрос %s, чанков %d из %d, контекст %d токенов, "
             "ответ %d токенов, %d мс, опора: %s",
-            name, stages.mode if stages else "—",
+            name, provider_name, stages.mode if stages else "—",
             len(stages.hits) if stages else 0,
             len(stages.candidates) if stages else 0,
             context_tokens,

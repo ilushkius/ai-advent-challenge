@@ -1,4 +1,4 @@
-# API дня 26 — агенты DeepSeek, индексация документов, RAG и оптимизация затрат на LLM: обязательные источники и цитаты, режим «не знаю» (порог релевантности), реранкер, порог отсечения, переформулировка запроса, мини-чат с памятью задачи, локальная LLM как второй провайдер ответа (Ollama по HTTP), оркестрация флота MCP-серверов, декларативный пайплайн, планировщик фоновых задач, контролируемые переходы, инварианты, состояние задачи, память, профиль и журнал расходов
+# API дня 28 — агенты DeepSeek, индексация документов, RAG и оптимизация затрат на LLM: обязательные источники и цитаты, режим «не знаю» (порог релевантности), реранкер, порог отсечения, переформулировка запроса, мини-чат с памятью задачи, локальная LLM как второй провайдер ответа (Ollama по HTTP), оркестрация флота MCP-серверов, декларативный пайплайн, планировщик фоновых задач, контролируемые переходы, инварианты, состояние задачи, память, профиль и журнал расходов
 
 Бэкенд — FastAPI-приложение `day21/backend/api/main.py`. Заголовок приложения
 намеренно остаётся «Агенты DeepSeek + индексация документов и RAG — День 24»
@@ -148,17 +148,18 @@ LLM, прогноз экономии и поле `llm` генерации),
 
 ## Эндпоинты
 
-Всего 112 записей эндпоинтов (в списке `GET /` — все, кроме самой подсказки): 10 в
+Всего 113 записей эндпоинтов (в списке `GET /` — все, кроме самой подсказки): 10 в
 разделе агентов (CRUD, генерация и статистика), 9 контекста (сжатие, стратегии,
 ветки, факты), 10 памяти, 6 профилей пользователей, 11 состояния задачи, 6
 инвариантов, 5 MCP активного соединения, 3 флота MCP-серверов, 14 планировщика, 5
 пайплайна, 6 оркестрации, 9 индексации, 7 расходов и провайдера LLM (журнал,
 состояние, прогноз, модели, непиковые часы, провайдер, демо локальной модели),
-6 RAG (поиск по
-корпусу, режим без RAG, сравнение, сравнение режимов отбора, вопросы демо и прогон
-демо) и 5 мини-чата (сессия, реплика, память задачи, история реплик и закрытие
+7 RAG (поиск по
+корпусу, режим без RAG, сравнение, сравнение режимов отбора, вопросы демо, прогон
+демо и сравнение провайдеров) и 5 мини-чата (сессия, реплика, память задачи, история
+реплик и закрытие
 сессии). Вместе с корневым
-`GET /` приложение объявляет 113 эндпоинтов, а уникальных путей в OpenAPI — 94:
+`GET /` приложение объявляет 114 эндпоинтов, а уникальных путей в OpenAPI — 95:
 FastAPI сводит методы одного пути
 (`GET`/`POST`/`DELETE /orchestration/runs/{run_id}` — это три записи одного пути) в
 одну запись схемы.
@@ -282,6 +283,7 @@ FastAPI сводит методы одного пути
 | POST | `/rag/compare_modes` | один вопрос через несколько режимов отбора сразу (`modes`) | 200 RagModesOut |
 | GET | `/rag/demo-questions` | контрольные вопросы RAG-демо из `backend/data/demo_questions.json` | 200 RagDemoQuestionsOut |
 | POST | `/rag/demo-run` | прогон демо: `rows` с режимом, ответом, источниками, цитатами и вердиктом по каждому вопросу + `summary` | 200 RagDemoOut |
+| POST | `/rag/compare_providers` | список вопросов — на локальной и облачной модели, строки сравнения и сводка | 200 RagCompareProvidersOut |
 | POST | `/mini-chat/sessions` | новая сессия мини-чата (8 hex-символов) вместе с `task_id` памяти задачи `mc-<session_id>` | 201 MiniChatSessionOut |
 | POST | `/mini-chat/sessions/{session_id}/messages` | реплика: ответ по корпусу с источниками и цитатами, обновление памяти задачи; поле `provider` (`deepseek`/`local`, день 26) выбирает, кто отвечает и обновляет память; слабый контекст — режим «не знаю», повторный сбой модели — `mode="error"` (404 — неизвестная сессия, 400 — незнакомый провайдер) | 200 MiniChatAnswerOut |
 | GET | `/mini-chat/sessions/{session_id}/memory` | память задачи: `goal`, `terms`, `constraints`, `clarifications` и число реплик | 200 MiniChatTaskMemoryOut |
@@ -296,7 +298,7 @@ FastAPI сводит методы одного пути
 инвариантов, MCP (активное соединение), флота MCP-серверов (ключ `mcp_servers`),
 планировщика, пайплайна, оркестрации, индексации документов (ключ `indexing`),
 расходов на LLM (ключ `llm`), RAG (ключ `rag`) и мини-чата с RAG и памятью задачи
-(ключ `mini_chat`), а также перечень эндпоинтов (110
+(ключ `mini_chat`), а также перечень эндпоинтов (113
 строк — все, кроме самого `GET /`).
 
 ```bash
@@ -319,7 +321,7 @@ curl.exe http://127.0.0.1:8000/
   "orchestration": "/orchestration/run, /orchestration/demo, /orchestration/runs, /orchestration/runs/{run_id}, /orchestration/runs/{run_id}/steps, DELETE /orchestration/runs/{run_id} (6 эндпоинтов)",
   "indexing": "POST /indexing/run, POST /indexing/demo, GET /indexing/status, GET /indexing/stats, GET /indexing/search, GET /indexing/chunks, GET /indexing/runs, GET /indexing/runs/{run_id}, POST /indexing/clear (9 эндпоинтов)",
   "llm": "/llm/usage, /llm/status, /llm/estimate, /llm/models, /llm/peak, /llm/provider, /llm/local-demo (7 эндпоинтов — журнал расходов, кэш контекста, непиковые часы, провайдер и демо локальной модели)",
-  "rag": "POST /rag/query, GET /rag/config, POST /rag/compare, POST /rag/compare_modes, GET /rag/demo-questions, POST /rag/demo-run (6 эндпоинтов — поиск по корпусу, режим без RAG, сравнение, сравнение режимов, вопросы демо, прогон демо)",
+  "rag": "POST /rag/query, GET /rag/config, POST /rag/compare, POST /rag/compare_modes, GET /rag/demo-questions, POST /rag/demo-run, POST /rag/compare_providers (7 эндпоинтов — поиск по корпусу, режим без RAG, сравнение, сравнение режимов, вопросы демо, прогон демо, сравнение провайдеров)",
   "mini_chat": "POST /mini-chat/sessions, POST /mini-chat/sessions/{session_id}/messages, GET /mini-chat/sessions/{session_id}/memory, GET /mini-chat/sessions/{session_id}/history, DELETE /mini-chat/sessions/{session_id} (5 эндпоинтов — мини-чат с RAG и памятью задачи)",
   "endpoints": [
     "POST /agents",
@@ -429,6 +431,7 @@ curl.exe http://127.0.0.1:8000/
     "POST /rag/compare_modes",
     "GET /rag/demo-questions",
     "POST /rag/demo-run",
+    "POST /rag/compare_providers",
     "POST /mini-chat/sessions",
     "POST /mini-chat/sessions/{session_id}/messages",
     "GET /mini-chat/sessions/{session_id}/memory",
@@ -6055,7 +6058,8 @@ curl.exe -X POST http://127.0.0.1:8000/llm/local-demo
 RAG-режим — подсистема дня 22, дополненная в дне 23 вторым этапом отбора и в
 дне 24 — контуром доверия: «вопрос → поиск релевантных фрагментов корпуса → блок
 контекста плюс вопрос → ответ модели с обязательными источниками и цитатами».
-Шесть эндпоинтов с абсолютными путями (`/rag...`; префиксов нет).
+Семь эндпоинтов с абсолютными путями (`/rag...`; префиксов нет) — в дне 28 добавлено
+сравнение провайдеров (`POST /rag/compare_providers`).
 Логику держит `backend/services/rag_service.py` (`RAGService`): переформулировка
 вопроса моделью (необязательно), гибридный поиск по индексу корпуса
 (`rag_corpus_structural` | `rag_corpus_fixed`), пересортировка кандидатов
@@ -6440,6 +6444,60 @@ curl.exe -X POST http://127.0.0.1:8000/rag/demo-run ^
 Коды: `200`, `422` (тело не объект или `question` не строка). Ошибки модели и
 пустого индекса внутрь демо не пробрасываются: вопросы, которым не хватило
 контекста, приходят строкой `dont_know`, остальные — строками `rag`.
+
+### POST /rag/compare_providers
+
+Сравнение провайдеров (день 28): каждый вопрос прогоняется дважды — сначала
+локальной моделью Ollama (`provider="local"`), затем облаком DeepSeek
+(`provider="deepseek"`). Поиск по корпусу у обеих сторон **один и тот же и всегда
+локальный** (FAISS-индекс дня 22 на диске + sentence-transformers) — различается
+только тот, кто генерирует ответ. Тело — `RagCompareProvidersIn`:
+
+| Поле | Тип | По умолчанию | Пояснение |
+|---|---|---|---|
+| `questions` | `list[str]` / `null` | `null` | вопросы; пусто или `null` — десять контрольных вопросов демо (`backend/data/demo_questions.json`) |
+| `top_k` | `int` | `5` | сколько фрагментов корпуса идёт в контекст каждому провайдеру (1…10) |
+| `strategy` | `str` / `null` | `null` | стратегия поиска: `rag_corpus_structural` (по умолчанию) \| `rag_corpus_fixed` |
+
+Ответ — `RagCompareProvidersOut`: `rows` (по строке на вопрос) и `summary`. Строка
+`RagProviderRowOut` несёт сам вопрос, оба ответа целиком (`local` и `cloud` — обычные
+`RagQueryOut` со своими источниками, цитатами, временем, режимом и полем `provider`)
+и `verdict`. Сводка `RagProviderSummaryOut` — 15 полей: `total`, `local_avg_ms`,
+`cloud_avg_ms`, `local_rag`, `cloud_rag`, `local_dont_know`, `cloud_dont_know`,
+`local_with_sources`, `cloud_with_sources`, `local_verified`, `cloud_verified`,
+`better_local`, `better_cloud`, `equal` и общий `verdict`.
+
+Вердикт строки считает `backend/domain/rag_compare.py`: ответил ли провайдер по
+корпусу (режим `rag` и не `fallback`; `dont_know` и `error` проигрывают любому ответу
+по корпусу), затем среди ответивших — подтверждённые цитаты (`quotes_verified`),
+уверенность (`confidence`) и число источников. Общий вердикт — по большинству строк
+(«локально лучше» / «облако лучше» / «равно»). **Сбой одного вызова не срывает
+прогон**: строка приходит с `mode="error"` и предупреждением, а не 502. Отказы
+запроса по-прежнему 400/409: пустой вопрос, незнакомая стратегия или
+непроиндексированный корпус (`RAGRejected`).
+
+```bash
+curl.exe -X POST http://127.0.0.1:8000/rag/compare_providers ^
+  -H "Content-Type: application/json" ^
+  -d "{\"questions\":[\"Чему равен CHARS_PER_PAGE в day21/backend/services/document_loader.py?\"],\"top_k\":3}"
+```
+
+```json
+{
+  "rows": [
+    {
+      "question": "Чему равен CHARS_PER_PAGE в day21/backend/services/document_loader.py?",
+      "local": {"mode": "rag", "provider": "local", "answer": "CHARS_PER_PAGE = 1800.", "sources": [{"source": "day21-backend-services-document_loader.py", "section": "module", "score": 0.65}], "quotes_verified": true, "confidence": 1.0, "duration_ms": 3600},
+      "cloud": {"mode": "rag", "provider": "deepseek", "answer": "В контексте указано, что CHARS_PER_PAGE = 1800.", "sources": [{"source": "day21-backend-services-document_loader.py", "section": "module", "score": 0.65}], "quotes_verified": true, "confidence": 1.0, "duration_ms": 970},
+      "verdict": "облако лучше"
+    }
+  ],
+  "summary": {"total": 1, "local_avg_ms": 3600, "cloud_avg_ms": 970, "local_rag": 1, "cloud_rag": 1, "local_dont_know": 0, "cloud_dont_know": 0, "local_with_sources": 1, "cloud_with_sources": 1, "local_verified": 1, "cloud_verified": 1, "better_local": 0, "better_cloud": 1, "equal": 0, "verdict": "облако лучше"}
+}
+```
+
+Коды: `200`; `400` — пустой вопрос или незнакомая стратегия; `409` — корпус не
+проиндексирован.
 
 ## Мини-чат с RAG и памятью задачи (день 25)
 

@@ -3,8 +3,8 @@
 Единственная точка входа — ``render_main_area()``: заголовок и подпись,
 непрочитанные уведомления планировщика (день 18), флеш-сообщение предыдущего
 прохода, ветка «бэкенд недоступен», переключатель разделов (чат, профиль, состояние
-задачи, инварианты, MCP, планировщик, пайплайны), карточка активного агента, панели
-стратегии и слоёв памяти, диалог, сравнение режимов, блок предупреждения/отказа по
+задачи, инварианты, MCP, планировщик, пайплайны, локальный RAG), карточка агента,
+панели стратегии и слоёв памяти, диалог, сравнение режимов, блок предупреждения/отказа по
 инвариантам последнего хода, форма ввода и очистка истории.
 
 Сводка хода показывает и шаг планировщика, и прогон пайплайна: если реплика
@@ -18,7 +18,8 @@ import streamlit as st
 
 from . import (
     api_client, common, context_panels, cost_section, indexing_section,
-    invariant_panel, local_llm_section, mcp_section, memory_panels, notifications,
+    invariant_panel, local_llm_section, local_rag_section, mcp_section, memory_panels,
+    notifications,
     orchestration_section, pipeline_section, profile_section,
     rag_demo_section, rag_section, scheduler_section, task_panel,
 )
@@ -80,7 +81,7 @@ def render_main_area() -> None:
             ["💬 Чат и память", "👤 Профиль пользователя", "🧭 Состояние задачи",
              "📏 Инварианты", "🔌 MCP", "🗓 Планировщик", "🔀 Пайплайны",
              "🌐 Оркестрация", "📦 Индексация", "🖥 Локальная LLM", "💰 Расходы",
-             "🆚 RAG-сравнение", "🧪 RAG-демо"],
+             "🆚 RAG-сравнение", "🧪 RAG-демо", "🏠 Локальный RAG"],
             horizontal=True, key="main_section", label_visibility="collapsed",
         )
         if section.startswith("👤"):
@@ -123,6 +124,10 @@ def render_main_area() -> None:
             # Демо дня 24: десять контрольных вопросов, источники, цитаты и режим
             # «не знаю» — тоже про корпус процесса, а не про агента.
             rag_demo_section.render_rag_demo_section()
+        elif section.startswith("🏠"):
+            # Локальный RAG (день 28): retrieval всегда локальный, отличается только
+            # тот, кто генерирует ответ. Служба процесса, а не свойство агента.
+            local_rag_section.render_local_rag_section()
         else:
             if not agents:
                 st.info("Агентов пока нет — создайте первого в боковой панели. "
