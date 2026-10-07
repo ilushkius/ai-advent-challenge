@@ -220,7 +220,7 @@ day21/
 ├── invariants_demo.md        # отчёт дня 14 (унаследован; лежит в корне дня — путь задан заданием дня 14)
 ├── conftest.py, pytest.ini   # конфигурация pytest (pythonpath = . tests)
 ├── pyproject.toml, uv.lock   # зависимости (uv): sentence-transformers, faiss-cpu, numpy, mcp, sqlalchemy…; версии — в локе
-├── .agents/skills/           # скиллы библиотек (uvx library-skills --copy); не код дня
+├── .agents/skills/           # скиллы: вендорные библиотек (uvx library-skills --copy) и проектный check_docs (проверка документации перед коммитом); не код дня
 ├── .python-version           # 3.14
 ├── .env.example              # шаблон DEEPSEEK_API_KEY, DAY21_BACKEND_URL, DAY21_EMBEDDING_MODEL,
 │                             # LLM_PROVIDER, LOCAL_LLM_MODEL и LOCAL_LLM_URL
@@ -438,6 +438,7 @@ Retrieval в это сравнение не входит: поиск по кор
 |---|---|
 | `AGENTS.md` | Правила дня и workflow нового дня: границы (`day1`–`day20` — архив), документация только о текущем состоянии, тесты не дублировать, обязательные инструменты, непиковые часы |
 | `.omp/RULES.md` | Sticky-правила; путь именно `.omp/`, потому что omp загружает sticky только из native-локаций (`~/.omp/agent/RULES.md` и `<ближайший непустой .omp/>/RULES.md`) |
+| `.agents/skills/check_docs/SKILL.md` | Проектный скилл «проверка документации перед коммитом»: чек-лист (`docs/usage.md`, `README.md`, `docs/architecture.md`, отчёт дня) и правило-вопрос перед `git commit`; каталог объявлен в корневом `.omp/config.yml` (`skills.customDirectories`) |
 | `.clineignore` | Служебные и тяжёлые пути дня (`.venv`, `.agents`, `output/`, `index/`, `*.faiss`, `*.index`, `*.db`) вне контекста агента |
 | корневой `.gitignore`, раздел 4 | `day1/`–`day20/` исключены из обхода `grep`/`glob`/`find`: omp уважает `.gitignore`, а `.clineignore` не читает — это единственный рабочий механизм исключения архива |
 | корневой `.clineignore` | Тот же список дней для Cline и других инструментов (omp его не читает) |

@@ -49,6 +49,19 @@ RAG-контур целиком без облака: поиск по корпу�
   настоящая модель эмбеддингов, настоящая Ollama — 2 теста);
   `tests/e2e/test_rag_api.py` — корневой тест знает семь путей `/rag`;
   набор дня — 2678 тестов (быстрый прогон 2594).
+* Документация доведена до полноты дня (коммит `day28-docs`): в `docs/usage.md`
+  раздел 10 получил подразделы «Переключатель провайдера в интерфейсе», время и
+  прогресс прогона, источник вопросов и путь отчёта скрипта, «Где смотреть
+  результаты»; в `docs/architecture.md` схема потока данных названа по клиентам
+  (`llm_factory`, `LocalLLMClient` HTTP → Ollama, `LLMClient` → DeepSeek) и
+  отделена от эндпоинта дня 22 `POST /rag/compare`; в `README.md` в разделе
+  «🔎 RAG-режим» добавлена ссылка на отчёт и на раздел инструкции.
+* Правило процесса: раздел «Обязательное завершение дня» (шесть пунктов и
+  вопрос-проверка перед коммитом) в `day21/AGENTS.md`, ссылка на него в корневом
+  `AGENTS.md` и в обоих `WORKFLOW.md`, строка-запрет в трёх `RULES.md` (корневой
+  `RULES.md`, `.omp/RULES.md` корня и дня); новый скилл
+  `day21/.agents/skills/check_docs/SKILL.md` — быстрая проверка документации перед
+  `git commit`.
 
 **Затронуто:** `day21/backend/domain/rag_compare.py`,
 `day21/backend/services/` (`rag_compare_service.py`, `rag_service.py`),
@@ -59,7 +72,9 @@ RAG-контур целиком без облака: поиск по корпу�
 `day21/docs/reports/local_rag_comparison.md`, `day21/tests/`
 (`unit/test_rag_service_providers.py`, `integration/test_local_rag_flow.py`,
 `e2e/test_rag_api.py`), документация `day21/` (`docs/usage.md`, `docs/architecture.md`,
-`docs/api.md`, `README.md`, `STRUCTURE.md`), корневой `CHANGELOG.md`.
+`docs/api.md`, `README.md`, `STRUCTURE.md`), корневой `CHANGELOG.md`; правила процесса —
+`AGENTS.md` (корень), `day21/AGENTS.md`, `RULES.md` и оба `.omp/RULES.md`, `WORKFLOW.md`
+(корень), `day21/WORKFLOW.md`, скилл `day21/.agents/skills/check_docs/SKILL.md`.
 
 ## 2026-10-05 — feat — день 26: локальная LLM (Ollama) как второй провайдер
 

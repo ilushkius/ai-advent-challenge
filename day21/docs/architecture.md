@@ -473,21 +473,28 @@ Ollama → qwen2.5-coder:14b (100 % GPU)
 ### Поток данных
 
 ```
-UI: раздел «🏠 Локальный RAG» (frontend/local_rag_section.py)
-  │  POST /rag/compare_providers { questions, top_k }
+UI (Streamlit): раздел «🏠 Локальный RAG» (frontend/local_rag_section.py)
+  │  POST /rag/compare_providers { questions, top_k, strategy }
   ▼
-backend/api/rag.py → backend/services/rag_compare_service.py
-  │                          │
-  │                          ├─ RAGService.rag_query(provider="local")  ──┐
-  │                          └─ RAGService.rag_query(provider="deepseek") ┤
-  ▼                                                                       │
-локальный retrieval (общий для обеих сторон):                             │
-  FAISS-индекс дня 22 с диска + sentence-transformers (query embedding)   │
-  → гибридный отбор → реранкер/порог → блок контекста                     │
-                                                                          │
-генерация:  Ollama /api/chat (qwen2.5-coder:14b)  ◄───────────────────────┤
-            DeepSeek chat.completions (облако)    ◄───────────────────────┘
+FastAPI: backend/api/rag.py  →  backend/services/rag_compare_service.py
+  │                                     │
+  │                                     ├─ RAGService.rag_query(provider="local")    ──┐
+  │                                     └─ RAGService.rag_query(provider="deepseek") ──┼─┐
+  ▼                                                                                     │ │
+RAGService: retrieval один и тот же и ВСЕГДА локальный —                                │ │
+  FAISS-индекс дня 22 с диска + sentence-transformers (эмбеддинг запроса)               │ │
+  → гибридный отбор → реранкер/порог → блок контекста                                   │ │
+                                                                                        │ │
+генерация (различается только она), клиент выбирает llm_factory:                        │ │
+  LocalLLMClient: HTTP POST /api/chat → Ollama (qwen2.5-coder:14b)  ◄────────────────────┘ │
+  LLMClient: DeepSeek chat.completions (облако, ключ из .env)       ◄──────────────────────┘
+  ▼
+ответ строки: mode (rag | dont_know | error), answer, sources, quotes, provider, duration_ms
 ```
+
+Сравнение ответов «с корпусом» и «без корпуса» — отдельный эндпоинт дня 22
+`POST /rag/compare`; в дне 28 на одном и том же вопросе рядом стоят две **генерации
+одного и того же локального retrieval**.
 
 ### Отличие от облачного режима
 

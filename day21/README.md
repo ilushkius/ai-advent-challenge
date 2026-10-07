@@ -378,6 +378,9 @@ Hugging Face, в Git он не попадает. Модель задаётся �
 вопросом → запрос к LLM. Рядом тот же вопрос идёт **без корпуса** — различие ровно
 в одном блоке контекста, поэтому вклад RAG виден.
 
+Локальный RAG (сравнение с облачным) — [docs/reports/local_rag_comparison.md](docs/reports/local_rag_comparison.md);
+инструкция запуска — [docs/usage.md](docs/usage.md), раздел «Локальный RAG (день 28)».
+
 Корпус собирает `scripts/prepare_rag_corpus.py` из 36 источников дня 21
 (`RAG_CORPUS_SOURCES` домена `backend/domain/rag_corpus_spec.py`: `README.md`,
 `STRUCTURE.md`, `AGENTS.md`, `docs/` и исходники подсистем индексации и оптимизации
