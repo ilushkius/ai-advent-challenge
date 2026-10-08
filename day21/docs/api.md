@@ -1,4 +1,4 @@
-# API дня 28 — агенты DeepSeek, индексация документов, RAG и оптимизация затрат на LLM: обязательные источники и цитаты, режим «не знаю» (порог релевантности), реранкер, порог отсечения, переформулировка запроса, мини-чат с памятью задачи, локальная LLM как второй провайдер ответа (Ollama по HTTP), оркестрация флота MCP-серверов, декларативный пайплайн, планировщик фоновых задач, контролируемые переходы, инварианты, состояние задачи, память, профиль и журнал расходов
+# API дня 29 — агенты DeepSeek, индексация документов, RAG и оптимизация затрат на LLM: обязательные источники и цитаты, режим «не знаю» (порог релевантности), реранкер, порог отсечения, переформулировка запроса, мини-чат с памятью задачи, локальная LLM как второй провайдер ответа (Ollama по HTTP) и прогон профилей её настройки, оркестрация флота MCP-серверов, декларативный пайплайн, планировщик фоновых задач, контролируемые переходы, инварианты, состояние задачи, память, профиль и журнал расходов
 
 Бэкенд — FastAPI-приложение `day21/backend/api/main.py`. Заголовок приложения
 намеренно остаётся «Агенты DeepSeek + индексация документов и RAG — День 24»
@@ -148,12 +148,13 @@ LLM, прогноз экономии и поле `llm` генерации),
 
 ## Эндпоинты
 
-Всего 113 записей эндпоинтов (в списке `GET /` — все, кроме самой подсказки): 10 в
+Всего 114 записей эндпоинтов (в списке `GET /` — все, кроме самой подсказки): 10 в
 разделе агентов (CRUD, генерация и статистика), 9 контекста (сжатие, стратегии,
 ветки, факты), 10 памяти, 6 профилей пользователей, 11 состояния задачи, 6
 инвариантов, 5 MCP активного соединения, 3 флота MCP-серверов, 14 планировщика, 5
-пайплайна, 6 оркестрации, 9 индексации, 7 расходов и провайдера LLM (журнал,
-состояние, прогноз, модели, непиковые часы, провайдер, демо локальной модели),
+пайплайна, 6 оркестрации, 9 индексации, 8 расходов и провайдера LLM (журнал,
+состояние, прогноз, модели, непиковые часы, провайдер, демо локальной модели и
+прогон профилей её настройки),
 7 RAG (поиск по
 корпусу, режим без RAG, сравнение, сравнение режимов отбора, вопросы демо, прогон
 демо и сравнение провайдеров) и 5 мини-чата (сессия, реплика, память задачи, история
@@ -275,8 +276,9 @@ FastAPI сводит методы одного пути
 | POST | `/llm/estimate` | прогноз экономии по числам токенов: вклад кэша, сжатия, непика и предела ответа | 200 LLMSavingsOut |
 | GET | `/llm/models` | маршрутизация моделей: тип задачи → модель и предел ответа, доля цены кэша, тарифы моделей | 200 LLMModelsOut |
 | GET | `/llm/peak` | правило непиковых окон DeepSeek (UTC) и текущий статус окна | 200 `{off_peak_weekday_hours_utc, peak_weekday_hours_utc, weekends_off_peak, discount_percent, status}` |
-| GET | `/llm/provider` | провайдер ответа по умолчанию (день 26), список допустимых имён, подписи и параметры локальной модели (`local_model`, `local_url`, `local_timeout`) | 200 `{provider, providers, labels, local_model, local_url, local_timeout}` |
+| GET | `/llm/provider` | провайдер ответа по умолчанию (день 26), список допустимых имён, подписи и параметры локальной модели (`local_model`, `local_url`, `local_timeout`), плюс профиль настройки дня 29 (`local_profile`, `profiles`, `profile_labels`, `local_num_ctx`, `local_temperature`, `local_chat_max_tokens`) | 200 `{provider, providers, labels, local_model, local_url, local_timeout, local_profile, profiles, profile_labels, local_num_ctx, local_temperature, local_chat_max_tokens}` |
 | POST | `/llm/local-demo` | три запроса к локальной модели (факт, логика, код) через Ollama по HTTP: ответы, время, токены и эвристика качества | 200 LocalDemoOut; 502 — Ollama недоступна |
+| POST | `/llm/tune` | прогон одного варианта «профиль × модель» локальной модели на вопросах корпуса: качество (вердикт дня 24, цитаты, опора), скорость (время, токенов/с, прогрев) и ресурсы (`GET /api/ps`), плюс сводка «до/после»; поиск по корпусу не меняется (400 — незнакомый профиль, 409 — корпус не проиндексирован, 502 — Ollama недоступна) | 200 LocalTuneOut |
 | POST | `/rag/query` | ответ по корпусу RAG (`use_rag`) или тот же вопрос без контекста; поле `provider` (`deepseek`/`local`, день 26) выбирает отвечающего и возвращается в ответе; слабый контекст — режим «не знаю» без вызова модели (400 — пустой вопрос, неизвестная стратегия или незнакомый провайдер; 409 — корпус не проиндексирован) | 200 RagQueryOut |
 | GET | `/rag/config` | готовность режима, состав корпуса, чанки по стратегиям и лимиты (включая порог дня 24) | 200 RagConfigOut |
 | POST | `/rag/compare` | один вопрос — два ответа: без RAG и с контекстом корпуса | 200 RagCompareOut |
@@ -320,7 +322,7 @@ curl.exe http://127.0.0.1:8000/
   "pipelines": "/pipelines/run, /pipelines/runs, /pipelines/runs/{run_id}, /pipelines/runs/{run_id}/steps, /pipelines/runs/{run_id} (5 эндпоинтов)",
   "orchestration": "/orchestration/run, /orchestration/demo, /orchestration/runs, /orchestration/runs/{run_id}, /orchestration/runs/{run_id}/steps, DELETE /orchestration/runs/{run_id} (6 эндпоинтов)",
   "indexing": "POST /indexing/run, POST /indexing/demo, GET /indexing/status, GET /indexing/stats, GET /indexing/search, GET /indexing/chunks, GET /indexing/runs, GET /indexing/runs/{run_id}, POST /indexing/clear (9 эндпоинтов)",
-  "llm": "/llm/usage, /llm/status, /llm/estimate, /llm/models, /llm/peak, /llm/provider, /llm/local-demo (7 эндпоинтов — журнал расходов, кэш контекста, непиковые часы, провайдер и демо локальной модели)",
+  "llm": "/llm/usage, /llm/status, /llm/estimate, /llm/models, /llm/peak, /llm/provider, /llm/local-demo, /llm/tune (8 эндпоинтов — журнал расходов, кэш контекста, непиковые часы, провайдер, демо локальной модели и оптимизация её профилей)",
   "rag": "POST /rag/query, GET /rag/config, POST /rag/compare, POST /rag/compare_modes, GET /rag/demo-questions, POST /rag/demo-run, POST /rag/compare_providers (7 эндпоинтов — поиск по корпусу, режим без RAG, сравнение, сравнение режимов, вопросы демо, прогон демо, сравнение провайдеров)",
   "mini_chat": "POST /mini-chat/sessions, POST /mini-chat/sessions/{session_id}/messages, GET /mini-chat/sessions/{session_id}/memory, GET /mini-chat/sessions/{session_id}/history, DELETE /mini-chat/sessions/{session_id} (5 эндпоинтов — мини-чат с RAG и памятью задачи)",
   "endpoints": [
@@ -425,6 +427,7 @@ curl.exe http://127.0.0.1:8000/
     "GET /llm/peak",
     "GET /llm/provider",
     "POST /llm/local-demo",
+    "POST /llm/tune",
     "POST /rag/query",
     "GET /rag/config",
     "POST /rag/compare",
@@ -5789,11 +5792,12 @@ curl.exe -X POST http://127.0.0.1:8000/mcp/servers/refresh \
 ## Расходы на LLM
 
 Оптимизация затрат — подсистема дня 21: сколько стоят запросы агентов и какими
-рычагами эта стоимость снижается. Семь эндпоинтов `/llm` отдают то же, что видно
+рычагами эта стоимость снижается. Восемь эндпоинтов `/llm` отдают то же, что видно
 во вкладке «💰 Расходы» интерфейса и в отчёте
 `day21/docs/reports/cost_optimization.md`: журнал расходов, состояние рычагов,
 прогноз, справку по моделям, правило непиковых окон, провайдера ответа и демо
-локальной модели (день 26: `GET /llm/provider`, `POST /llm/local-demo`).
+локальной модели (день 26: `GET /llm/provider`, `POST /llm/local-demo`), а также
+прогон профилей её настройки (день 29: `POST /llm/tune`).
 
 Каждый запрос к DeepSeek пишется строкой в таблицу `llm_usage`
 (`backend/models/llm_usage.py`): агент, время, модель, тип задачи, токены ввода и
@@ -6012,9 +6016,15 @@ curl -X POST http://127.0.0.1:8000/llm/estimate -H "Content-Type: application/js
 Провайдер ответа процесса и параметры локальной модели (день 26): `provider` —
 `deepseek` (значение по умолчанию) или `local`, `providers` — список допустимых
 имён, `labels` — подписи для интерфейса, `local_model`, `local_url`,
-`local_timeout`. Значение читается из `config.LLM_PROVIDER` на момент запроса, а не
-на импорте, поэтому после правки `day21/.env` и перезапуска бэкенда ответ меняется.
-Переключатель в песочнице подписывает себя этими же данными.
+`local_timeout`. Здесь же — профиль настройки локальной модели (день 29):
+`local_profile` (`baseline` | `tuned`), `profiles` (имена), `profile_labels`
+(подписи для интерфейса) и значения **действующего** профиля локального провайдера —
+`local_num_ctx`, `local_temperature`, `local_chat_max_tokens` (при `baseline` это
+4096, 0.7 и `null`: предел ответа берётся по типу задачи, как в дне 26). Значения
+читаются из `config.LLM_PROVIDER` и домена `backend/domain/local_tuning.py` на момент
+запроса, а не на импорте, поэтому после правки `day21/.env` и перезапуска бэкенда
+ответ меняется. Переключатель в песочнице и раздел «⚙️ Оптимизация локальной LLM»
+подписывают себя этими же данными.
 
 ```bash
 curl.exe http://127.0.0.1:8000/llm/provider
@@ -6024,7 +6034,10 @@ curl.exe http://127.0.0.1:8000/llm/provider
 {"provider":"deepseek","providers":["deepseek","local"],
  "labels":{"deepseek":"🌐 DeepSeek (облако)","local":"🖥 Local LLM (Ollama)"},
  "local_model":"qwen2.5-coder:14b","local_url":"http://localhost:11434",
- "local_timeout":120.0}
+ "local_timeout":120.0,"local_profile":"tuned","profiles":["baseline","tuned"],
+ "profile_labels":{"baseline":"🧊 До оптимизации (baseline)",
+                   "tuned":"⚡ После оптимизации (tuned)"},
+ "local_num_ctx":8192,"local_temperature":0.2,"local_chat_max_tokens":512}
 ```
 
 ### POST /llm/local-demo
@@ -6052,6 +6065,76 @@ curl.exe -X POST http://127.0.0.1:8000/llm/local-demo
                     "cache_miss_tokens":37,"cache_hit_percent":0.0,
                     "cost_estimate":0.0}}]}
 ```
+
+### POST /llm/tune
+
+Оптимизация локальной модели (день 29): один и тот же набор вопросов корпуса
+прогоняется вариантом «профиль × модель». **Поиск по корпусу не меняется вовсе** —
+FAISS-индекс дня 22 на диске и sentence-transformers; сравнивается только генерация:
+параметры профиля (температура, окно контекста, предел ответа, системный промпт) и тег
+модели (квант). Тело — `LocalTuneIn`:
+
+| Поле | Тип | По умолчанию | Пояснение |
+|---|---|---|---|
+| `questions` | `list[str]` / `null` | `null` | вопросы; пусто или `null` — десять контрольных вопросов демо |
+| `profiles` | `list[str]` | `[]` | профили: `baseline` (как день 26) \| `tuned` (после оптимизации); пусто — оба в этом порядке |
+| `models` | `list[str]` | `[]` | теги моделей Ollama (второй тег — сравнение квантов); пусто — `LOCAL_LLM_MODEL` |
+| `top_k` | `int` | `5` | сколько фрагментов корпуса идёт в контекст (1…10) |
+| `strategy` | `str` / `null` | `null` | стратегия поиска: `rag_corpus_structural` \| `rag_corpus_fixed` |
+
+Ответ — `LocalTuneOut`: `url`, `model`, `ollama_version` (`GET /api/version`),
+`active_profile` (профиль локального провайдера по умолчанию, пусто — поведение
+дня 26),
+`profiles` (параметры запрошенных профилей), `top_k`, `strategy`, `variants`
+(по варианту на пару «профиль × модель»), `pairs` (сравнение «до/после» по каждой
+модели: `verdict`, `quality_delta`, `speedup`), `best` (подпись лучшего варианта),
+`ps_before` (`GET /api/ps` до прогона) и `total_ms` (суммарное время ответов модели).
+Вариант — `LocalTuneVariantOut`: `params` (`LocalTuneProfileOut`: `profile`, `label`,
+`model`, `temperature`, `num_ctx`, `max_tokens`, `system_prompt`,
+`system_prompt_chars`), `resources` (снимок `/api/ps` после прогона плюс измеренные
+`load_ms` и `tokens_per_second`), `rows` и `summary`.
+
+Строка `LocalTuneRowOut` несёт вопрос, вердикт дня 24 (`rag_demo.verdict`), признаки
+`mode_match`, `sources_found`, `quotes_verified`, `grounding_ok`, текст ответа и его
+длину, токены, `duration_ms`, `tokens_per_second` (из `eval_duration` Ollama),
+`load_ms` (из `load_duration`), источники `RagSourceOut`, цитаты `RagQuoteOut`,
+ожидания вопроса и предупреждение. Сводка `LocalTuneSummaryOut` — счётчики
+`verdict_ok`, `mode_match`, `sources_found`, `quotes_verified`, `grounding_ok`,
+`errors` и средние `avg_ms` (только по строкам режима `rag`), `avg_tokens_per_second`,
+`completion_tokens`, `avg_answer_chars`.
+
+Вердикт пары считает `backend/domain/local_tuning_eval.py`: пара
+`(verdict_ok, quotes_verified, grounding_ok)`, тайбрейк — меньшее `avg_ms`; результат —
+`после оптимизации лучше` / `до оптимизации лучше` / `равно`. **Прогон идёт по варианту
+за запрос**: четыре варианта — десятки минут локальной модели, поэтому интерфейс и
+скрипт вызывают эндпоинт по разу на пару и накапливают варианты у себя. Сбой одного
+вызова — строка `mode="error"`; если ошибками кончились все строки, это недоступная
+Ollama — **502** с текстом причины. Отказы запроса к корпусу — 400/409, незнакомый
+профиль — 400.
+
+```bash
+curl.exe -X POST http://127.0.0.1:8000/llm/tune ^
+  -H "Content-Type: application/json" ^
+  -d "{\"profiles\":[\"tuned\"],\"models\":[\"qwen2.5-coder:14b\"],\"top_k\":5}"
+```
+
+```json
+{
+  "url": "http://localhost:11434", "model": "qwen2.5-coder:14b",
+  "ollama_version": "0.12.0", "active_profile": "tuned",
+  "profiles": [{"profile": "tuned", "label": "⚡ После оптимизации (tuned)", "model": null, "temperature": 0.2, "num_ctx": 8192, "max_tokens": 512, "system_prompt": "Ты отвечаешь ...", "system_prompt_chars": 512}],
+  "top_k": 5, "strategy": "rag_corpus_structural",
+  "variants": [{"params": {"profile": "tuned", "model": "qwen2.5-coder:14b", "temperature": 0.2, "num_ctx": 8192, "max_tokens": 512, "system_prompt_chars": 512},
+                "resources": {"models": [{"name": "qwen2.5-coder:14b", "size_mb": 9000.0, "vram_mb": 8900.0, "gpu_percent": 98.9, "context_length": 8192}], "vram_mb": 8900.0, "total_mb": 9000.0, "load_ms": 3200, "tokens_per_second": 12.4, "error": ""},
+                "rows": [{"question": "Чему равен CHARS_PER_PAGE в day21/backend/services/document_loader.py?", "profile": "tuned", "model": "qwen2.5-coder:14b", "mode": "rag", "verdict": "совпадает", "quotes_verified": true, "grounding_ok": true, "answer": "Ответ: CHARS_PER_PAGE = 1800. Источники: [1]", "completion_tokens": 96, "duration_ms": 3100, "tokens_per_second": 12.4, "load_ms": 3200}],
+                "summary": {"questions": 10, "verdict_ok": 8, "quotes_verified": 8, "grounding_ok": 8, "errors": 0, "avg_ms": 3200, "avg_tokens_per_second": 12.4, "completion_tokens": 980, "avg_answer_chars": 210}}],
+  "pairs": [], "best": "tuned (qwen2.5-coder:14b)", "total_ms": 32000,
+  "ps_before": {"models": [], "vram_mb": 0, "total_mb": 0, "error": ""}
+}
+```
+
+Коды: `200`; `400` — незнакомый профиль или отказ запроса к корпусу (пустой вопрос,
+неизвестная стратегия); `409` — корпус не проиндексирован; `502` — Ollama недоступна.
 
 ## RAG-режим
 

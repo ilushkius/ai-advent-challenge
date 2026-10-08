@@ -14,6 +14,7 @@ ORM-таблицы — отдельный пакет ``backend/models/``.
 - ``pipeline.py`` — пайплайн дня 19: запуск, его шаги, история и отчёт о прогоне;
 - ``indexing.py`` — индексация дня 21: запуск прогона, статистика, поиск, очистка индекса;
 - ``llm.py`` — расходы на LLM: журнал, кэш, непиковые часы и таблица «тип задачи → модель»;
+- ``local_tuning.py`` — оптимизация локальной модели (день 29): прогон профилей, строки с метриками и сводка «до/после»;
 - ``profile.py`` — профиль пользователя и его вклад в промпт;
 - ``rag.py`` — RAG: запрос по корпусу, сравнение ответов и режимов, состояние корпуса;
 - ``rag_compare.py`` — сравнение провайдеров: строки «вопрос → локальный/облачный ответ → вердикт» и сводка;
@@ -93,6 +94,10 @@ from .llm import (
     LocalDemoRowOut,
 )
 
+from .local_tuning import (LocalTuneIn, LocalTuneOut, LocalTunePairOut,
+                           LocalTuneProfileOut, LocalTuneRowOut,
+                           LocalTuneSummaryOut, LocalTuneVariantOut)
+
 from .memory import (
     MemoryLayerInfo,
     MemoryInfo,
@@ -123,13 +128,8 @@ from .mini_chat import (
     MiniChatTaskMemoryOut,
 )
 
-from .mcp_servers import (
-    MCPRefreshResponse,
-    MCPServerInfo,
-    MCPServerToolsResponse,
-    MCPServersResponse,
-    MCPToolInfoPayload,
-)
+from .mcp_servers import (MCPRefreshResponse, MCPServerInfo, MCPServerToolsResponse,
+                          MCPServersResponse, MCPToolInfoPayload)
 from .mcp import (
     MCPCallIn,
     MCPCallReportOut,
@@ -162,15 +162,9 @@ from .pipeline import (
     PipelineStepsResponse,
 )
 
-from .profile import (
-    UserPreferences,
-    UserConstraints,
-    UserProfileIn,
-    UserProfileOut,
-    UserProfileDeleteOut,
-    ProfileElementOut,
-    AppliedProfileOut,
-)
+from .profile import (UserPreferences, UserConstraints, UserProfileIn,
+                      UserProfileOut, UserProfileDeleteOut, ProfileElementOut,
+                      AppliedProfileOut)
 
 from .rag import (
     RagCompareIn,
@@ -290,6 +284,8 @@ __all__ = [
     "LLMUsageResponse",
     "LocalDemoOut",
     "LocalDemoRowOut",
+    "LocalTuneIn", "LocalTuneOut", "LocalTunePairOut", "LocalTuneProfileOut",
+    "LocalTuneRowOut", "LocalTuneSummaryOut", "LocalTuneVariantOut",
     "LongTermMemoryOut",
     "MCPCallIn",
     "MCPCallReportOut",

@@ -42,31 +42,39 @@ class LocalLLMClient:
     (``url`` позиционно, ``json=`` и ``timeout=`` по имени), поэтому офлайн-тест
     сети не открывает. ``agent_id`` принимается и игнорируется: журнала расходов у
     локальной модели нет, но сигнатура вызова остаётся общей с облачным клиентом.
+    ``num_ctx`` (день 29) — окно контекста Ollama; ``None`` оставляет значение службы.
     """
 
     def __init__(self, *, model: Optional[str] = None, base_url: Optional[str] = None,
                  timeout: Optional[float] = None, agent_id: Optional[str] = None,
+                 num_ctx: Optional[int] = None,
                  post: Optional[Callable[..., Any]] = None) -> None:
         self.model = str(model or config.LOCAL_LLM_MODEL)
         self.base_url = str(base_url or config.LOCAL_LLM_URL).rstrip("/")
         self.timeout = float(config.LOCAL_LLM_TIMEOUT if timeout is None else timeout)
         self.agent_id = agent_id
+        # Окно контекста (день 29): ``None`` — значение Ollama по умолчанию (4096),
+        # как было в дне 26; профиль настройки задаёт его явно (8192).
+        self.num_ctx = None if num_ctx is None else max(1, int(num_ctx))
         self._post = post or requests.post
 
     # ---------- вызовы ----------
     def chat(self, messages: Sequence[dict], *, max_tokens: Optional[int] = None,
              temperature: Optional[float] = None) -> dict:
         """Ответ на список сообщений: ``/api/chat``, поток выключен."""
+        options = {
+            "temperature": (config.DEFAULT_TEMPERATURE if temperature is None
+                            else float(temperature)),
+            "num_predict": self._limit(None, max_tokens),
+        }
+        if self.num_ctx is not None:
+            options["num_ctx"] = self.num_ctx
         payload = {
             "model": self.model,
             "messages": [{str(key): message[key] for key in ("role", "content")}
                          for message in messages],
             "stream": False,
-            "options": {
-                "temperature": (config.DEFAULT_TEMPERATURE if temperature is None
-                                else float(temperature)),
-                "num_predict": self._limit(None, max_tokens),
-            },
+            "options": options,
         }
         url = f"{self.base_url}/api/chat"
         started = time.perf_counter()
@@ -137,8 +145,33 @@ class LocalLLMClient:
                 "cache_miss_tokens": prompt_tokens,
                 "cache_hit_percent": 0.0,
                 "cost_estimate": 0.0,
+                # Скорость генерации и прогрев весов (день 29): по ним видно, что
+                # даёт оптимизация профиля, а ``eval_duration`` отделяет генерацию
+                # от загрузки модели и чтения промпта.
+                "tokens_per_second": self._speed(data, completion, duration_ms),
+                "load_ms": self._load_ms(data),
             },
         }
+
+    @staticmethod
+    def _speed(data: dict, completion: int, duration_ms: int) -> float:
+        """Скорость генерации, токенов в секунду: ``eval_duration`` Ollama, иначе время запроса.
+
+        ``eval_duration`` — наносекунды генерации без загрузки весов и чтения
+        промпта: первый запрос после простоя включает прогрев, и средняя скорость
+        по общему ``duration_ms`` была бы занижена.
+        """
+        eval_ns = float(data.get("eval_duration") or 0.0)
+        if eval_ns > 0:
+            return round(completion / (eval_ns / 1e9), 1)
+        if completion and duration_ms > 0:
+            return round(completion / (duration_ms / 1000), 1)
+        return 0.0
+
+    @staticmethod
+    def _load_ms(data: dict) -> int:
+        """Миллисекунды загрузки весов модели (``load_duration``); нет поля — 0."""
+        return int(float(data.get("load_duration") or 0.0) / 1e6)
 
     def _request(self, url: str, payload: dict) -> dict:
         """HTTP-запрос к Ollama: любой сбой — ``LocalLLMError`` с понятным текстом."""

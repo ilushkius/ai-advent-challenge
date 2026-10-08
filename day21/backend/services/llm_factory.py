@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 from ..domain import llm_provider
+from ..domain.local_tuning import TuningProfile
 from .llm_client import LLMClient
 from .local_llm_client import LocalLLMClient
 
@@ -25,16 +26,24 @@ __all__ = ["get_llm_client"]
 def get_llm_client(provider: Optional[str] = None, *, agent_id: Optional[str] = None,
                    client_factory: Optional[Callable[[], Any]] = None,
                    session_factory=None,
-                   timeout: Optional[float] = None
+                   timeout: Optional[float] = None,
+                   profile: Optional[TuningProfile] = None
                    ) -> Any:
     """Клиент выбранного провайдера: ``None`` — ``config.LLM_PROVIDER``.
 
     ``client_factory``/``session_factory`` нужны только облаку: у локальной модели
     нет ни ключа, ни журнала расходов, ни сессий, поэтому их отсутствие здесь не
     ошибка. Неизвестное имя провайдера — ``ValueError`` (роутер переводит в 400).
+
+    ``profile`` (день 29) задаёт модель и окно контекста (``num_ctx``) локального
+    клиента: профиль настройки — единственное место, где эти два параметра связаны,
+    иначе смена профиля на лету перезагружала бы веса Ollama. ``None`` — поведение
+    дня 26 (модель конфига, окно по умолчанию).
     """
     name = llm_provider.resolve(provider)
     if name == llm_provider.PROVIDER_LOCAL:
-        return LocalLLMClient(agent_id=agent_id, timeout=timeout)
+        return LocalLLMClient(agent_id=agent_id, timeout=timeout,
+                              model=(profile.model if profile else None),
+                              num_ctx=(profile.num_ctx if profile else None))
     return LLMClient(agent_id=agent_id, client_factory=client_factory,
                      session_factory=session_factory)

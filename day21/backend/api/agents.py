@@ -232,8 +232,9 @@ def root():
                      "GET /indexing/runs, GET /indexing/runs/{run_id}, "
                      "POST /indexing/clear (9 эндпоинтов)"),
         "llm": ("/llm/usage, /llm/status, /llm/estimate, /llm/models, /llm/peak, "
-                "/llm/provider, /llm/local-demo (7 эндпоинтов — журнал расходов, кэш "
-                "контекста, непиковые часы, провайдер и демо локальной модели)"),
+                "/llm/provider, /llm/local-demo, /llm/tune (8 эндпоинтов — журнал "
+                "расходов, кэш контекста, непиковые часы, провайдер, демо локальной "
+                "модели и оптимизация её профилей)"),
         "rag": ("POST /rag/query, GET /rag/config, POST /rag/compare, "
                 "POST /rag/compare_modes, GET /rag/demo-questions, POST /rag/demo-run, "
                 "POST /rag/compare_providers "
@@ -345,6 +346,7 @@ def root():
             "GET /llm/peak",
             "GET /llm/provider",
             "POST /llm/local-demo",
+            "POST /llm/tune",
             "POST /rag/query",
             "GET /rag/config",
             "POST /rag/compare",

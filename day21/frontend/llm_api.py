@@ -24,3 +24,13 @@ def api_local_demo() -> dict:
     первый запрос грузит веса модели в память (десятки секунд).
     """
     return request_json("POST", "/llm/local-demo", timeout=LONG_TIMEOUT)
+
+
+def api_local_tune(payload: dict) -> dict:
+    """POST /llm/tune -> прогон одного варианта «профиль × модель» на вопросах корпуса.
+
+    Запрос длинный и это нормально: десять вопросов локальной модели — минуты, а
+    первый вызов ещё и грузит веса (десятки секунд), поэтому предел ожидания —
+    ``LONG_TIMEOUT``. Интерфейс шлёт по варианту за раз, чтобы видеть прогресс.
+    """
+    return request_json("POST", "/llm/tune", timeout=LONG_TIMEOUT, json=payload)

@@ -2,8 +2,8 @@
 
 Единственная точка входа — ``render_main_area()``: заголовок и подпись,
 непрочитанные уведомления планировщика (день 18), флеш-сообщение предыдущего
-прохода, ветка «бэкенд недоступен», переключатель разделов (чат, профиль, состояние
-задачи, инварианты, MCP, планировщик, пайплайны, локальный RAG), карточка агента,
+прохода, ветка «бэкенд недоступен», переключатель разделов (пятнадцать: от чата с
+памятью до оптимизации локальной LLM), карточка агента,
 панели стратегии и слоёв памяти, диалог, сравнение режимов, блок предупреждения/отказа по
 инвариантам последнего хода, форма ввода и очистка истории.
 
@@ -18,8 +18,8 @@ import streamlit as st
 
 from . import (
     api_client, common, context_panels, cost_section, indexing_section,
-    invariant_panel, local_llm_section, local_rag_section, mcp_section, memory_panels,
-    notifications,
+    invariant_panel, local_llm_section, local_rag_section, local_tuning_section,
+    mcp_section, memory_panels, notifications,
     orchestration_section, pipeline_section, profile_section,
     rag_demo_section, rag_section, scheduler_section, task_panel,
 )
@@ -81,7 +81,8 @@ def render_main_area() -> None:
             ["💬 Чат и память", "👤 Профиль пользователя", "🧭 Состояние задачи",
              "📏 Инварианты", "🔌 MCP", "🗓 Планировщик", "🔀 Пайплайны",
              "🌐 Оркестрация", "📦 Индексация", "🖥 Локальная LLM", "💰 Расходы",
-             "🆚 RAG-сравнение", "🧪 RAG-демо", "🏠 Локальный RAG"],
+             "⚙️ Оптимизация локальной LLM", "🆚 RAG-сравнение", "🧪 RAG-демо",
+             "🏠 Локальный RAG"],
             horizontal=True, key="main_section", label_visibility="collapsed",
         )
         if section.startswith("👤"):
@@ -112,6 +113,10 @@ def render_main_area() -> None:
             # Локальная LLM (день 26): второй провайдер — Ollama по HTTP. Раздел
             # глобальный: модель живёт вне агентов и вне корпуса.
             local_llm_section.render_local_llm_section()
+        elif section.startswith("⚙️"):
+            # Оптимизация локальной LLM (день 29): профили настройки и кванты
+            # на контрольных вопросах корпуса — служба процесса, не свойство агента.
+            local_tuning_section.render_local_tuning_section()
         elif section.startswith("💰"):
             # Расходы на LLM (день 21): журнал, кэш контекста, непиковые часы.
             # Раздел глобальный: считает запросы всех агентов процесса.

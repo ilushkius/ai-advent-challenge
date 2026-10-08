@@ -13,6 +13,7 @@ import pytest
 import requests
 
 from backend.core import config
+from backend.services import local_llm_client
 from backend.services.local_llm_client import LocalLLMClient, LocalLLMError
 
 URL = "http://localhost:11434/api/chat"
@@ -158,6 +159,63 @@ def test_broken_json_raises():
 
     with pytest.raises(LocalLLMError):
         client.generate("Вопрос")
+
+
+# ---------- оптимизация профиля (день 29) ----------
+def test_context_window_goes_to_options_only_when_set():
+    """Окно контекста задаёт профиль: без него Ollama берёт своё значение (день 26)."""
+    default_client, default_calls = make_client(FakeResponse(ollama_body()))
+    tuned_client, tuned_calls = make_client(FakeResponse(ollama_body()), num_ctx=8192)
+
+    default_client.generate("Вопрос")
+    tuned_client.generate("Вопрос")
+
+    assert "num_ctx" not in default_calls[0]["payload"]["options"]
+    assert tuned_calls[0]["payload"]["options"]["num_ctx"] == 8192
+
+
+def test_speed_and_load_metrics_from_ollama_body():
+    """Скорость генерации — по ``eval_duration``, прогрев — по ``load_duration``."""
+    body = ollama_body(eval_count=40)
+    body["eval_duration"] = 2_000_000_000
+    body["load_duration"] = 3_500_000_000
+    client, _calls = make_client(FakeResponse(body))
+
+    tokens = client.generate("Вопрос")["tokens"]
+
+    assert tokens["tokens_per_second"] == 20.0
+    assert tokens["load_ms"] == 3500
+
+
+def test_speed_falls_back_to_request_time(monkeypatch):
+    """Нет ``eval_duration`` (другая сборка Ollama) — скорость по времени запроса."""
+    stamps = iter([100.0, 102.5])
+    monkeypatch.setattr(local_llm_client.time, "perf_counter", lambda: next(stamps))
+    client, _calls = make_client(FakeResponse(ollama_body(eval_count=10)))
+
+    result = client.generate("Вопрос")
+
+    assert result["duration_ms"] == 2500
+    assert result["tokens"]["tokens_per_second"] == 4.0
+    assert result["tokens"]["load_ms"] == 0, "поля нет — прогрев считается нулевым"
+
+
+def test_speed_of_empty_answer_is_zero():
+    """Нет токенов вывода — скорость 0.0, а не деление на ноль."""
+    body = ollama_body(eval_count=0)
+    body["eval_duration"] = 1_000_000_000
+    client, _calls = make_client(FakeResponse(body))
+
+    assert client.generate("Вопрос")["tokens"]["tokens_per_second"] == 0.0
+
+
+def test_context_window_is_positive_even_if_configured_with_zero():
+    """Нулевое окно из окружения не уходит в Ollama: значение зажимается до единицы."""
+    client, calls = make_client(FakeResponse(ollama_body()), num_ctx=0)
+
+    client.generate("Вопрос")
+
+    assert calls[0]["payload"]["options"]["num_ctx"] == 1
 
 
 def test_empty_message_raises():

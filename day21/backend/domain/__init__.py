@@ -31,8 +31,10 @@
   FSM прогона, промпт планировщика, построение плана и реплика-триггер;
 - ``document_sources``/``chunking``/``index_metrics``/``index_scenarios`` — индексация
   дня 21: источники, блоки текста, метрики стратегий и пять тестовых запросов;
-- ``llm_cost``/``peak_hours`` — оптимизация затрат (день 21): цена запроса и вклад
-  каждого рычага экономии, непиковые часы DeepSeek и прогноз скидки;
+- ``llm_cost``/``peak_hours``/``local_tuning``/``local_tuning_eval`` — оптимизация
+  затрат (день 21) и настройка локальной модели (день 29): цена запроса и вклад
+  каждого рычага экономии, непиковые часы DeepSeek, прогноз скидки, профили
+  ``baseline``/``tuned`` и правило сравнения вариантов прогона;
 - ``rag_mode``/``rag_quotes``/``rag_demo``/``rag_eval`` — RAG дней 22–24: промпт и
   лимиты контекста, порог с режимом «не знаю» и цитаты, вопросы демо и замера;
 - ``indexing_fsm``/``indexing_prompt`` — FSM прогона и блок фрагментов в промпте.
@@ -49,6 +51,7 @@ from . import (
     aggregation,
     chunking, rag_corpus_spec, rag_eval, rag_mode,
     llm_cost,
+    local_tuning, local_tuning_eval,
     peak_hours,
     document_sources,
     indexing_fsm,
@@ -60,12 +63,8 @@ from . import (
     pipeline_mapping,
     pipeline_prompt,
     pipeline_spec,
-    schedule_intent,
-    schedule_spec,
-    schedule_timing,
-    scheduler_fsm,
-    scheduler_prompt,
-    scheduler_values,
+    schedule_intent, schedule_spec, schedule_timing,
+    scheduler_fsm, scheduler_prompt, scheduler_values,
 )
 from .context_fsm import (
     ContextEvent,

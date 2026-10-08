@@ -80,7 +80,8 @@
 from . import (
     apscheduler_bridge, chunker, compressor, document_loader, embedding_service,
     index_comparison, index_runner, index_service, indexing_service,
-    invariant_checker, mcp_client, mcp_errors,
+    invariant_checker, local_llm_resources, local_tuning_service, mcp_client,
+    mcp_errors,
     mcp_fleet_state, mcp_loop, mcp_registry, mcp_tool_runner, mcp_transport,
     mini_chat_memory, mini_chat_service,
     off_peak, orchestration_planner,

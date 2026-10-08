@@ -1,7 +1,7 @@
 """Роутер API дня 21: расходы на LLM и рычаги их снижения.
 
-Шесть эндпоинтов — журнал, состояние, прогноз, справка по моделям, провайдер и
-демо локальной модели:
+Восемь эндпоинтов — журнал, состояние, прогноз, справка по моделям, непиковые окна,
+провайдер, демо локальной модели и оптимизация её профилей:
 
 - ``GET /llm/usage`` — агрегированная статистика расходов за период (токены, доля
   попаданий в кэш контекста, стоимость, разбивка по моделям и типам задач) плюс
@@ -12,10 +12,13 @@
 - ``POST /llm/estimate`` — прогноз экономии по числам токенов: вклад кэша, сжатия,
   предела длины ответа и непиковых часов по отдельности;
 - ``GET /llm/models`` — какие модели и пределы выбраны для каких типов задач;
-- ``GET /llm/provider`` — провайдер ответа по умолчанию (день 26) и параметры
-  локальной модели: имя, адрес и таймаут Ollama;
+- ``GET /llm/peak`` — правило непиковых окон DeepSeek и текущий статус;
+- ``GET /llm/provider`` — провайдер ответа по умолчанию (день 26), параметры
+  локальной модели и профиль её настройки (день 29);
 - ``POST /llm/local-demo`` — три запроса к локальной модели (факт, логика, код):
-  ответы, время, токены и эвристика качества; запросы идут из программы по HTTP.
+  ответы, время, токены и эвристика качества; запросы идут из программы по HTTP;
+- ``POST /llm/tune`` — прогон профилей локальной модели на вопросах корпуса:
+  качество, скорость и ресурсы «до/после» плюс сравнение квантов (день 29).
 
 Числа нигде не пересчитываются на стороне роутера: их дают хранилище журнала
 (``storage/llm_usage_store.py``) и домен стоимости (``domain/llm_cost.py``), поэтому
@@ -29,7 +32,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from ..core import config
 from ..core import dependencies
-from ..domain import llm_provider, peak_hours
+from ..domain import llm_provider, local_tuning, peak_hours, rag_filter, rag_mode
 from ..domain.llm_cost import prices_for, savings_summary
 from ..schemas import (
     LLMEstimateIn,
@@ -38,11 +41,29 @@ from ..schemas import (
     LLMStatusOut,
     LLMUsageResponse,
     LocalDemoOut,
+    LocalTuneIn,
+    LocalTuneOut,
 )
-from ..services import local_llm_demo
+from ..services import local_llm_demo, local_tuning_service
 from ..services.local_llm_client import LocalLLMError
+from ..services.rag_errors import RAGRejected
 
 router = APIRouter()
+
+#: Коды причин отказа RAG, которые говорят про сам запрос, а не про состояние корпуса.
+_BAD_REQUEST_REASONS = (rag_mode.REASON_RAG_BAD_STRATEGY,
+                        rag_mode.REASON_RAG_EMPTY_QUERY,
+                        rag_filter.REASON_RAG_BAD_MODE)
+
+
+def _rejected(exc: RAGRejected) -> HTTPException:
+    """Отказ режима RAG в HTTP: 400 — про запрос, 409 — про непроиндексированный корпус.
+
+    Копия правила ``api/rag.py::_rejected`` (5 строк): импортировать приватную функцию
+    соседнего роутера нельзя, а вторая, расходящаяся копия перевода отказов хуже явной.
+    """
+    code = 400 if exc.reason_code in _BAD_REQUEST_REASONS else 409
+    return HTTPException(status_code=code, detail=exc.message)
 
 
 @router.get(
@@ -190,17 +211,59 @@ def llm_local_demo() -> LocalDemoOut:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+@router.post(
+    "/llm/tune",
+    response_model=LocalTuneOut,
+    summary="Оптимизация локальной модели: профили на кейсе RAG",
+    description=(
+        "Прогоняет один и тот же набор вопросов корпуса несколькими вариантами "
+        "«профиль × модель» локальной модели Ollama и возвращает строки с качеством "
+        "(вердикт дня 24, подтверждённые цитаты, опора на контекст), скоростью "
+        "(время ответа, токенов в секунду, прогрев весов) и ресурсами (`GET /api/ps`: "
+        "занятая VRAM и доля GPU). Поиск по корпусу НЕ меняется: сравнение мерит "
+        "только генерацию. Тело — `LocalTuneIn`: `profiles` (`baseline` — как день 26, "
+        "`tuned` — после оптимизации; пусто — оба), `models` (теги Ollama, например "
+        "другой квант), `questions`, `top_k`, `strategy`. Незнакомый профиль — 400, "
+        "отказ запроса к корпусу — 400/409, недоступная Ollama (все строки с ошибкой) "
+        "— 502 с текстом причины."
+    ),
+)
+def llm_tune(payload: LocalTuneIn) -> LocalTuneOut:
+    """Прогон профилей кнопкой или скриптом: строки, ресурсы и сводка «до/после»."""
+    service = dependencies.get_rag_service()
+    try:
+        result = local_tuning_service.run(service, questions=payload.questions,
+                                          profiles=payload.profiles,
+                                          models=payload.models, top_k=payload.top_k,
+                                          strategy=payload.strategy)
+    except RAGRejected as exc:
+        raise _rejected(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LocalLLMError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return LocalTuneOut(**result)
+
+
 @router.get(
     "/llm/provider",
     summary="Провайдер ответа по умолчанию и параметры локальной модели",
     description=(
         "Провайдер процесса (``deepseek`` или ``local``), список допустимых имён и "
         "подписи для интерфейса плюс модель, адрес и таймаут локальной LLM: "
-        "переключатель в интерфейсе и подпись раздела показывают ровно это."
+        "переключатель в интерфейсе и подпись раздела показывают ровно это. Здесь же — "
+        "профиль настройки дня 29 (``local_profile``), его подписи и действующие "
+        "значения ``num_ctx``/``temperature``/предела ответа активного профиля "
+        "локального провайдера."
     ),
 )
 def llm_provider_state() -> dict:
     """Что выбрано провайдером по умолчанию и какая модель стоит локально."""
+    # Профиль — тот, которым локальный провайдер отвечает СЕЙЧАС: при baseline
+    # (и при незнакомом значении `LOCAL_LLM_PROFILE`) это набор дня 26, поэтому
+    # значения ниже всегда описывают действующий вызов, а не константы `tuned`.
+    profile = (local_tuning.active(llm_provider.PROVIDER_LOCAL)
+               or local_tuning.baseline_profile())
     return {
         "provider": config.LLM_PROVIDER,
         "providers": list(llm_provider.PROVIDERS),
@@ -208,6 +271,12 @@ def llm_provider_state() -> dict:
         "local_model": config.LOCAL_LLM_MODEL,
         "local_url": config.LOCAL_LLM_URL,
         "local_timeout": config.LOCAL_LLM_TIMEOUT,
+        "local_profile": profile.name,
+        "profiles": list(local_tuning.PROFILES),
+        "profile_labels": dict(local_tuning.PROFILE_LABELS),
+        "local_num_ctx": profile.num_ctx,
+        "local_temperature": profile.temperature,
+        "local_chat_max_tokens": profile.max_tokens,
     }
 
 

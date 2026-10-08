@@ -11,7 +11,7 @@
 import pytest
 
 from backend.core import config
-from backend.domain import rag_compare
+from backend.domain import local_tuning, rag_compare, rag_mode
 from backend.services import llm_factory, rag_compare_service
 from backend.services.llm_client import LLMClient
 from backend.services.local_llm_client import LocalLLMClient
@@ -28,11 +28,19 @@ def provider_factory(monkeypatch, rag_client):
     """Фабрика провайдеров подменена словарём клиентов: сети нет.
 
     Своя подмена на каждый провайдер (а не один клиент, как в ``test_rag_provider``):
-    парный прогон обязан увидеть РАЗНЫХ клиентов, иначе проверка выродится.
+    парный прогон обязан увидеть РАЗНЫХ клиентов, иначе проверка выродится. Вызовы
+    фабрики записываются в ``calls``: по ним видно, какой профиль настройки дня 29
+    получил клиент (модель и ``num_ctx``).
     """
-    stubs = {"local": LocalDictStubClient(), "deepseek": rag_client}
-    monkeypatch.setattr(llm_factory, "get_llm_client", lambda name, **kw: stubs[name])
-    return stubs
+    local, cloud = LocalDictStubClient(), rag_client
+    calls: list = []
+
+    def factory(name, **kwargs):
+        calls.append({"provider": name, **kwargs})
+        return {"local": local, "deepseek": cloud}[name]
+
+    monkeypatch.setattr(llm_factory, "get_llm_client", factory)
+    return {"local": local, "deepseek": cloud, "calls": calls}
 
 
 # ---------- сборка клиента по провайдеру ----------
@@ -173,3 +181,45 @@ def test_summary_of_empty_run():
     assert summary["verdict"] == rag_compare.VERDICT_EQUAL
     assert all(value == 0 for key, value in summary.items()
                if key not in ("verdict",))
+
+
+# ---------- профиль настройки локальной модели (день 29) ----------
+def test_tuned_profile_reaches_local_call(rag_service, provider_factory, monkeypatch):
+    """Профиль по умолчанию (tuned): свой промпт, температура и предел ответа."""
+    monkeypatch.setattr(local_tuning, "LOCAL_LLM_PROFILE", local_tuning.PROFILE_TUNED)
+
+    record = rag_service.rag_query(QUESTION, provider="local")
+
+    assert record["mode"] == rag_compare.MODE_ANSWERED
+    call = provider_factory["local"].calls[0]
+    assert call["system"] == local_tuning.LOCAL_TUNED_RAG_PROMPT
+    assert call["temperature"] == local_tuning.LOCAL_LLM_TEMPERATURE
+    assert call["max_tokens"] == local_tuning.LOCAL_LLM_CHAT_MAX_TOKENS
+    assert provider_factory["calls"][0]["provider"] == "local"
+    assert provider_factory["calls"][0]["profile"].name == local_tuning.PROFILE_TUNED
+
+
+def test_baseline_profile_keeps_day26_call(rag_service, provider_factory, monkeypatch):
+    """baseline — ровно поведение дня 26: промпт режима и значения по умолчанию."""
+    monkeypatch.setattr(local_tuning, "LOCAL_LLM_PROFILE", local_tuning.PROFILE_BASELINE)
+
+    rag_service.rag_query(QUESTION, provider="local")
+
+    call = provider_factory["local"].calls[0]
+    assert call["system"] == rag_mode.RAG_SYSTEM_PROMPT
+    assert call["temperature"] is None and call["max_tokens"] is None
+    assert provider_factory["calls"][0]["profile"] is None
+
+
+def test_explicit_profile_overrides_environment(rag_service, provider_factory,
+                                                monkeypatch):
+    """Явный профиль важнее окружения: так прогон дня 29 гоняет оба варианта."""
+    monkeypatch.setattr(local_tuning, "LOCAL_LLM_PROFILE", local_tuning.PROFILE_TUNED)
+
+    rag_service.rag_query(QUESTION, provider="local",
+                          profile=local_tuning.baseline_profile())
+
+    call = provider_factory["local"].calls[0]
+    assert call["system"] == rag_mode.RAG_SYSTEM_PROMPT
+    assert call["temperature"] == config.DEFAULT_TEMPERATURE
+    assert call["max_tokens"] is None, "предел ответа baseline — как у типа задачи"

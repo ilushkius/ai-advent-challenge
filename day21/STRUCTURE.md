@@ -1,6 +1,6 @@
-# Структура дня 28
+# Структура дня 29
 
-Карта модулей дня 28: что где лежит и за что отвечает. Правила структуры — в
+Карта модулей дня 29: что где лежит и за что отвечает. Правила структуры — в
 [`../docs/project-rules.md`](../docs/project-rules.md) и
 [`../docs/architecture.md`](../docs/architecture.md).
 
@@ -11,9 +11,9 @@
 Pydantic-схемы — в `schemas/`, HTTP — в `api/`. Сваливать файлы в корень
 `backend/` нельзя.
 
-**Что такое день 28.** Проект дня 21 (копия дня 20 — агент DeepSeek с памятью, FSM,
+**Что такое день 29.** Проект дня 21 (копия дня 20 — агент DeepSeek с памятью, FSM,
 инвариантами, профилем, MCP-клиентом и флотом серверов, планировщиком, пайплайном и
-оркестрацией) плюс шесть подсистем, добавленных днями 21–28:
+оркестрацией) плюс семь подсистем, добавленных днями 21–29:
 
 1. **Индексация документов** — сборка набора документов из источников репозитория в
    `documents/`, две стратегии чанкинга (фиксированное окно по токенам и структурная —
@@ -63,12 +63,18 @@ Pydantic-схемы — в `schemas/`, HTTP — в `api/`. Сваливать ф
    (вердикт строки и сводка), раздел «🏠 Локальный RAG», скрипт
    `scripts/run_local_rag_comparison.py` и отчёт
    `docs/reports/local_rag_comparison.md`.
+7. **Оптимизация локальной LLM** (день 29) — профили настройки локального провайдера
+   (`baseline` дня 26 и `tuned` по умолчанию) и их прогон на вопросах корпуса:
+   эндпоинт `POST /llm/tune`, домены `local_tuning`/`local_tuning_eval`, службы
+   `local_tuning_service`/`local_llm_resources`, раздел «⚙️ Оптимизация локальной LLM»,
+   скрипты `scripts/run_local_llm_optimization.py` и `scripts/local_tuning_report.py`,
+   отчёт `docs/reports/local_llm_optimization.md`.
 
 Унаследовано из дня 20 — одной строкой: **остальное дерево, включая `mcp_server/`,
 `mcp_servers/` с `mcp_servers.json`, память, профиль, состояние задачи, инварианты,
 планировщик, пайплайн и оркестрацию, — копия дня 20 без изменений**; карта этих
 модулей построчно — в [`day20/STRUCTURE.md`](../day20/STRUCTURE.md). Ниже описано
-только то, что дни 21–28 добавили или изменили.
+только то, что дни 21–29 добавили или изменили.
 
 ## Почему сделано так (решения дня 21)
 
@@ -144,7 +150,7 @@ day21/
 ├── mcp_servers.json          # КОНФИГУРАЦИЯ ФЛОТА (унаследована от дня 20): три сервера + кэш каталогов tools_cache
 ├── mcp_servers/              # три независимых MCP-сервера флота — унаследованы от дня 20 (по процессу на сервер, stdio)
 ├── mcp_server/               # собственный MCP-сервер дня — унаследован от дней 17–19 (11 модулей, девять инструментов, stdio)
-├── frontend/                 # Streamlit UI по секциям (36 модулей, включая __init__.py)
+├── frontend/                 # Streamlit UI по секциям (37 модулей, включая __init__.py)
 │   ├── indexing_api.py       # HTTP-запросы индексации (/indexing/...) поверх api_client
 │   ├── indexing_section.py   # раздел «📦 Индексация»: кнопка демо, прогресс этапов, история, очистка
 │   ├── indexing_compare.py   # сравнение стратегий: таблица метрик, гистограммы, примеры чанков, тестовые запросы
@@ -153,9 +159,10 @@ day21/
 │   ├── cost_section.py       # вкладка «💰 Расходы»: пик/непик, кэш и сжатие, расход по дням, журнал запросов
 │   ├── rag_api.py            # HTTP-запросы RAG (/rag/...): query, compare, compare_modes, config
 │   ├── rag_section.py        # панель «🔍 RAG-запрос по корпусу» и раздел «🆚 RAG-сравнение» (включая сравнение режимов)
-│   ├── llm_api.py            # HTTP-запросы провайдера и демо локальной модели (/llm/provider, /llm/local-demo)
+│   ├── llm_api.py            # HTTP-запросы провайдера, демо и оптимизации локальной модели (/llm/provider, /llm/local-demo, /llm/tune)
 │   ├── local_llm_section.py  # раздел «🖥 Локальная LLM»: подпись провайдера, кнопка прогона, таблица ответов
 │   ├── local_rag_section.py  # раздел «🏠 Локальный RAG»: вопросы, кнопка прогона, таблица сравнения и сводка
+│   ├── local_tuning_section.py  # раздел «⚙️ Оптимизация локальной LLM»: профили и кванты, таблицы, промпт до/после
 │   └── …                     # остальные секции унаследованы от дня 20
 ├── mini_chat/                # ОТДЕЛЬНОЕ приложение дня 25 (Streamlit, порт 8502): app.py — точка входа
 │                             # (root дня в sys.path + панели), api.py — HTTP-запросы /mini-chat/... поверх
@@ -167,27 +174,29 @@ day21/
 │   ├── core/                 # 6 модулей: config (в том числе разделы оптимизации затрат и локальной LLM),
 │   │                         # env_file (путь .env дня и парсер его строк), dependencies, mcp_server_config
 │   │                         # и prompt_builder (строитель промптов с кэшем префикса)
-│   ├── domain/               # 58 модулей: чистые правила и данные — индексация (chunking, document_sources,
+│   ├── domain/               # 60 модулей: чистые правила и данные — индексация (chunking, document_sources,
 │   │                         # index_metrics, index_scenarios, indexing_fsm, indexing_prompt), стоимость и непик
 │   │                         # (llm_cost, peak_hours), RAG (rag_mode, rag_filter, rag_corpus_spec, rag_eval,
-│   │                         # rag_compare), провайдер LLM (llm_provider) и унаследованные домены
-│   ├── services/             # 46 модулей: индексация (chunker, embedding_service, index_service, document_loader,
+│   │                         # rag_compare), провайдер LLM (llm_provider), оптимизация локальной модели
+│   │                         # (local_tuning, local_tuning_eval) и унаследованные домены
+│   ├── services/             # 48 модулей: индексация (chunker, embedding_service, index_service, document_loader,
 │   │                         # index_runner, index_comparison, indexing_service), затраты (llm_client,
 │   │                         # prompt_compressor, off_peak), RAG (rag_corpus_loader, rag_service, rag_retrieval,
 │   │                         # rag_records, rag_llm, rag_errors, rag_corpus_index, rerank_service, rag_compare_service), мини-чат
-│   │                         # (mini_chat_service, mini_chat_memory) и провайдер (llm_factory, local_llm_client,
-│   │                         # local_llm_demo) плюс унаследованные
+│   │                         # (mini_chat_service, mini_chat_memory), провайдер (llm_factory, local_llm_client,
+│   │                         # local_llm_demo) и оптимизация локальной модели (local_llm_resources,
+│   │                         # local_tuning_service) плюс унаследованные
 │   ├── storage/              # 17 модулей: chunk_store и index_run_store (журнал прогонов индексации),
 │   │                         # llm_usage_store и llm_usage_rows (журнал расходов) плюс унаследованные хранилища
 │   ├── agents/               # Agent (в generate — шаг поиска по индексу, клиент LLM и строитель промптов),
 │   │                         # MemoryManager, ProfileStore, AgentManager + миксины
 │   ├── models/               # ORM-таблицы: 13 модулей, в том числе indexing.py (document_chunks, index_runs)
 │   │                         # и llm_usage.py (журнал расходов)
-│   ├── schemas/              # Pydantic-схемы API: 17 модулей, в том числе indexing.py, llm.py, rag.py, rag_compare.py и mini_chat.py
+│   ├── schemas/              # Pydantic-схемы API: 18 модулей, в том числе indexing.py, llm.py, rag.py, rag_compare.py, mini_chat.py и local_tuning.py
 │   ├── data/                 # данные дня: demo_questions.json (10 контрольных вопросов RAG) и
 │   │                         # mini_chat_scenarios.json (два сценария мини-чата: 14 и 12 реплик)
 │   └── utils/                # своего кода нет (общий — в repo-level shared/)
-├── tests/                    # pytest: 2678 тестов (unit/ — 1846, integration/ — 587, e2e/ — 245); по умолчанию 2594 (84 slow отложены)
+├── tests/                    # pytest: 2721 тест (unit/ — 1885, integration/ — 587, e2e/ — 249); по умолчанию 2637 (84 slow отложены)
 │   ├── conftest.py           # общие фикстуры (session-scoped schema_template для схемы БД) + autouse no_real_network
 │   ├── fixtures_fleet.py     # фикстуры флота MCP-серверов и оркестрации (вынесены из conftest: лимит 400 строк)
 │   ├── fixtures_indexing.py  # фикстуры индексации документов (тоже вынесены из conftest)
@@ -197,7 +206,9 @@ day21/
 │   ├── mini_chat_fakes.py    # фейки мини-чата: стаб-клиент с двумя ответами (ответ и JSON памяти),
 │   │                         # заглушка отбора (сильная/слабая выдача) и клиент с неразобранной памятью
 │   ├── fixtures_mini_chat.py # фикстуры мини-чата: служба на фейковом отборе — сильная, слабая и сломанная
-│   ├── unit/test_rag_service_providers.py      # unit дня 28: сборка клиента по провайдеру, парный прогон, строка-ошибка, вердикт, сводка
+│   ├── unit/test_rag_service_providers.py      # unit дня 28–29: сборка клиента по провайдеру, парный прогон, строка-ошибка, вердикт, сводка, профиль настройки в вызове
+│   ├── unit/test_local_tuning.py               # unit дня 29: профили и разрешение окружения, вердикты строки, сводка варианта и ранжирование
+│   ├── unit/test_local_tuning_service.py       # unit дня 29: прогон на заглушке — параметры доходят до вызова, строка-ошибка, отказ Ollama, незнакомый профиль
 │   ├── integration/test_local_rag_flow.py      # slow дня 28: реальный индекс дня 22, настоящая модель эмбеддингов и настоящая Ollama
 │   └── …                     # унаследованные помощники тестов дня 20 (orchestration_fakes, mcp_fakes, stub_api, support…)
 ├── docs/                     # architecture.md, usage.md, api.md, reports/
@@ -216,6 +227,8 @@ day21/
 │   ├── run_rag_eval.py       # прогон 10 контрольных вопросов через 4 режима и запись docs/reports/rag_modes.md
 │   ├── demo_local_llm.py     # три запроса к локальной Ollama из программы (без бэкенда) и печать отчёта
 │   ├── run_local_rag_comparison.py # прогон десяти вопросов через POST /rag/compare_providers и запись docs/reports/local_rag_comparison.md
+│   ├── run_local_llm_optimization.py # прогон профилей и квантов через POST /llm/tune и запись docs/reports/local_llm_optimization.md
+│   ├── local_tuning_report.py # рендер отчёта дня 29: шапка, метод, промпт до/после, таблицы, ресурсы, кванты
 │   └── …                     # унаследованные скрипты дней 18–20 (orchestration_*, pipeline_*, scheduler_*, video_*)
 ├── invariants_demo.md        # отчёт дня 14 (унаследован; лежит в корне дня — путь задан заданием дня 14)
 ├── conftest.py, pytest.ini   # конфигурация pytest (pythonpath = . tests)
@@ -223,7 +236,9 @@ day21/
 ├── .agents/skills/           # скиллы: вендорные библиотек (uvx library-skills --copy) и проектный check_docs (проверка документации перед коммитом); не код дня
 ├── .python-version           # 3.14
 ├── .env.example              # шаблон DEEPSEEK_API_KEY, DAY21_BACKEND_URL, DAY21_EMBEDDING_MODEL,
-│                             # LLM_PROVIDER, LOCAL_LLM_MODEL и LOCAL_LLM_URL
+│                             # LLM_PROVIDER, LOCAL_LLM_MODEL, LOCAL_LLM_URL и профиль настройки
+│                             # локальной модели (LOCAL_LLM_PROFILE, LOCAL_LLM_TEMPERATURE,
+│                             # LOCAL_LLM_NUM_CTX, LOCAL_LLM_CHAT_MAX_TOKENS)
 ├── output/                   # каталог результатов save_to_file (пример прогона: demo-scenario.md)
 ├── index_demo.db             # БД офлайн-прогона пяти сценариев (в Git не попадает: *.db)
 ├── storage.db                # SQLite сервера хранения (в git не попадает: *.db в корневом .gitignore)
@@ -235,8 +250,11 @@ day21/
 `uv run python scripts/cost_optimization_report.py`), `context_optimization.md` —
 отчёт об экономии контекста агента (замеры окружения, написан по фактам логов, а не
 генерируется скриптом), `test_optimization.md` — отчёт об ускорении тестов
-(параллелизм, общая схема БД, маркер `slow`; тоже написан по замерам), остальные
-(`orchestration_demo.md`,
+(параллелизм, общая схема БД, маркер `slow`; тоже написан по замерам),
+`local_llm_demo.md` — развёртывание и замеры локальной модели (день 26),
+`local_rag_comparison.md` — парный прогон провайдеров (день 28),
+`local_llm_optimization.md` — профили и кванты на вопросах корпуса (день 29),
+остальные (`orchestration_demo.md`,
 `pipeline_demo.md`, `scheduler_demo.md`, `mcp_tool_demo.md`, `mcp_demo.md`,
 `task_state_demo.md`, `personalization_comparison.md`) унаследованы и читаются как
 история.
@@ -249,7 +267,7 @@ day21/
 что запускаются отдельным процессом, где ни корень дня, ни корень репозитория в
 `sys.path` не попадают.
 
-## Новые модули дней 21–28
+## Новые модули дней 21–29
 
 ### Индексация документов: `backend/domain/`, `services/`, `storage/`, `api/`
 
@@ -432,6 +450,28 @@ Retrieval в это сравнение не входит: поиск по кор
 Автовердикт — машинный (режим → цитаты → уверенность → источники); общий вердикт
 прогона берётся по большинству строк.
 
+### Оптимизация локальной LLM (день 29): `backend/domain/`, `services/`, `schemas/`, `api/`, `frontend/`, `scripts/`, `tests/`
+
+| Модуль | Назначение |
+|---|---|
+| `backend/domain/local_tuning.py` | Профили настройки локальной модели: константы (`PROFILE_BASELINE`/`PROFILE_TUNED`, `PROFILE_LABELS`, `BASELINE_NUM_CTX = 4096`, переписанный `LOCAL_TUNED_RAG_PROMPT`), `TuningProfile` (`key` для кэша клиентов, `title`, `as_dict`), `baseline_profile`/`tuned_profile`/`create`/`active`/`profile_for`/`prompt_for` и разрешение окружения `resolve_profile`/`resolve_number` (env → `.env` → значение по умолчанию, битое — предупреждение и дефолт, как у порога дня 24) |
+| `backend/domain/local_tuning_eval.py` | Оценка прогона: `quality_row` (вердикт дня 24 плюс `mode_match`, `sources_found`, `quotes_verified`, `grounding_ok`, токены, скорость, прогрев), `summarize` варианта (`avg_ms` только по строкам режима `rag`), `compare` (ранг `verdict_ok` → `quotes_verified` → `grounding_ok`, тайбрейк — меньшее `avg_ms`) и `summary` прогона (варианты, пары «до/после» по каждой модели, лучший вариант и суммарное время) |
+| `backend/services/local_tuning_service.py` | Прогон `run(service, …)`: пары «модель × профиль», запрос на вариант через `RAGService.rag_query(provider="local", profile=…)`, ресурсы после прогона варианта, сбой вызова — строка `error`, все строки упали — `LocalLLMError` (роутер отдаёт 502) |
+| `backend/services/local_llm_resources.py` | Метрики Ollama: `version()` (`GET /api/version`) и `snapshot()` (`GET /api/ps` → `size_mb`, `vram_mb`, `gpu_percent`, `context_length`); сбой метрики приходит данными (`error`), а не исключением — прогон из-за неё не срывается |
+| `backend/services/rag_llm.py` | Общие точки дня 29: `client_for` (кэш клиентов службы по паре «провайдер + профиль»: профиль несёт модель и `num_ctx`) и `answer` (вызов с системным промптом, температурой и пределом ответа профиля) |
+| `backend/services/rag_service.py`, `mini_chat_service.py`, `llm_factory.py`, `local_llm_client.py` | Профиль протянут в обе службы: `llm_client_for(provider, profile)`, `_answer`/`_answer_record` берут промпт и параметры профиля; фабрика передаёт профилю `model`/`num_ctx`; клиент Ollama кладёт `num_ctx` в `options` только когда он задан и считает `tokens_per_second` (`eval_duration`) и `load_ms` (`load_duration`) |
+| `backend/schemas/local_tuning.py` | Схемы прогона: `LocalTuneIn` (вопросы, профили, модели, `top_k`, стратегия), `LocalTuneProfileOut`, `LocalTuneRowOut`, `LocalTuneSummaryOut`, `LocalTuneVariantOut`, `LocalTunePairOut`, `LocalTuneOut` |
+| `backend/api/llm.py` | Восьмой эндпоинт `POST /llm/tune` (400 — незнакомый профиль, 502 — Ollama недоступна) и новые поля `GET /llm/provider` (`local_profile`, `profiles`, `profile_labels`, `local_num_ctx`, `local_temperature`, `local_chat_max_tokens`) |
+| `frontend/local_tuning_section.py`, `llm_api.py`, `chat_section.py` | Раздел «⚙️ Оптимизация локальной LLM»: подпись профиля и параметров, модели через запятую (квант — второй тег), мультивыбор профилей, слайдер `top_k`, кнопка «🚀 Прогнать сравнение профилей» (по одному варианту за запрос с прогрессом), таблицы строк и сводки, ресурсы, блок «Промпт: до и после» и раскрывашки с полными ответами; `api_local_tune` с `LONG_TIMEOUT` |
+| `scripts/run_local_llm_optimization.py`, `scripts/local_tuning_report.py` | Драйвер прогона через `POST /llm/tune` (флаги `--report`, `--backend`, `--models`, `--profiles`, `--top-k`, `--strategy`, `--limit`) и рендер markdown-отчёта: шапка, метод, промпт до/после, таблицы строк и сводки, ресурсы, сравнение квантов, приложение, итог и «Выводы» |
+| `tests/unit/test_local_tuning.py`, `test_local_tuning_service.py`, `test_local_llm_client.py`, `test_llm_factory.py`, `test_rag_service_providers.py`, `tests/e2e/test_llm_api.py` | Домен (профили, вердикты строки, сводка и ранжирование), прогон на заглушке (параметры доходят до вызова, строка-ошибка, отказ Ollama, незнакомый профиль), окно контекста и метрики скорости клиента, профиль в фабрике и в вызове RAG, HTTP-контракт `/llm/tune` (200/400/502) и новые поля `/llm/provider` |
+
+Профиль выбирает клиента (модель плюс `num_ctx` — разные загруженные экземпляры
+Ollama), а параметры вызова уходят аргументами: поэтому переформулировка запроса и
+извлечение памяти мини-чата идут тем же клиентом, без перезагрузки весов. Оценка
+прогона детерминированная — правила дней 22/24 плюс время как тайбрейк; модели-судьи и
+оценки человека в прогоне нет.
+
 ### Экономия контекста агента: корень дня, `.gitignore` и настройки окружения
 
 | Файл / место | Назначение |
@@ -482,8 +522,8 @@ orchestration_fsm, …`), а не реэкспортирует их
 
 ## Тесты: `tests/`
 
-Набор дня — **2678 тестов**: `unit/` — 1846 (71 файл), `integration/` — 587
-(54 файла), `e2e/` — 245 (16 файлов). Классификация по фикстурам: чистые модули /
+Набор дня — **2721 тест**: `unit/` — 1885 (73 файла), `integration/` — 587
+(54 файла), `e2e/` — 249 (16 файлов). Классификация по фикстурам: чистые модули /
 временная БД и агент / `TestClient`. Унаследованные наборы дней 11–20 (память и
 стратегии, профиль, задача и переходы, инварианты, MCP, планировщик, пайплайн, флот и
 оркестрация) остаются на месте; их раскладка по файлам — в
@@ -495,8 +535,8 @@ orchestration_fsm, …`), а не реэкспортирует их
 изоляция сохранена (файл на тест), время полного прогона упало с 370 с до 68 с.
 Тяжёлые тесты (84 штуки: подпроцессы MCP-серверов по stdio, сборка реального
 RAG-корпуса и часть e2e) помечены
-`slow` и по умолчанию пропускаются: `uv run pytest` идёт ~16 с и покрывает 2594
-теста, полный набор — `uv run pytest -m ""` или `--run-slow` — ~45 с и 2678 тестов. Autouse-фикстура
+`slow` и по умолчанию пропускаются: `uv run pytest` идёт ~17 с и покрывает 2637
+тестов, полный набор — `uv run pytest -m ""` или `--run-slow` — ~45 с и 2721 тест. Autouse-фикстура
 `no_real_network` запрещает тестам TCP на нелокальные адреса (внешние API
 подменены фейками). Замеры и разбор — в
 [`docs/reports/test_optimization.md`](docs/reports/test_optimization.md).
@@ -569,8 +609,18 @@ singleton протекал бы между тестами вместе с фаб
 
 | Группа | Файлы (строк) | Что проверяют |
 |---|---|---|
-| Провайдеры и прогон | `unit/test_rag_service_providers.py` (175) | Сборка клиента по провайдеру (`local` → `LocalLLMClient`, `deepseek` → `LLMClient` и кэш по имени), парный прогон одного вопроса двумя клиентами, строка `mode="error"` при сбое одного вызова, пустой список вопросов = десять контрольных, правило вердикта на семи парах записей и сводка из 15 полей |
+| Провайдеры и прогон | `unit/test_rag_service_providers.py` (225) | Сборка клиента по провайдеру (`local` → `LocalLLMClient`, `deepseek` → `LLMClient` и кэш по имени), парный прогон одного вопроса двумя клиентами, строка `mode="error"` при сбое одного вызова, пустой список вопросов = десять контрольных, правило вердикта на семи парах записей и сводка из 15 полей; день 29 добавил проверки профиля (см. таблицу ниже) |
 | Полный цикл (slow) | `integration/test_local_rag_flow.py` (104) | Реальный индекс дня 22 с диска, настоящая модель эмбеддингов и настоящая Ollama: ответ по корпусу с источниками, цитатами и временем, режим `dont_know` без вызова модели; пропускается, если Ollama или индекс недоступны |
+
+### Оптимизация локальной LLM (день 29)
+
+| Группа | Файлы (строк) | Что проверяют |
+|---|---|---|
+| Домен настройки | `unit/test_local_tuning.py` (277) | Профили (значения `tuned` читаются из констант модуля, `baseline` совпадает с днём 26, `create` с моделью даёт ключ кэша и подпись, незнакомое имя — `ValueError`), правило «кто получил профиль» (`active`: только локальный провайдер и только при `tuned`; незнакомое значение — как день 26), приоритет явного профиля над окружением, разрешение окружения (файл `.env`, битые значения, нечисловые настройки) и вердикт строки по правилу дня 24 (шесть случаев параметризованно), сводка варианта (время — только по строкам режима `rag`), ранжирование пар (ранг, тайбрейк по времени) и пары «до/после» без baseline |
+| Служба прогона | `unit/test_local_tuning_service.py` (138) | Прогон на заглушке: вариант на каждый профиль, по строке на вопрос, ресурсы после варианта, пары и «лучший»; профиль доходит до вызова (промпт, температура, предел ответа различаются у `baseline` и `tuned`); сбой заглушки — строка `error`, полный отказ — `LocalLLMError`; незнакомый профиль отсекается до первого вызова; пустой список вопросов — десять контрольных |
+| Клиент и фабрика | `unit/test_local_llm_client.py` (226), `unit/test_llm_factory.py` (96) | Окно контекста уходит в `options` только при явном значении (без него — значение Ollama) и зажимается до единицы; `tokens_per_second` из `eval_duration`, запасной расчёт по времени запроса (часы подменены), `load_ms` из `load_duration`, нули без полей; профиль задаёт модель и `num_ctx` клиента, без профиля — модель конфига и окно по умолчанию |
+| Сервис RAG с профилем | `unit/test_rag_service_providers.py` (225) | Профиль по умолчанию (`tuned`) даёт свой промпт, температуру и предел ответа в вызове локальной модели; `baseline` — промпт режима и значения по умолчанию; явный профиль важнее окружения; профиль уходит и в фабрику клиентов (модель и `num_ctx` берутся из него) |
+| API | `e2e/test_llm_api.py` (399) | `POST /llm/tune`: вариант на профиль, строка на вопрос, окно контекста по профилям, поля строки и сводки, пары и «лучший», ресурсы и версия Ollama; 400 на незнакомый профиль, 502 при полном отказе модели; новые поля `GET /llm/provider` (`local_profile`, `profiles`, `profile_labels`, `local_num_ctx`, `local_temperature`, `local_chat_max_tokens`) — в том числе значения профиля `baseline` |
 
 ### Мини-чат (день 25)
 
@@ -582,12 +632,16 @@ singleton протекал бы между тестами вместе с фаб
 
 ## Что изменилось относительно дня 20
 
-Новые модули дней 21–28 перечислены выше. Здесь — только правки **унаследованного** кода
+Новые модули дней 21–29 перечислены выше. Здесь — только правки **унаследованного** кода
 (проверены сравнением с `day20/`; в скобках — было → стало строк); правки дня 26 в уже
 изменённых файлах (`rag_llm`, `rag_service`, `mini_chat_service`, `frontend/*`, `mini_chat/*`)
-описаны в таблице «Локальная LLM как второй провайдер», а правки дня 28 (`rag_service.py`,
+описаны в таблице «Локальная LLM как второй провайдер», правки дня 28 (`rag_service.py`,
 `api/rag.py`, `api/agents.py`, `schemas/__init__.py`, `frontend/rag_api.py`,
-`frontend/chat_section.py`, `app.py`) — в таблице «Локальный RAG»:
+`frontend/chat_section.py`, `app.py`) — в таблице «Локальный RAG», а правки дня 29
+(`local_llm_client.py`, `llm_factory.py`, `rag_llm.py`, `rag_service.py`,
+`mini_chat_service.py`, `schemas/__init__.py`, `api/llm.py`, `api/agents.py`,
+`domain/__init__.py`, `services/__init__.py`, `frontend/chat_section.py`, `app.py`,
+`.env.example`) — в таблице «Оптимизация локальной LLM»:
 
 | Модуль | Строк | Что изменилось |
 |---|---|---|
@@ -599,10 +653,10 @@ singleton протекал бы между тестами вместе с фаб
 | `backend/api/main.py` | 78 (66) | Подключены роутеры `indexing`, `llm`, `rag` и `mini_chat` и точки подмены служб индексации, клиента LLM, службы RAG, реранкера и мини-чата |
 | `backend/api/__init__.py` | 73 (56) | Реэкспорт роутеров `indexing`, `llm`, `rag` и `mini_chat`; контракт ошибок дня (409 на пустой индекс, 400 на стратегию/запрос/документы, неизвестный период расходов, пустой вопрос RAG и неизвестный режим отбора, 422 на порог вне 0…1 и пул вне 1…60, 502 на сбой LLM-вызова RAG; у мини-чата — 404 на неизвестную сессию и 400 на пустое сообщение) |
 | `backend/api/lifespan.py` | 88 (60) | Пятый и шестой шаги старта — `get_index_service().load_all()` и прогрев моделей демон-потоком `model-warmup` (эмбеддинги, затем реранкер); остановка пишет индексы (`save_all`) |
-| `backend/api/agents.py` | 361 (314) | В инвентаре `GET /` — группы `indexing` (9), `llm` (7, включая `GET /llm/provider` и `POST /llm/local-demo` дня 26), `rag` (7, включая `POST /rag/compare_modes`, эндпоинты демо `GET /rag/demo-questions`/`POST /rag/demo-run` и `POST /rag/compare_providers` дня 28) и `mini_chat` (5) и имя приложения дня 24 |
+| `backend/api/agents.py` | 363 (314) | В инвентаре `GET /` — группы `indexing` (9), `llm` (8, включая `GET /llm/provider`, `POST /llm/local-demo` дня 26 и `POST /llm/tune` дня 29), `rag` (7, включая `POST /rag/compare_modes`, эндпоинты демо `GET /rag/demo-questions`/`POST /rag/demo-run` и `POST /rag/compare_providers` дня 28) и `mini_chat` (5) и имя приложения дня 24 |
 | `backend/api/scheduler.py` | 361 (355) | Описание флага `prefer_off_peak` и полей `off_peak`/`next_off_peak`/`discount_percent` в ответе `GET /scheduler/status` |
-| `backend/domain/__init__.py` | 400 (395) | Импорт модулей индексации, стоимости, непика и RAG как модулей; исторические абзацы докстринга сжаты, чтобы файл остался в лимите |
-| `backend/services/__init__.py` | 277 (165) | Реэкспорт чанкера, эмбеддингов, индекса, загрузчика документов, службы индексации и её кодов отказа, `LLMClient`/`get_llm_client`, `PromptCompressor`, `shift_to_off_peak`, `RagCorpusLoader`/`get_rag_corpus_loader`, `RAGService`/`get_rag_service`, ошибок RAG, модулей дня 23 (`rag_errors`, `rag_corpus_index`, `rag_llm`, `rag_records`, `rag_retrieval`, `rerank_service`) и мини-чата (`mini_chat_service`, `mini_chat_memory`, `MiniChatService`, `MiniChatSessionError`, `get_mini_chat_service`, `make_mini_chat_client`, `MINI_CHAT_AGENT_ID`) |
+| `backend/domain/__init__.py` | 399 (395) | Импорт модулей индексации, стоимости, непика, RAG и настройки локальной модели (`local_tuning`, `local_tuning_eval`) как модулей; исторические абзацы докстринга сжаты, чтобы файл остался в лимите |
+| `backend/services/__init__.py` | 278 (165) | Реэкспорт чанкера, эмбеддингов, индекса, загрузчика документов, службы индексации и её кодов отказа, `LLMClient`/`get_llm_client`, `PromptCompressor`, `shift_to_off_peak`, `RagCorpusLoader`/`get_rag_corpus_loader`, `RAGService`/`get_rag_service`, ошибок RAG, модулей дня 23 (`rag_errors`, `rag_corpus_index`, `rag_llm`, `rag_records`, `rag_retrieval`, `rerank_service`), мини-чата (`mini_chat_service`, `mini_chat_memory`, `MiniChatService`, `MiniChatSessionError`, `get_mini_chat_service`, `make_mini_chat_client`, `MINI_CHAT_AGENT_ID`) и модулей дня 29 (`local_llm_resources`, `local_tuning_service`) |
 | `backend/services/compressor.py` | 330 (329) | Вызов LLM идёт с `task_type=config.LLM_TASK_SUMMARY` — работа сжатия контекста попадает под маршрутизацию моделей и журнал |
 | `backend/services/invariant_checker.py` | 305 (296) | `task_type=config.LLM_TASK_CLASSIFY` при вызове модели и текст ошибки про `day21/.env` |
 | `backend/services/orchestration_planner.py` | 98 (94) | Клиент вызова — `LLMClient` (`call` с `task_type`), фабрика вынесена в свойство |
@@ -613,14 +667,14 @@ singleton протекал бы между тестами вместе с фаб
 | `backend/storage/__init__.py` | 189 (155) | `ChunkStore`, `IndexRunStore`, `IndexRunNotFoundError`, `chunk_dict`, `index_run_dict`, `LLMUsageStore`, `llm_usage_dict` |
 | `backend/storage/database.py` | 63 (59) | Реэкспорт ORM-таблиц индексации и журнала расходов |
 | `backend/models/__init__.py` | 87 (77) | `DocumentChunk`, `IndexRun`, `LLMUsage` |
-| `backend/schemas/__init__.py` | 399 (269) | Реэкспорт схем индексации, расходов, RAG (включая `RagModeOut`/`RagModesIn`/`RagModesOut`, `RagQuoteOut`, схемы демо дня 24 и схемы сравнения провайдеров дня 28 `RagCompareProvidersIn`/`RagCompareProvidersOut`/`RagProviderRowOut`/`RagProviderSummaryOut`) и мини-чата (восемь `MiniChat*`); докстринг сжат, чтобы удержать лимит |
+| `backend/schemas/__init__.py` | 395 (269) | Реэкспорт схем индексации, расходов, RAG (включая `RagModeOut`/`RagModesIn`/`RagModesOut`, `RagQuoteOut`, схемы демо дня 24 и схемы сравнения провайдеров дня 28 `RagCompareProvidersIn`/`RagCompareProvidersOut`/`RagProviderRowOut`/`RagProviderSummaryOut`), мини-чата (восемь `MiniChat*`) и прогона профилей дня 29 (`LocalTune*`); докстринг сжат, чтобы удержать лимит |
 | `backend/schemas/agent.py` | 362 (352) | Поля `indexing` и `llm` ответа генерации |
-| `frontend/chat_section.py` | 395 (346) | Девятый раздел «📦 Индексация», десятый «💰 Расходы», одиннадцатый «🆚 RAG-сравнение», двенадцатый «🧪 RAG-демо» и тринадцатый «🏠 Локальный RAG» (день 28); панель «🔍 RAG-запрос по корпусу» в конце ветки чата; строки `indexing_note` и сводка расходов в отчёте хода |
+| `frontend/chat_section.py` | 400 (346) | Девятый раздел «📦 Индексация», десятый «💰 Расходы», одиннадцатый «🆚 RAG-сравнение», двенадцатый «🧪 RAG-демо», тринадцатый «🏠 Локальный RAG» (день 28) и четырнадцатый «⚙️ Оптимизация локальной LLM» (день 29); панель «🔍 RAG-запрос по корпусу» в конце ветки чата; строки `indexing_note` и сводка расходов в отчёте хода |
 | `tests/conftest.py` | 279 (228) | Общие фикстуры (`schema_template`, `no_real_network`); фикстуры индексации, RAG (включая стаб-реранкер) и мини-чата вынесены в `fixtures_indexing.py`, `fixtures_rag.py` и `fixtures_mini_chat.py` и импортируются обратно |
-| `app.py` | 88 (67) | Заголовок страницы и описание тринадцати разделов дня 28 |
-| `README.md`, `docs/architecture.md`, `docs/usage.md`, `docs/api.md` | 869, 1064, 620, 6917 | Документация дня описывает текущее состояние (дни 21–28): `README` — задание дня 28 и локальный RAG (сравнение локальной и облачной модели), `architecture` — устройство подсистем, включая «Локальный RAG — день 28», `usage` — инструкция (раздел 10 — локальный RAG, раздел 11 — частые ошибки), `api` — все семь эндпоинтов `/rag` и схемы сравнения провайдеров; отдельный отчёт дня — `docs/reports/local_rag_comparison.md` |
+| `app.py` | 93 (67) | Заголовок страницы и описание пятнадцати разделов дня 29 |
+| `README.md`, `docs/architecture.md`, `docs/usage.md`, `docs/api.md` | 928, 1186, 795, 7000 | Документация дня описывает текущее состояние (дни 21–29): `README` — задание дня 29 (профили настройки локальной модели и кванты на вопросах корпуса), `architecture` — устройство подсистем, включая «Локальный RAG — день 28» и «Оптимизация локальной LLM — день 29», `usage` — инструкция (раздел 10 — локальный RAG, раздел 11 — оптимизация локальной LLM, раздел 12 — частые ошибки), `api` — восемь эндпоинтов `/llm` (включая `POST /llm/tune`) и семь `/rag`; отдельные отчёты дня — `docs/reports/local_rag_comparison.md` и `docs/reports/local_llm_optimization.md` |
 | `pyproject.toml` | 30 (24) | Имя `day21` и описание дня; добавлены `sentence-transformers`, `faiss-cpu`, `numpy` |
-| `.env.example` | 31 (15) | `DAY21_BACKEND_URL` вместо `DAY20_BACKEND_URL`, добавлены `DAY21_EMBEDDING_MODEL`, закомментированный `RAG_RERANK_MODEL` и порог дня 24 `RAG_RELEVANCE_THRESHOLD=0.6` |
+| `.env.example` | 54 (15) | `DAY21_BACKEND_URL` вместо `DAY20_BACKEND_URL`, добавлены `DAY21_EMBEDDING_MODEL`, закомментированный `RAG_RERANK_MODEL`, порог дня 24 `RAG_RELEVANCE_THRESHOLD=0.6`, модель и адрес локальной LLM (день 26) и профиль её настройки (день 29: `LOCAL_LLM_PROFILE`, `LOCAL_LLM_TEMPERATURE`, `LOCAL_LLM_NUM_CTX`, `LOCAL_LLM_CHAT_MAX_TOKENS`) |
 | `pytest.ini` | — | Комментарий про день 21 |
 
 Остальные файлы отличаются только идентичностью дня (`day20` → `day21`,
@@ -680,7 +734,7 @@ singleton протекал бы между тестами вместе с фаб
 | `frontend/common.py` | 400 | 400 | Ровно на границе, поэтому дни 20 и 21 его не правили: подписи разделов живут в `orchestration_*.py`, `indexing_*.py` и `cost_section.py` |
 | `backend/core/config.py` | 400 | 400 | Ровно на границе: копились разделы дней 11–21 (день 21 добавил индексацию и оптимизацию затрат). Следующий раздел потребует выноса части настроек в отдельный модуль конфигурации |
 | `backend/domain/__init__.py` | 400 | 400 | Модули планировщика, пайплайна, оркестрации, индексации, стоимости, непика и RAG импортируются как модули (`from . import …`), а не реэкспортируются именами: иначе список имён слоя вышел бы за лимит |
-| `GET /` — счётчик эндпоинтов | 113 записей / 95 путей | — | Инвентарь `endpoints` перечисляет эндпоинты по методу (113 записей, включая семь `/rag/*`, пять `/mini-chat/*` и семь `/llm/*`), тогда как OpenAPI группирует их по пути — уникальных путей 95. Расхождение не ошибка, а разная форма счёта |
+| `GET /` — счётчик эндпоинтов | 114 записей / 96 путей | — | Инвентарь `endpoints` перечисляет эндпоинты по методу (114 записей, включая семь `/rag/*`, пять `/mini-chat/*` и восемь `/llm/*`), тогда как OpenAPI группирует их по пути — уникальных путей 96. Расхождение не ошибка, а разная форма счёта |
 | `backend/services/mcp_client.py` | 398 | 400 | Клиент запускает свой daemon-поток с циклом событий и долгоживущую задачу сессии (контексты MCP SDK обязаны входить и выходить в одной задаче anyio); цикл событий и адаптеры SDK вынесены в `mcp_loop.py` и `mcp_transport.py` |
 | `.agents/skills/**` | 416–449 | — | Вендорные скиллы сторонних пакетов (`uvx library-skills --copy`): в трёх шаблонах Streamlit-приложений больше 400 строк. Это код библиотеки, а не дня |
 | `chunk_id` не уникален | — | — | Повторный прогон по тем же документам ДОПИСЫВАЕТ индекс и таблицу (числа растут — это видно в статистике и истории запусков). Уникальный `chunk_id` превратил бы кнопку демо-прогона в одноразовую: второй клик падал бы на ограничении вместо того, чтобы либо дописать, либо честно попросить очистку. Переиндексация с нуля — явная кнопка «🧹 Очистить обе стратегии» |
@@ -708,42 +762,43 @@ python -c "from pathlib import Path; print([(str(p), len(p.read_text(encoding='u
 
 Превышения — только у трёх шаблонов Streamlit внутри вендорного `.agents/skills/`
 (код библиотеки, а не дня) и у давно известного `backend/agents/agent.py`
-(2284 строки); код дня 28 в лимит укладывается.
+(2284 строки); код дня 29 в лимит укладывается.
 
-`app.py` (88 ≤ 100) и `backend/api/main.py` (78 ≤ 80) в лимитах; день 28 оставил на
-границе `backend/schemas/__init__.py` и `backend/services/rag_service.py` (по 399), а
-`frontend/chat_section.py` (395) — ниже; `frontend/common.py`, `backend/core/config.py`,
-`backend/domain/__init__.py`, `backend/services/mini_chat_service.py` и
-`frontend/rag_section.py` (по 400) — ровно на границе, в пределах лимита. Скрипт отчёта об оптимизации тоже перестал быть превышением: замер
-(`scripts/cost_optimization_measure.py`, 382) вынесен из рендера
-(`scripts/cost_optimization_report.py`, 285) — вместе они были длиннее 400.
-День 26 удержал лимит тремя выносами: чтение `.env` ушло из `backend/core/config.py`
-в `backend/core/env_file.py` (59), фабрика клиента DeepSeek — из
-`backend/services/rag_service.py` (398) в `backend/services/rag_llm.py` (99), а
-`RAGService.verify_citations` (pass-through к домену) удалён — тесты зовут
-`rag_quotes.verify_citations` напрямую. Самый
-длинный файл дня 28 — `backend/services/rag_service.py` (399): к правкам дня 24 (гейт
-порога в `_answer`, `citation_block`, `verify_citations`, `relevance_threshold` в
-`config()`) день 28 добавил провайдера в строку журнала, а запись режима «не знаю»
-живёт в `backend/services/rag_records.py` (87). Дальше идут `frontend/rag_section.py` (391),
-`scripts/run_local_rag_comparison.py` (360), `backend/schemas/rag.py` (356),
-`scripts/run_rag_quotes_eval.py` (326), `backend/domain/rag_mode.py` (310),
-`backend/domain/rag_quotes.py` (287), `scripts/rag_eval_report.py` (286),
-`frontend/local_rag_section.py` (222), `backend/api/rag.py` (220),
-`backend/domain/rag_filter.py` (219), `tests/unit/test_rag_modes.py` (194),
-`backend/services/rag_retrieval.py` (186), `tests/unit/test_rag_service_providers.py` (175),
-`tests/unit/test_rag_quotes.py` (109),
-`frontend/rag_demo_section.py` (176), `backend/domain/rag_demo.py` (148),
-`backend/domain/rag_compare.py` (127), `tests/integration/test_rag_quotes_flow.py` (112),
-`tests/integration/test_local_rag_flow.py` (104),
-`backend/services/rag_demo_service.py` (100), `frontend/rag_api.py` (96),
-`backend/schemas/rag_compare.py` (91), `backend/services/rag_corpus_index.py` (89),
-`backend/services/rag_compare_service.py` (64), `backend/services/rag_errors.py` (27).
-Файлы дня 26 (все в лимите): `backend/services/local_llm_client.py` (164),
-`backend/services/local_llm_demo.py` (87), `backend/services/llm_factory.py` (40),
-`backend/domain/llm_provider.py` (57), `frontend/local_llm_section.py` (97),
-`frontend/llm_api.py` (26), `scripts/demo_local_llm.py` (57),
-`docs/reports/local_llm_demo.md` (250).
+`app.py` (93 ≤ 100) и `backend/api/main.py` (78 ≤ 80) в лимитах; день 29 оставил на
+границе `frontend/chat_section.py`, `frontend/common.py` и `backend/core/config.py`
+(по 400), а `backend/domain/__init__.py`, `backend/services/rag_service.py` и
+`frontend/rag_section.py` (по 399) — на строку ниже; `backend/schemas/__init__.py`
+(395) и `backend/services/mini_chat_service.py` (396) отодвинулись внутрь лимита.
+Прежние выносы держат лимит и сейчас: чтение `.env` — в `backend/core/env_file.py`,
+фабрика клиента DeepSeek — в `backend/services/rag_llm.py`, режимы отбора — в
+`backend/domain/rag_filter.py`. Скрипт отчёта об оптимизации перестал быть превышением:
+замер (`scripts/cost_optimization_measure.py`, 382) вынесен из рендера
+(`scripts/cost_optimization_report.py`, 285).
+
+День 29 удержал лимит тремя выносами: домен настройки разложен на
+`backend/domain/local_tuning.py` (276 — профили и разрешение окружения) и
+`backend/domain/local_tuning_eval.py` (195 — строка, сводка, вердикт пары, как
+`rag_eval` отделён от `rag_mode` дня 24); общая точка дня «кэш клиентов по паре
+провайдер плюс профиль» и «вызов с параметрами профиля» ушла в
+`backend/services/rag_llm.py` (134), поэтому `backend/services/rag_service.py` (399) и
+`backend/services/mini_chat_service.py` (396) не выросли за 400; рендер отчёта вынесен
+из драйвера — `scripts/local_tuning_report.py` (392) и
+`scripts/run_local_llm_optimization.py` (228). Самый длинный файл дня по-прежнему
+`backend/services/rag_service.py` (399): день 29 добавил в него профиль
+(`llm_client_for(provider, profile)`, `_profile` через домен, система и параметры
+вызова из профиля), а запись режима «не знаю» живёт в
+`backend/services/rag_records.py` (87). Дальше идут `frontend/rag_section.py` (399),
+`frontend/chat_section.py` (400), `frontend/local_rag_section.py` (222),
+`backend/domain/rag_mode.py` (310), `backend/domain/rag_quotes.py` (287),
+`backend/domain/local_tuning.py` (276), `frontend/local_tuning_section.py` (260),
+`backend/services/local_llm_client.py` (197),
+`backend/domain/local_tuning_eval.py` (195), `backend/schemas/local_tuning.py` (186),
+`backend/services/local_tuning_service.py` (140), `backend/services/rag_llm.py` (134),
+`backend/services/local_llm_resources.py` (99).
+Файлы дня 29 в тестах: `tests/unit/test_local_tuning.py` (277),
+`tests/unit/test_local_tuning_service.py` (138), `tests/e2e/test_llm_api.py` (399),
+`tests/unit/test_rag_service_providers.py` (225), `tests/unit/test_local_llm_client.py`
+(226), `tests/unit/test_llm_factory.py` (96) — все в лимите.
 `tests/unit/test_rag_service.py` после выноса режимов ушёл с 567 строк до 395 —
 лимит держится и в тестах.
 Каталог `.agents/` в выводе не случаен: в этой копии скиллы библиотек скопированы

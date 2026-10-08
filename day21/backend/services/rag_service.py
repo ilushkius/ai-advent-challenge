@@ -30,7 +30,8 @@ from shared.logging_utils import get_logger
 from shared.token_counter import count_tokens
 
 from ..core import config
-from ..domain import llm_provider, rag_filter, rag_mode, rag_quotes
+from ..domain import llm_provider, local_tuning, rag_filter, rag_mode, rag_quotes
+from ..domain.local_tuning import TuningProfile
 from ..storage.chunk_store import ChunkStore
 from . import llm_factory, rag_corpus_index, rag_llm, rag_records
 from .index_service import IndexService, get_index_service
@@ -96,20 +97,13 @@ class RAGService:
         """Обёртка вызова LLM: переданная или собранная на фабрике ключа."""
         return self.llm_client_for(None)
 
-    def llm_client_for(self, provider: Optional[str] = None) -> Any:
-        """Клиент провайдера запроса: подменённый (тесты) или собранный фабрикой.
-
-        Без явного провайдера отдаётся подменённый клиент, если он был передан в
-        конструктор: тесты и скрипты подставляют заглушку именно так. Иначе клиент
-        собирается один раз на имя провайдера и живёт в службе процесса.
-        """
-        if provider is None and self._llm_client is not None:
-            return self._llm_client
-        name = llm_provider.resolve(provider)
-        if name not in self._llm_clients:
-            self._llm_clients[name] = llm_factory.get_llm_client(
-                name, agent_id=AGENT_ID, client_factory=rag_llm.make_rag_client)
-        return self._llm_clients[name]
+    def llm_client_for(self, provider: Optional[str] = None,
+                       profile: Optional[TuningProfile] = None) -> Any:
+        """Клиент провайдера: подменённый (тесты) или из кэша пары «провайдер + профиль»
+        дня 29: профиль несёт модель и ``num_ctx``, поэтому это разные клиенты."""
+        return rag_llm.client_for(
+            self._llm_clients, provider, profile, stub=self._llm_client,
+            agent_id=AGENT_ID, client_factory=rag_llm.make_rag_client)
 
     @property
     def rerank_service(self) -> RerankService:
@@ -140,7 +134,8 @@ class RAGService:
         """
         stages = self._stages(question, top_k=top_k, strategy=strategy, mode=mode,
                               min_score=min_score,
-                              top_k_candidates=top_k_candidates, rerank=rerank)
+                              top_k_candidates=top_k_candidates, rerank=rerank,
+                              profile=local_tuning.profile_for(None, None))
         return [rag_records.source(hit) for hit in stages.hits]
 
     def _stages(self, question: str, *, top_k: Optional[int] = None,
@@ -149,7 +144,8 @@ class RAGService:
                 top_k_candidates: Optional[int] = None,
                 rewrite: Optional[bool] = None,
                 rerank: Optional[bool] = None,
-                provider: Optional[str] = None) -> RAGStages:
+                provider: Optional[str] = None,
+                profile: Optional[TuningProfile] = None) -> RAGStages:
         """Прогоняет режим целиком: переформулировка, поиск, реранк, порог.
 
         Режим задаёт ручки по умолчанию, явные аргументы их перекрывают: интерфейс
@@ -163,7 +159,7 @@ class RAGService:
         wants_rewrite = bool(knobs["rewrite"] if rewrite is None else rewrite)
         query, warning = ("", "")
         if wants_rewrite:
-            query, warning = self._rewrite(question, provider)
+            query, warning = self._rewrite(question, provider, profile)
         stages = self.retrieval.run(question, query=query, top_k=top_k,
                                     strategy=strategy, mode=name,
                                     min_score=min_score,
@@ -172,11 +168,12 @@ class RAGService:
                                     rewrite_warning=warning)
         return stages
 
-    def _rewrite(self, question: str, provider: Optional[str] = None) -> tuple[str, str]:
+    def _rewrite(self, question: str, provider: Optional[str] = None,
+                 profile: Optional[TuningProfile] = None) -> tuple[str, str]:
         """Переформулировка запроса моделью: сбой не отменяет поиск по вопросу."""
         try:
             result = rag_llm.call_with_retry(
-                self.sleep, self.llm_client_for(provider).generate_with_context,
+                self.sleep, self.llm_client_for(provider, profile).generate_with_context,
                 system=rag_filter.RAG_REWRITE_SYSTEM_PROMPT, context="",
                 question=str(question or "").strip(),
                 task_type=config.LLM_TASK_CHAT, agent_id=AGENT_ID)
@@ -197,24 +194,28 @@ class RAGService:
                   top_k_candidates: Optional[int] = None,
                   rerank: Optional[bool] = None,
                   rewrite: Optional[bool] = None,
-                  provider: Optional[str] = None) -> dict:
+                  provider: Optional[str] = None,
+                  profile: Optional[TuningProfile] = None) -> dict:
         """Ответ по корпусу: поиск, блок контекста, вызов модели, оценка опоры.
 
         Сбой вызова не отменяет запрос: результат помечается ``fallback`` и
         предупреждением, и сравнение не выдаёт его за обычный ответ с RAG.
         ``provider`` выбирает, кто отвечает (``deepseek``/``local``); он же попадает
         в запись ответа, чтобы отчёт и интерфейс не догадывались об этом по тексту.
+        ``profile`` (день 29) задаёт параметры вызова и промпт вызова.
         """
         started = time.perf_counter()
+        profile = local_tuning.profile_for(provider, profile)
         knobs = {"mode": mode, "min_score": min_score, "provider": provider,
                  "top_k_candidates": top_k_candidates,
                  "rerank": rerank, "rewrite": rewrite}
         try:
             return self._answer(question, use_rag=True, top_k=top_k,
-                                strategy=strategy, **knobs)
+                                strategy=strategy, profile=profile, **knobs)
         except RAGUpstreamError as exc:
             logger.warning("RAG: откат на ответ без RAG (%s)", exc)
-            result = self._answer(question, use_rag=False, provider=provider)
+            result = self._answer(question, use_rag=False, provider=provider,
+                                  profile=profile)
             result.update({
                 "mode": "rag",
                 "fallback": True,
@@ -230,14 +231,15 @@ class RAGService:
             result["duration_ms"] = int((time.perf_counter() - started) * 1000)
             return result
 
-    def no_rag_query(self, question: str,
-                     provider: Optional[str] = None) -> dict:
+    def no_rag_query(self, question: str, provider: Optional[str] = None,
+                     profile: Optional[TuningProfile] = None) -> dict:
         """Ответ на тот же вопрос без контекста: база сравнения.
 
         Системный промпт тот же, что и у режима с RAG: различие ровно одно — блок
         контекста, иначе сравнение мерило бы ещё и разные инструкции.
         """
-        return self._answer(question, use_rag=False, provider=provider)
+        return self._answer(question, use_rag=False, provider=provider,
+                            profile=local_tuning.profile_for(provider, profile))
 
     def compare(self, question: str, top_k: Optional[int] = None,
                 strategy: Optional[str] = None,
@@ -290,7 +292,8 @@ class RAGService:
                 top_k_candidates: Optional[int] = None,
                 rerank: Optional[bool] = None,
                 rewrite: Optional[bool] = None,
-                provider: Optional[str] = None) -> dict:
+                provider: Optional[str] = None,
+                profile: Optional[TuningProfile] = None) -> dict:
         """Общий путь обоих режимов: собрать контекст, вызвать модель, описать результат."""
         text = str(question or "").strip()
         if not text:
@@ -319,10 +322,10 @@ class RAGService:
             items = rag_mode.fit_context(rag_mode.render_context(stages.hits))
             context_block = rag_mode.render_rag_block(items)
         context_tokens = count_tokens(context_block) if context_block else 0
-        result = rag_llm.call_with_retry(
-            self.sleep, self.llm_client_for(provider).generate_with_context,
-            system=rag_mode.RAG_SYSTEM_PROMPT, context=context_block,
-            question=text, task_type=config.LLM_TASK_CHAT, agent_id=AGENT_ID)
+        result = rag_llm.answer(
+            self.sleep, self.llm_client_for(provider, profile),
+            system=local_tuning.prompt_for(profile, rag_mode.RAG_SYSTEM_PROMPT),
+            context=context_block, question=text, agent_id=AGENT_ID, profile=profile)
         answer = rag_llm.response_text(result)
         grounding = ""
         if stages is not None:
@@ -331,15 +334,12 @@ class RAGService:
                 rag_mode.grounding_share(answer, texts))
         duration_ms = int((time.perf_counter() - started) * 1000)
         logger.info(
-            "RAG: режим %s, провайдер %s, запрос %s, чанков %d из %d, контекст %d токенов, "
-            "ответ %d токенов, %d мс, опора: %s",
-            name, provider_name, stages.mode if stages else "—",
-            len(stages.hits) if stages else 0,
-            len(stages.candidates) if stages else 0,
-            context_tokens,
-            rag_llm.completion_tokens(result), duration_ms,
-            grounding or "—",
-        )
+            "RAG: режим %s, провайдер %s, профиль %s, запрос %s, чанков %d из %d, "
+            "контекст %d токенов, ответ %d токенов, %d мс, опора: %s",
+            name, provider_name, profile.name if profile is not None else "—",
+            stages.mode if stages else "—", len(stages.hits) if stages else 0,
+            len(stages.candidates) if stages else 0, context_tokens,
+            rag_llm.completion_tokens(result), duration_ms, grounding or "—")
         record = {
             "mode": name,
             "question": text,

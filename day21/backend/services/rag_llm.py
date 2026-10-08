@@ -14,14 +14,49 @@ from shared.deepseek_client import make_client
 from shared.logging_utils import get_logger
 
 from ..core import config
-from ..domain import rag_mode
+from ..domain import llm_provider, rag_mode
+from ..domain.local_tuning import TuningProfile
+from . import llm_factory
 from .llm_client import LLMCallResult
 from .rag_errors import RAGUpstreamError
 
 logger = get_logger(__name__)
 
-__all__ = ["call_with_retry", "completion_tokens", "make_rag_client", "response_text",
-           "usage_dict"]
+__all__ = ["answer", "call_with_retry", "client_for", "completion_tokens",
+           "make_rag_client", "response_text", "usage_dict"]
+
+
+def client_for(cache: dict, provider: Optional[str], profile: Optional[TuningProfile],
+               *, stub: Any = None, **kwargs: Any) -> Any:
+    """Клиент пары «провайдер + профиль» (день 29): подменённый или из кэша службы.
+
+    Профиль входит в ключ кэша: он несёт модель и ``num_ctx``, и клиент другой
+    модели, взятый из кэша, заставил бы Ollama перезагружать веса на каждом шаге.
+    ``stub`` — клиент из конструктора службы: при ``provider=None`` он важнее кэша
+    (так тесты и скрипты подставляют заглушку).
+    """
+    if provider is None and stub is not None:
+        return stub
+    name = llm_provider.resolve(provider)
+    key = f"{name}|{profile.key}" if profile is not None else name
+    if key not in cache:
+        cache[key] = llm_factory.get_llm_client(name, profile=profile, **kwargs)
+    return cache[key]
+
+
+def answer(sleep: Callable[[float], None], client: Any, *, system: str, context: str,
+           question: str, agent_id: str,
+           profile: Optional[TuningProfile] = None) -> Any:
+    """Вызов модели по контексту: параметры профиля дня 29 или значения дня 26.
+
+    Одна точка для RAG и мини-чата: профиль меняет системный промпт, температуру и
+    предел ответа одинаково в обоих местах, а тип задачи остаётся ``chat``.
+    """
+    return call_with_retry(
+        sleep, client.generate_with_context, system=system, context=context,
+        question=question, task_type=config.LLM_TASK_CHAT, agent_id=agent_id,
+        temperature=(profile.temperature if profile is not None else None),
+        max_tokens=(profile.max_tokens if profile is not None else None))
 
 
 def make_rag_client() -> Any:

@@ -16,12 +16,17 @@ from backend.agents.agent import Agent
 from backend.agents.agent_manager import AgentManager
 from backend.core import config
 from backend.core.prompt_builder import PromptBuilder, reset_prompt_builder
-from backend.services import llm_factory
+from backend.domain import llm_provider, local_tuning
+from backend.services import llm_factory, local_tuning_service
 from backend.services.local_llm_client import LocalLLMError
 from backend.storage import database
 from backend.storage.llm_usage_store import LLMUsageStore
 
+from rag_fakes import LocalDictStubClient
 from support import FakeClient
+
+#: Вопрос с литералом тестового корпуса: на него обязана найтись выдача.
+TUNE_QUESTION = "Чему равен CHARS_PER_PAGE?"
 
 #: Записи журнала для проверки агрегатов: две чат-строки и одна классификация.
 SEED_ROWS = (
@@ -310,3 +315,85 @@ def test_provider_endpoint_reports_current_config(client, monkeypatch):
     assert body["local_model"] == config.LOCAL_LLM_MODEL
     assert body["local_url"] == config.LOCAL_LLM_URL
     assert body["local_timeout"] == config.LOCAL_LLM_TIMEOUT
+    # Профиль дня 29: подписи и значения действующего профиля — те же, что в домене.
+    active = (local_tuning.active(llm_provider.PROVIDER_LOCAL)
+              or local_tuning.baseline_profile())
+    assert body["profiles"] == list(local_tuning.PROFILES)
+    assert body["profile_labels"] == local_tuning.PROFILE_LABELS
+    assert body["local_profile"] == active.name
+    assert body["local_num_ctx"] == active.num_ctx
+    assert body["local_temperature"] == active.temperature
+    assert body["local_chat_max_tokens"] == active.max_tokens
+
+
+def test_provider_endpoint_reports_baseline_values(client, monkeypatch):
+    """При `LOCAL_LLM_PROFILE=baseline` значения описывают день 26, а не константы tuned."""
+    monkeypatch.setattr(local_tuning, "LOCAL_LLM_PROFILE", local_tuning.PROFILE_BASELINE)
+
+    body = client.get("/llm/provider").json()
+
+    assert body["local_profile"] == local_tuning.PROFILE_BASELINE
+    assert body["local_temperature"] == config.DEFAULT_TEMPERATURE
+    assert body["local_num_ctx"] == local_tuning.BASELINE_NUM_CTX
+    assert body["local_chat_max_tokens"] is None
+
+
+# ---------- оптимизация локальной модели (день 29) ----------
+PS = {"models": [], "vram_mb": 0, "total_mb": 0, "error": ""}
+
+
+@pytest.fixture
+def tune_client(client, rag_service, monkeypatch):
+    """TestClient с подменённой службой RAG: ``/llm/tune`` ходит в неё, а не в корпус дня."""
+    import backend.api.main as main
+
+    monkeypatch.setattr(main, "get_rag_service", lambda: rag_service)
+    monkeypatch.setattr(local_tuning_service, "snapshot", lambda: dict(PS))
+    monkeypatch.setattr(local_tuning_service, "version", lambda: "0.12.0")
+    monkeypatch.setattr(llm_factory, "get_llm_client",
+                        lambda *args, **kwargs: LocalDictStubClient())
+    return client
+
+
+def test_tune_runs_profiles_with_metrics(tune_client):
+    """POST /llm/tune: вариант на профиль, строка на вопрос, ресурсы и сводка."""
+    response = tune_client.post("/llm/tune", json={"questions": [TUNE_QUESTION],
+                                                   "models": ["stub-local:1b"]})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["ollama_version"] == "0.12.0" and body["ps_before"] == PS
+    assert body["active_profile"] == local_tuning.LOCAL_LLM_PROFILE
+    assert [profile["profile"] for profile in body["profiles"]] == list(local_tuning.PROFILES)
+    assert [variant["params"]["profile"] for variant in body["variants"]] == \
+        list(local_tuning.PROFILES)
+    assert [variant["params"]["num_ctx"] for variant in body["variants"]] == \
+        [local_tuning.BASELINE_NUM_CTX, local_tuning.LOCAL_LLM_NUM_CTX]
+    assert all(len(variant["rows"]) == 1 for variant in body["variants"])
+    row = body["variants"][1]["rows"][0]
+    assert row["mode"] == "rag" and row["verdict"] and row["answer"]
+    assert row["sources"] and row["quotes_verified"] is True
+    assert row["completion_tokens"] == 0 and row["tokens_per_second"] == 0.0
+    summary = body["variants"][1]["summary"]
+    assert summary["questions"] == 1 and summary["verdict_ok"] == 0
+    assert body["pairs"][0]["model"] == "stub-local:1b" and body["best"]
+
+
+def test_tune_rejects_unknown_profile(tune_client):
+    """Незнакомый профиль — 400 с перечнем доступных, а не молчаливая подмена."""
+    response = tune_client.post("/llm/tune", json={"profiles": ["быстрый"]})
+
+    assert response.status_code == 400, response.text
+    assert "быстрый" in response.json()["detail"]
+
+
+def test_tune_reports_dead_ollama(tune_client, monkeypatch):
+    """Все строки с ошибкой — 502 с текстом причины (модель недоступна)."""
+    dead = LocalDictStubClient(error=RuntimeError("connection refused"))
+    monkeypatch.setattr(llm_factory, "get_llm_client", lambda *a, **k: dead)
+
+    response = tune_client.post("/llm/tune", json={"questions": [TUNE_QUESTION],
+                                                   "profiles": ["tuned"]})
+
+    assert response.status_code == 502, response.text
+    assert "connection refused" in response.json()["detail"]

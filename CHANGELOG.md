@@ -5,6 +5,95 @@
 структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
 `chore` (прочее: инфраструктура, скиллы, служебные изменения).
 
+## 2026-10-08 — feat — день 29: оптимизация локальной LLM под кейс RAG (профили и кванты)
+
+Кейс дня — ответы локальной модели по корпусу проекта (тот же путь дней 22–28:
+`POST /rag/query` с `provider=local` и мини-чат). Поиск по корпусу не меняется вообще
+(FAISS-индекс дня 22 и `sentence-transformers`) — сравнивается только генерация: профиль
+настройки (`temperature`, окно контекста, предел ответа, системный промпт) и тег модели
+(квант).
+
+* Профили: `baseline` (поведение дня 26: `temperature` 0.7, `num_ctx` 4096, предел по
+  типу задачи, прежний промпт) и `tuned` — **поведение по умолчанию** (`temperature`
+  0.2, `num_ctx` 8192, предел 512 токенов, переписанный `LOCAL_TUNED_RAG_PROMPT` с
+  форматом «Ответ:» плюс «Источники: [N]»). Переменные `LOCAL_LLM_PROFILE`,
+  `LOCAL_LLM_TEMPERATURE`, `LOCAL_LLM_NUM_CTX`, `LOCAL_LLM_CHAT_MAX_TOKENS`;
+  `LOCAL_LLM_PROFILE=baseline` возвращает день 26 целиком, облако DeepSeek не затронуто.
+* Домен: `backend/domain/local_tuning.py` — профили, `TuningProfile` (ключ кэша
+  клиентов и подпись варианта), `create`/`active`/`profile_for`/`prompt_for` и
+  разрешение окружения (env → `.env` → значение по умолчанию, битое значение —
+  предупреждение и дефолт, как у порога дня 24);
+  `backend/domain/local_tuning_eval.py` — строка прогона (вердикт дня 24 плюс
+  `mode_match`, `sources_found`, `quotes_verified`, `grounding_ok`, токены, скорость,
+  прогрев), сводка варианта (`avg_ms` только по строкам режима `rag`), правило
+  ранжирования (вердикты → цитаты → опора, тайбрейк — меньшее время) и пары «до/после»
+  по каждой модели.
+* Протяжка профиля: `backend/services/rag_llm.py` получил общие точки дня —
+  `client_for` (кэш клиентов по паре «провайдер + профиль»: профиль несёт модель и
+  `num_ctx`) и `answer` (вызов с системным промптом, температурой и пределом ответа
+  профиля); `RAGService` (`llm_client_for`, `_answer`, `retrieve`, `_rewrite`) и
+  `MiniChatService` (`llm_client_for`, `memory_client_for`, `_answer_record`) протянули
+  профиль; `llm_factory` передаёт профилю `model`/`num_ctx`, а `LocalLLMClient` кладёт
+  `num_ctx` в `options` только когда он задан и считает `tokens_per_second`
+  (из `eval_duration`) и `load_ms` (из `load_duration`).
+* HTTP: `POST /llm/tune` (восьмой эндпоинт `/llm`) — вариант «профиль × модель» на
+  вопросах корпуса: строки с вердиктом дня 24, цитатами, опорой, временем, токенами в
+  секунду и прогревом, снимок `GET /api/ps` (VRAM, `gpu_percent`, окно контекста),
+  версия Ollama и вердикты пар; схема `LocalTuneOut` (`backend/schemas/local_tuning.py`);
+  400 — незнакомый профиль, 409 — корпус не проиндексирован, 502 — Ollama недоступна
+  (все строки с ошибкой). `GET /llm/provider` отдаёт `local_profile`, `profiles`,
+  `profile_labels`, `local_num_ctx`, `local_temperature`, `local_chat_max_tokens`.
+* Службы: `backend/services/local_tuning_service.py` (прогон по варианту за запрос,
+  сбой вызова — строка `error`, полный отказ — `LocalLLMError`) и
+  `backend/services/local_llm_resources.py` (`GET /api/version`, `GET /api/ps`;
+  сбой метрики приходит данными, а не срывает прогон).
+* Интерфейс: `frontend/local_tuning_section.py` — раздел «⚙️ Оптимизация локальной
+  LLM» (подпись профиля, модели через запятую, мультивыбор профилей, `top_k`, кнопка
+  «🚀 Прогнать сравнение профилей», таблицы строк и сводки, ресурсы, блок «Промпт: до и
+  после», раскрывашки с полными ответами), `frontend/llm_api.py` (`api_local_tune`),
+  `frontend/chat_section.py` (пятнадцатый раздел), `app.py`.
+* Скрипты и отчёт: `scripts/run_local_llm_optimization.py` (прогон через
+  `POST /llm/tune` по варианту за запрос, флаги `--report`, `--backend`, `--models`,
+  `--profiles`, `--top-k`, `--strategy`, `--limit`) и
+  `scripts/local_tuning_report.py` (шапка, метод, промпт до/после, таблицы строк и
+  сводки, ресурсы, кванты, приложение, итог и «Выводы»).
+  Прогон 2026-10-08 (Ollama 0.40.0, RTX 5070 12 ГБ, `top_k` 5,
+  `rag_corpus_structural`, 10 вопросов демо, 40 строк):
+  * `tuned` быстрее на **7.17 → 5.10 с (1.40×)** у `qwen2.5-coder:14b` (Q4_K_M) и
+    5.39 → 5.01 с у `qwen2.5-coder:14b-instruct-q3_K_M` — за счёт короткого ответа
+    (суммарный вывод 698 → 429 токенов), скорость генерации та же (58.1 → 57.5 токенов/с);
+  * качество в пределах разброса: вердикты 6 против 5 и 4 против 5, цитаты 4 против 3
+    и 2 против 3 (повторный прогон менял счёт у `baseline` на единицу), поэтому вердикт
+    пары разный — «до оптимизации лучше» на Q4_K_M и «после оптимизации лучше» на Q3_K_M;
+  * цена окна 8192 — VRAM **9031 → 9803 МБ** (+772 МБ, GPU 100 %); квант Q3_K_M
+    экономит ≈ 1.5 ГБ VRAM (7558 против 9031 МБ) и даёт ~12 % к токенам/с (65.1 против
+    58.1), но слабее переносит `baseline` (4 против 6 вердиктов).
+* Тесты: `tests/unit/test_local_tuning.py` (23 теста домена),
+  `tests/unit/test_local_tuning_service.py` (6 тестов прогона),
+  дополнены `tests/unit/test_local_llm_client.py` (окно контекста и метрики скорости),
+  `tests/unit/test_llm_factory.py` (профиль в фабрике),
+  `tests/unit/test_rag_service_providers.py` (профиль в вызове RAG и приоритет явного
+  профиля) и `tests/e2e/test_llm_api.py` (`POST /llm/tune`, новые поля
+  `GET /llm/provider`, в том числе значения профиля `baseline`); набор дня —
+  2721 тест (быстрый прогон 2637).
+
+**Затронуто:** `day21/backend/domain/` (`local_tuning.py`, `local_tuning_eval.py`,
+`__init__.py`), `day21/backend/services/` (`rag_llm.py`, `rag_service.py`,
+`mini_chat_service.py`, `llm_factory.py`, `local_llm_client.py`,
+`local_tuning_service.py`, `local_llm_resources.py`, `__init__.py`),
+`day21/backend/schemas/` (`local_tuning.py`, `__init__.py`),
+`day21/backend/api/` (`llm.py`, `agents.py`),
+`day21/frontend/` (`local_tuning_section.py`, `llm_api.py`, `chat_section.py`),
+`day21/app.py`, `day21/scripts/` (`run_local_llm_optimization.py`,
+`local_tuning_report.py`),
+`day21/docs/reports/` (`local_llm_optimization.md`,
+`local_llm_optimization_ui.png`), `day21/tests/` (`unit/test_local_tuning.py`,
+`unit/test_local_tuning_service.py`, `unit/test_local_llm_client.py`,
+`unit/test_llm_factory.py`, `unit/test_rag_service_providers.py`,
+`e2e/test_llm_api.py`), документация `day21/` (`docs/usage.md`,
+`docs/architecture.md`, `docs/api.md`, `README.md`, `STRUCTURE.md`, `.env.example`),
+корневой `CHANGELOG.md`.
+
 ## 2026-10-07 — feat — день 28: локальный RAG — сравнение локальной и облачной модели
 
 RAG-контур целиком без облака: поиск по корпусу **всегда локальный** (FAISS-индекс

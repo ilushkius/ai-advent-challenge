@@ -8,7 +8,7 @@
 import pytest
 
 from backend.core import config
-from backend.domain import llm_provider
+from backend.domain import llm_provider, local_tuning
 from backend.services.llm_client import LLMClient
 from backend.services.llm_factory import get_llm_client
 from backend.services.local_llm_client import LocalLLMClient
@@ -57,6 +57,24 @@ def test_local_provider_accepts_timeout_override():
     client = get_llm_client("local", timeout=7.5)
 
     assert client.timeout == 7.5
+
+
+def test_profile_sets_model_and_context_window():
+    """Профиль дня 29 задаёт модель и окно контекста локального клиента."""
+    profile = local_tuning.create("tuned", model="qwen2.5-coder:14b-instruct-q3_K_M")
+
+    client = get_llm_client("local", profile=profile)
+
+    assert client.model == "qwen2.5-coder:14b-instruct-q3_K_M"
+    assert client.num_ctx == profile.num_ctx
+
+
+def test_without_profile_ollama_defaults_apply():
+    """Без профиля — поведение дня 26: модель конфига и окно по умолчанию Ollama."""
+    client = get_llm_client("local")
+
+    assert client.model == config.LOCAL_LLM_MODEL
+    assert client.num_ctx is None
 
 
 def test_deepseek_provider_returns_wrapper_on_factory():
