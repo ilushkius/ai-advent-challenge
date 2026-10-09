@@ -235,6 +235,10 @@ def root():
                 "/llm/provider, /llm/local-demo, /llm/tune (8 эндпоинтов — журнал "
                 "расходов, кэш контекста, непиковые часы, провайдер, демо локальной "
                 "модели и оптимизация её профилей)"),
+        "remote_llm": ("GET /llm/remote-config, POST /llm/remote/check, "
+                       "POST /llm/remote/step (3 эндпоинта — удалённая LLM в Google "
+                       "Colab: настройки раздела, проверка соединения по туннелю и "
+                       "шаг демо одной кнопкой)"),
         "rag": ("POST /rag/query, GET /rag/config, POST /rag/compare, "
                 "POST /rag/compare_modes, GET /rag/demo-questions, POST /rag/demo-run, "
                 "POST /rag/compare_providers "
@@ -347,6 +351,9 @@ def root():
             "GET /llm/provider",
             "POST /llm/local-demo",
             "POST /llm/tune",
+            "GET /llm/remote-config",
+            "POST /llm/remote/check",
+            "POST /llm/remote/step",
             "POST /rag/query",
             "GET /rag/config",
             "POST /rag/compare",

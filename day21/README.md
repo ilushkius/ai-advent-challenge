@@ -1,4 +1,73 @@
-# День 29 — оптимизация локальной LLM под кейс RAG
+# День 30 — удалённая LLM: Ollama в Google Colab за туннелем Cloudflare, демо одной кнопкой
+
+Задание дня — **развернуть локальную LLM удалённо и подключить её к проекту**: та же
+Ollama, что в дне 26, но не на этой машине. Ячейка в Google Colab (бесплатный GPU T4)
+командой `uvx collab-ollama --model qwen2.5-coder:7b` поднимает модель и туннель
+Cloudflare, который отдаёт публичный адрес вида `https://xxxx.trycloudflare.com/v1`;
+программа дня ходит на этот адрес по HTTP в формате OpenAI. Ключа у сервиса нет — он
+принимает любую строку (`ollama`), поэтому клиент отправляет её обычным заголовком
+`Authorization: Bearer`, а для него это просто ещё один OpenAI-совместимый сервис.
+Демонстрируется главное: приватный AI-сервис работает **не на этой машине**, а запросы
+уходят из программы дня (не `curl`).
+
+В интерфейсе это раздел **«🛰 Удалённая LLM»**: поле Base URL, поле модели, слайдеры
+«Rate limit (запросов в минуту)» (1…30, по умолчанию 10) и «Max context (токенов)»
+(1024…8192, по умолчанию 4096), кнопка «🔌 Проверить соединение» с зелёным/красным
+индикатором и большая кнопка **«🚀 Прогнать демо одной кнопкой»** — она гоняет сценарий
+из пяти шагов и заполняет таблицу: шаг, запрос, ответ (первые 200 символов), время,
+провайдер, статус, плюс сводка «запросов к модели / среднее время / шагов без ошибок /
+ошибок» и подтверждение, что ответы принёс провайдер `remote`. Полные ответы — в
+раскрывашках под таблицей.
+
+* **клиент** — `RemoteLLMClient` (`backend/services/remote_llm_client.py`): `POST
+  {base_url}/chat/completions` в формате OpenAI с `temperature`, `top_p`, `max_tokens`
+  и расширением Ollama `options.num_ctx` (туда уходит «Max context»); `GET
+  {base_url}/models` для проверки связи; интерфейс общий с `LocalLLMClient`
+  (`generate`, `generate_with_context`), поэтому фабрика
+  `llm_factory.get_llm_client(provider="remote")` подставляет его тем же путём, что
+  локального. Счётчик частоты живёт в клиенте (окно 60 с): N запросов в минуту уходят,
+  N+1-й отклоняется `RateLimitExceeded` (семантика 429) и в сеть не попадает.
+* **провайдер — третий, но не в переключателе** — `backend/domain/llm_provider.py`
+  знает `remote` и его подпись, однако переключатели провайдера (боковая панель дня 26 и
+  мини-чат) работают со списком `PICKER_PROVIDERS` = `deepseek`, `local`: адрес туннеля
+  живёт часами и умирает вместе с сессией Colab, держать его в общем переключателе RAG
+  значило бы ломать разделы дней 26–29 после каждого засыпания Colab.
+* **настройки** — `backend/core/llm_settings.py`: настройки провайдера ответа вынесены
+  из `config.py` (тот уперся в предел 400 строк), там же новый блок дня 30 —
+  `REMOTE_LLM_URL` (по умолчанию пусто: адрес вписывают в поле раздела),
+  `REMOTE_LLM_MODEL=qwen2.5-coder:7b`, `REMOTE_LLM_API_KEY=ollama`,
+  `REMOTE_LLM_RATE_LIMIT=10`, `REMOTE_LLM_MAX_CONTEXT=4096`; значения читаются на
+  импорте, поэтому после правки `.env` нужен рестарт бэкенда.
+* **HTTP раздела** — `backend/api/remote_llm.py`: `GET /llm/remote-config` (умолчания и
+  границы слайдеров), `POST /llm/remote/check` и `POST /llm/remote/step` (по вызову на
+  шаг — прогресс-бар показывает реальный ход, а прогон продолжается, даже если вкладку
+  закрыть); служба `backend/services/remote_llm_service.py` держит реестр клиентов,
+  чтобы счётчик частоты пережил границы HTTP-запросов, а шаги и сводка лежат в домене
+  `backend/domain/remote_demo.py`.
+* **предел частоты и окно контекста** — оба слайдера применяются при прогоне: лимит
+  считает клиент (шаг 5 демо начинает минуту заново, поэтому в таблице ровно N
+  прошедших запросов и N+1-й отклонённый), окно уходит в Ollama как `options.num_ctx`.
+  Полный сценарий проходит при лимите от 3 — об этом раздел пишет подписью, потому что
+  три вопроса шагов 2–4 идут в общее окно минуты.
+* **тот же прогон из консоли** — `uv run python scripts/demo_remote_llm.py --url
+  https://xxxx.trycloudflare.com/v1` (флаги `--model`, `--api-key`, `--rate-limit`,
+  `--max-context`, `--report`, `--no-report`) печатает шаги и перезаписывает отчёт
+  [docs/reports/remote_llm_service.md](docs/reports/remote_llm_service.md): платформа,
+  команда запуска в Colab, ручки прогона, ограничения, таблица пяти шагов, сводка и
+  выводы по измеренным числам. Инструкция — [docs/usage.md](docs/usage.md), раздел 12;
+  устройство — раздел «Удалённая LLM — день 30» в
+  [docs/architecture.md](docs/architecture.md).
+
+Ограничения дня названы прямо: предел частоты считает **клиент**, а не Ollama (сервис
+принял бы больше запросов); `options.num_ctx` поддержан не всеми версиями Ollama, то
+есть «Max context» — ручка клиента, а не измеренное окно сервиса; окно 4096 мало для
+длинных RAG-контекстов, поэтому раздел сделан для демонстрации удалённого сервиса, а
+RAG по-прежнему идёт через локальную или облачную модель; туннель бесплатного тарифа
+живёт часами и умирает вместе с сессией Colab; через туннель используются только
+`/v1/models` и `/v1/chat/completions`; первый ответ включает загрузку модели в память
+GPU, поэтому предел ожидания запроса поднят до 120 с.
+
+## День 29 — оптимизация локальной LLM под кейс RAG
 
 Задание дня — **настроить параметры локальной модели (`temperature`, предел ответа, окно
 контекста), попробовать квантование, переписать prompt-шаблон под кейс и сравнить
@@ -782,7 +851,14 @@ copy .env.example .env   # затем впишите DEEPSEEK_API_KEY=sk-...
 * `LLM_PROVIDER=deepseek` — провайдер ответа по умолчанию (день 26):
   `deepseek` или `local`;
 * `LOCAL_LLM_MODEL=qwen2.5-coder:14b`, `LOCAL_LLM_URL=http://localhost:11434` —
-  модель и адрес локальной Ollama (день 26).
+  модель и адрес локальной Ollama (день 26);
+* `REMOTE_LLM_URL=` — адрес туннеля Cloudflare из Colab (день 30); пусто — адрес
+  вписывается в поле раздела «🛰 Удалённая LLM»;
+* `REMOTE_LLM_MODEL=qwen2.5-coder:7b`, `REMOTE_LLM_API_KEY=ollama` — модель
+  удалённого сервиса и содержимое заголовка `Authorization` (Ollama его не проверяет);
+* `REMOTE_LLM_RATE_LIMIT=10`, `REMOTE_LLM_MAX_CONTEXT=4096` — предел частоты
+  клиентского счётчика (окно 60 с) и окно контекста, которое уходит в Ollama как
+  `options.num_ctx`.
 
 Терминал 1 (бэкенд) и терминал 2 (интерфейс, <http://localhost:8501>):
 
@@ -791,18 +867,19 @@ uv run uvicorn backend.api.main:app --port 8000
 uv run streamlit run app.py
 ```
 
-Разделов интерфейса пятнадцать (`frontend/chat_section.py`): «💬 Чат и память»,
+Разделов интерфейса шестнадцать (`frontend/chat_section.py`): «💬 Чат и память»,
 «👤 Профиль пользователя», «🧭 Состояние задачи», «📏 Инварианты», «🔌 MCP»,
 «🗓 Планировщик», «🔀 Пайплайны», «🌐 Оркестрация», «📦 Индексация» (день 21),
 **«🖥 Локальная LLM»** (день 26), **«⚙️ Оптимизация локальной LLM»** (день 29),
+**«🛰 Удалённая LLM»** (день 30) — удалённый сервис в Colab и демо одной кнопкой,
 «💰 Расходы» (день 21), «🆚 RAG-сравнение» (день 22), «🧪 RAG-демо» (день 24) и
 **«🏠 Локальный RAG»** (день 28) — сравнение локальной и облачной модели на десяти
 вопросах одной кнопкой.
 
 Полный набор эндпоинтов и примеры — в [docs/api.md](docs/api.md), как всё устроено
 внутри — в [docs/architecture.md](docs/architecture.md), Swagger — на
-`http://127.0.0.1:8000/docs`. В списке `GET /` 114 записей, включая девять
-`/indexing/*`, семь `/rag/*`, пять `/mini-chat/*` и восемь `/llm/*`.
+`http://127.0.0.1:8000/docs`. В списке `GET /` 117 записей, включая девять
+`/indexing/*`, семь `/rag/*`, пять `/mini-chat/*` и одиннадцать `/llm/*`.
 
 ## Тесты: что проверяется
 
@@ -812,7 +889,7 @@ uv run streamlit run app.py
 Тесты работают офлайн: клиент DeepSeek подменяется фейком, база — временная
 SQLite, а модель эмбеддингов, планировщик плана и флот MCP-серверов подменяются
 autouse-фикстурами (`isolated_indexing`, `offline_planner`, `no_real_fleet`), плюс
-`no_real_network` запрещает TCP на нелокальные адреса. Файлы дней 21–29:
+`no_real_network` запрещает TCP на нелокальные адреса. Файлы дней 21–30:
 
 | Группа | Файлы | Что проверяют |
 |---|---|---|
@@ -827,6 +904,7 @@ autouse-фикстурами (`isolated_indexing`, `offline_planner`, `no_real_f
 | Провайдеры RAG | `unit/test_rag_service_providers.py` | Сборка клиента по провайдеру (`local` → `LocalLLMClient`, `deepseek` → `LLMClient`), парный прогон одного вопроса двумя клиентами, строка `mode="error"` при сбое одного вызова, правило вердикта на семи парах записей и сводка из 15 полей; профиль настройки в вызове (промпт, температура, предел ответа) и приоритет явного профиля над `.env` |
 | Оптимизация локальной LLM | `unit/test_local_tuning.py`, `unit/test_local_tuning_service.py`, `unit/test_local_llm_client.py`, `unit/test_llm_factory.py`, `e2e/test_llm_api.py` | Профили и разрешение окружения, вердикты строки дня 24, сводка варианта (время только по строкам `rag`) и ранжирование пар; прогон на заглушке (параметры доходят до вызова, строка-ошибка, `LocalLLMError` при полном отказе Ollama, незнакомый профиль); окно контекста в `options` только при явном значении, `tokens_per_second`/`load_ms` из ответа Ollama и их запасной расчёт; профиль в фабрике клиента; HTTP-контракт `POST /llm/tune` (200, 400, 502) и новые поля `GET /llm/provider` |
 | Локальный RAG | `integration/test_local_rag_flow.py` (slow) | Полный локальный цикл на настоящих весах: реальный FAISS-индекс дня 22 с диска, настоящая модель эмбеддингов и настоящая Ollama; ответ по корпусу с источниками и цитатами, режим `dont_know` без вызова модели; пропускается, если Ollama или индекс недоступны |
+| Удалённая LLM | `unit/test_remote_llm_client.py`, `integration/test_remote_llm_flow.py` (slow) | Форма запроса: адрес `{base_url}/chat/completions`, заголовок `Authorization`, `stream=false`, `temperature`/`top_p`/`max_tokens` и `options.num_ctx`; системное сообщение отдельно от контекста; счётчик частоты — N запросов проходят, N+1 отклонён со статусом 429, окно сдвигается по часам; `GET /models` не тратит лимит; понятные тексты отказов (пустой адрес, недоступный туннель, 429 сервиса, не-JSON, пустой ответ); полный цикл пяти шагов по настоящему туннелю с проверкой сводки — пропускается, если адреса нет (`DAY21_REMOTE_LLM_URL` или `REMOTE_LLM_URL` в `.env`) |
 
 Унаследованные наборы дней 11–20 (память, стратегии, профиль, задача и переходы,
 инварианты, MCP, планировщик, пайплайн, флот и оркестрация) остаются на месте.
@@ -850,42 +928,44 @@ day21/
 ├── frontend/                 # Streamlit UI по секциям (включая indexing_api.py, indexing_section.py,
 │                             # indexing_compare.py, indexing_search.py, cost_api.py, cost_section.py,
 │                             # rag_api.py, rag_section.py, llm_api.py, local_llm_section.py,
-│                             # local_tuning_section.py)
+│                             # local_tuning_section.py, remote_llm_section.py, remote_llm_api.py)
 ├── mini_chat/                # отдельное приложение дня 25 (Streamlit, порт 8502): app.py (точка входа),
 │                             # api.py (запросы /mini-chat/...), panels.py (боковая панель и ход диалога)
 ├── backend/
-│   ├── api/                  # FastAPI: роутеры по доменам (в том числе indexing.py, llm.py, rag.py и mini_chat.py), main.py, lifespan.py
-│   ├── core/                 # config.py, env_file.py, prompt_builder.py, mcp_server_config.py, dependencies.py
+│   ├── api/                  # FastAPI: роутеры по доменам (в том числе indexing.py, llm.py, remote_llm.py, rag.py и mini_chat.py), main.py, lifespan.py
+│   ├── core/                 # config.py, llm_settings.py, env_file.py, prompt_builder.py, mcp_server_config.py, dependencies.py
 │   ├── domain/               # чистые правила: chunking, document_sources, index_metrics, index_scenarios,
 │   │                         # indexing_fsm, indexing_prompt, llm_cost, llm_provider, peak_hours,
-│   │                         # local_tuning, local_tuning_eval,
+│   │                         # local_tuning, local_tuning_eval, remote_demo,
 │   │                         # rag_filter, rag_mode, rag_corpus_spec, rag_eval + унаследованные домены
 │   ├── services/             # chunker, embedding_service, index_service, document_loader, index_runner,
 │   │                         # index_comparison, indexing_service, llm_client, prompt_compressor, off_peak,
 │   │                         # rag_corpus_loader, rag_corpus_index, rag_errors, rag_llm, rag_records,
 │   │                         # rag_retrieval, rag_service, rerank_service, mini_chat_service, mini_chat_memory,
 │   │                         # llm_factory, local_llm_client, local_llm_demo, local_llm_resources,
-│   │                         # local_tuning_service + унаследованные
+│   │                         # local_tuning_service, remote_llm_client, remote_llm_service + унаследованные
 │   ├── storage/              # database.py, chunk_store.py, index_run_store.py, index_rows.py, llm_usage_store.py,
 │   │                         # llm_usage_rows.py + унаследованные хранилища
 │   ├── agents/               # Agent (в generate — шаги поиска по индексу и метрики llm), MemoryManager, AgentManager
 │   ├── models/               # ORM: indexing.py (document_chunks, index_runs), llm_usage.py + унаследованные
-│   ├── schemas/              # Pydantic-схемы API (включая indexing.py, llm.py, rag.py, mini_chat.py и local_tuning.py)
+│   ├── schemas/              # Pydantic-схемы API (включая indexing.py, llm.py, remote_llm.py, rag.py, mini_chat.py и local_tuning.py)
 │   └── utils/                # своего кода нет: общий живёт в repo-level shared/
 ├── tests/                    # pytest: unit/, integration/, e2e/ + conftest.py и фейки (indexing_fakes.py, rag_fakes.py, …)
-├── docs/                     # architecture.md, api.md, usage.md, reports/ (indexing_demo.md, cost_optimization.md, rag_modes.md, rag_quotes_eval.md, local_llm_demo.md, local_rag_comparison.md, local_llm_optimization.md, context_optimization.md, test_optimization.md, …)
+├── docs/                     # architecture.md, api.md, usage.md, reports/ (indexing_demo.md, cost_optimization.md, rag_modes.md, rag_quotes_eval.md, local_llm_demo.md, local_rag_comparison.md, local_llm_optimization.md, remote_llm_service.md, context_optimization.md, test_optimization.md, …)
 ├── scripts/                  # прогоны демонстраций и сборка отчётов (indexing_demo.py, prepare_documents.py,
 │                             # indexing_scenarios.py, indexing_report.py, indexing_ui_shot.py, cost_optimization_report.py,
 │                             # prepare_rag_corpus.py, index_rag_corpus.py, run_rag_eval.py, rag_eval_report.py,
 │                             # rag_eval_cells.py, demo_local_llm.py, run_local_rag_comparison.py,
-│                             # run_local_llm_optimization.py, local_tuning_report.py, …)
+│                             # run_local_llm_optimization.py, local_tuning_report.py, demo_remote_llm.py, …)
 ├── STRUCTURE.md              # карта модулей дня по слоям и лимит 400 строк
 ├── pyproject.toml, uv.lock   # зависимости (uv): sentence-transformers, sentencepiece, faiss-cpu, numpy, mcp, sqlalchemy…
 ├── pytest.ini, conftest.py   # конфигурация pytest (pythonpath = . tests)
 ├── .env.example              # шаблон DEEPSEEK_API_KEY, DAY21_BACKEND_URL, DAY21_EMBEDDING_MODEL,
                               # LLM_PROVIDER, LOCAL_LLM_MODEL, LOCAL_LLM_URL и профиля настройки
                               # локальной модели (LOCAL_LLM_PROFILE, LOCAL_LLM_TEMPERATURE,
-                              # LOCAL_LLM_NUM_CTX, LOCAL_LLM_CHAT_MAX_TOKENS)
+                              # LOCAL_LLM_NUM_CTX, LOCAL_LLM_CHAT_MAX_TOKENS), REMOTE_LLM_URL,
+                              # REMOTE_LLM_MODEL, REMOTE_LLM_API_KEY, REMOTE_LLM_RATE_LIMIT,
+                              # REMOTE_LLM_MAX_CONTEXT
 └── output/, agents.db        # каталог save_to_file и база бэкенда (оба в .gitignore)
 ```
 
@@ -926,3 +1006,21 @@ day21/
 - **Агентский чат остаётся на DeepSeek.** Переключатель провайдера действует на
   `POST /rag/query` и мини-чат; `POST /agents/{id}/generate` идёт через
   `Agent.llm_client` и `PromptBuilder` и провайдером не управляется.
+- **Предел частоты удалённой LLM считает клиент.** `RemoteLLMClient` ведёт счётчик сам
+  (окно 60 с), Ollama в Colab его не проверяет и приняла бы больше запросов: раздел
+  показывает, что программа **умеет** держать лимит, а не что лимит есть у сервиса.
+  Полный сценарий демо проходит при лимите от 3 — шаг проверки частоты начинает минуту
+  заново, а три вопроса шагов 2–4 идут в общее окно.
+- **Туннель бесплатного тарифа живёт часами.** Сессия Colab засыпает, адрес
+  `*.trycloudflare.com` перестаёт отвечать, после перезапуска ячейки адрес другой.
+  Поэтому удалённого провайдера нет в общем переключателе (`deepseek`, `local`), а
+  Base URL вписывается руками в поле раздела (или в `REMOTE_LLM_URL`).
+- **`options.num_ctx` — расширение Ollama.** Не всякая версия его учитывает, поэтому
+  «Max context» — ручка клиента, а не измеренное окно сервиса; окно 4096 мало для
+  длинных RAG-контекстов, и раздел дня 30 сделан для демонстрации удалённого сервиса,
+  а не для RAG.
+- **Через туннель доступны только `/v1/models` и `/v1/chat/completions`.** Прочие
+  эндпоинты (например, Open WebUI в корне туннеля) могут быть закрыты или не подняты.
+- **Первый ответ удалённой модели включает загрузку весов в VRAM.** Предел ожидания
+  одного запроса — 120 с (`REMOTE_LLM_TIMEOUT`), и прогрев смещает среднее время
+  прогона вверх.

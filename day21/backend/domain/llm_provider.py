@@ -14,16 +14,29 @@ from ..core import config
 #: Имена провайдеров: они уходят в поле ``provider`` запросов и ответов API.
 PROVIDER_DEEPSEEK = "deepseek"
 PROVIDER_LOCAL = "local"
-PROVIDERS = (PROVIDER_DEEPSEEK, PROVIDER_LOCAL)
+#: Удалённая локальная модель (день 30): тот же Ollama, но развёрнутый в Google
+#: Colab и опубликованный через Cloudflare Tunnel. Сервис OpenAI-совместимый,
+#: поэтому клиент свой (``remote_llm_client``), а не ``local_llm_client`` с
+#: ``/api/chat``.
+PROVIDER_REMOTE = "remote"
+PROVIDERS = (PROVIDER_DEEPSEEK, PROVIDER_LOCAL, PROVIDER_REMOTE)
 
 #: Подписи для интерфейса: их отдаёт ``GET /llm/provider``, чтобы UI не дублировал
 #: список провайдеров своими литералами.
 PROVIDER_LABELS = {
     PROVIDER_DEEPSEEK: "🌐 DeepSeek (облако)",
     PROVIDER_LOCAL: "🖥 Local LLM (Ollama)",
+    PROVIDER_REMOTE: "🛰 Удалённая LLM (Colab)",
 }
 
-__all__ = ["PROVIDER_DEEPSEEK", "PROVIDER_LABELS", "PROVIDERS", "label",
+#: Кого предлагает переключатель интерфейса (боковая панель песочницы и мини-чата):
+#: удалённая модель дня 30 в него не входит — у неё свой раздел со своим адресом
+#: туннеля, который живёт часы. Список задан данными, а не в разметке: два радио
+#: (``sidebar``, ``mini_chat/panels``) читают его отсюда.
+PICKER_PROVIDERS = (PROVIDER_DEEPSEEK, PROVIDER_LOCAL)
+
+__all__ = ["PICKER_PROVIDERS", "PROVIDER_DEEPSEEK", "PROVIDER_LABELS",
+           "PROVIDER_LOCAL", "PROVIDER_REMOTE", "PROVIDERS", "label",
            "normalize_provider", "resolve"]
 
 

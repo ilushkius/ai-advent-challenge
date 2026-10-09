@@ -310,8 +310,8 @@ def test_provider_endpoint_reports_current_config(client, monkeypatch):
     body = client.get("/llm/provider").json()
 
     assert body["provider"] == "local"
-    assert body["providers"] == ["deepseek", "local"]
-    assert body["labels"]["local"] and body["labels"]["deepseek"]
+    assert body["providers"] == list(llm_provider.PROVIDERS)
+    assert set(body["labels"]) == set(body["providers"])
     assert body["local_model"] == config.LOCAL_LLM_MODEL
     assert body["local_url"] == config.LOCAL_LLM_URL
     assert body["local_timeout"] == config.LOCAL_LLM_TIMEOUT

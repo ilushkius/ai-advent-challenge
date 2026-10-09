@@ -102,7 +102,7 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
-def no_real_network(monkeypatch):
+def no_real_network(request, monkeypatch):
     """Тесты не выходят в сеть: чужой хост — падение с понятным текстом.
 
     Внешние API уже подменены (``FakeClient`` — DeepSeek, autouse-фикстуры
@@ -110,7 +110,14 @@ def no_real_network(monkeypatch):
     эмбеддингов, стенды ``stub_api``/``backend_stub`` слушают 127.0.0.1), но
     самой проверки не было: новый тест мог незаметно пойти в интернет. Запрет
     ловит ровно этот случай и не мешает локальным стендам и stdio-подпроцессам.
+
+    Тесты с маркером ``remote`` снимают запрет явно: сквозной прогон дня 30 идёт
+    по настоящему туннелю Cloudflare, адрес которого из кода не виден, а подмена
+    удалённого сервиса фейком проверяла бы не то (``test_remote_llm_flow``).
     """
+    if request.node.get_closest_marker("remote"):
+        return
+
     real_connect = socket.socket.connect
 
     def guarded(self, address, *args, **kwargs):

@@ -378,21 +378,20 @@ API_VERSION = "17.0.0"
 DB_PATH = Path(__file__).resolve().parents[2] / "agents.db"
 DATABASE_URL = f"sqlite:///{DB_PATH.as_posix()}"
 
-# --- Локальная LLM (день 26) ---------------------------------------------------
-# Второй провайдер ответа — Ollama по HTTP; `provider` в запросе перекрывает дефолт.
-LLM_PROVIDER_DEFAULT = "deepseek"
-LOCAL_LLM_MODEL_DEFAULT = "qwen2.5-coder:14b"
-LOCAL_LLM_URL_DEFAULT = "http://localhost:11434"
-LLM_PROVIDER = (os.environ.get("LLM_PROVIDER") or read_env_value("LLM_PROVIDER")
-                or LLM_PROVIDER_DEFAULT).strip().lower()
-LOCAL_LLM_MODEL = (os.environ.get("LOCAL_LLM_MODEL")
-                   or read_env_value("LOCAL_LLM_MODEL") or LOCAL_LLM_MODEL_DEFAULT)
-LOCAL_LLM_URL = (os.environ.get("LOCAL_LLM_URL") or read_env_value("LOCAL_LLM_URL")
-                 or LOCAL_LLM_URL_DEFAULT).rstrip("/")
-# Таймаут: локальная модель отвечает десятками секунд, включая прогрев весов.
-LOCAL_LLM_TIMEOUT = 120.0
-# Пределы ответа демо-запросов локальной модели по типу задачи (fact/logic/code).
-LOCAL_LLM_DEMO_MAX_TOKENS = {"fact": 128, "logic": 256, "code": 800}
+# --- Провайдеры ответа LLM: локальная и удалённая модель (дни 26, 30) ----------
+# Адреса, модели, таймауты и границы ручек двух провайдеров вынесены в отдельный
+# модуль: конфигурация упёрлась в предел 400 строк. Имена реэкспортируются, поэтому
+# код читает их как `config.LOCAL_LLM_URL` / `config.REMOTE_LLM_URL`.
+from .llm_settings import (  # noqa: E402  (импорт намеренно в конце файла)
+    LLM_PROVIDER, LLM_PROVIDER_DEFAULT, LOCAL_LLM_DEMO_MAX_TOKENS, LOCAL_LLM_MODEL,
+    LOCAL_LLM_MODEL_DEFAULT, LOCAL_LLM_TIMEOUT, LOCAL_LLM_URL, LOCAL_LLM_URL_DEFAULT,
+    REMOTE_LLM_API_KEY, REMOTE_LLM_API_KEY_DEFAULT, REMOTE_LLM_API_KEY_MAX,
+    REMOTE_LLM_CONNECT_MAX_TOKENS, REMOTE_LLM_DEMO_MAX_TOKENS, REMOTE_LLM_MAX_CONTEXT,
+    REMOTE_LLM_MAX_CONTEXT_DEFAULT, REMOTE_LLM_MAX_CONTEXT_MAX, REMOTE_LLM_MAX_CONTEXT_MIN,
+    REMOTE_LLM_MODEL, REMOTE_LLM_MODEL_DEFAULT, REMOTE_LLM_MODEL_MAX,
+    REMOTE_LLM_RATE_LIMIT, REMOTE_LLM_RATE_LIMIT_DEFAULT, REMOTE_LLM_RATE_LIMIT_MAX,
+    REMOTE_LLM_RATE_LIMIT_MIN, REMOTE_LLM_RATE_WINDOW_SECONDS, REMOTE_LLM_TIMEOUT,
+    REMOTE_LLM_URL, REMOTE_LLM_URL_DEFAULT, REMOTE_LLM_URL_MAX)
 
 
 def resolve_api_key():

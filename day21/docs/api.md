@@ -1,4 +1,4 @@
-# API дня 29 — агенты DeepSeek, индексация документов, RAG и оптимизация затрат на LLM: обязательные источники и цитаты, режим «не знаю» (порог релевантности), реранкер, порог отсечения, переформулировка запроса, мини-чат с памятью задачи, локальная LLM как второй провайдер ответа (Ollama по HTTP) и прогон профилей её настройки, оркестрация флота MCP-серверов, декларативный пайплайн, планировщик фоновых задач, контролируемые переходы, инварианты, состояние задачи, память, профиль и журнал расходов
+# API дня 30 — агенты DeepSeek, индексация документов, RAG и оптимизация затрат на LLM: обязательные источники и цитаты, режим «не знаю» (порог релевантности), реранкер, порог отсечения, переформулировка запроса, мини-чат с памятью задачи, локальная LLM как второй провайдер ответа (Ollama по HTTP), прогон профилей её настройки и удалённая LLM (та же Ollama в Google Colab за туннелем Cloudflare — свой раздел интерфейса и демо из пяти шагов одной кнопкой), оркестрация флота MCP-серверов, декларативный пайплайн, планировщик фоновых задач, контролируемые переходы, инварианты, состояние задачи, память, профиль и журнал расходов
 
 Бэкенд — FastAPI-приложение `day21/backend/api/main.py`. Заголовок приложения
 намеренно остаётся «Агенты DeepSeek + индексация документов и RAG — День 24»
@@ -148,19 +148,20 @@ LLM, прогноз экономии и поле `llm` генерации),
 
 ## Эндпоинты
 
-Всего 114 записей эндпоинтов (в списке `GET /` — все, кроме самой подсказки): 10 в
+Всего 117 записей эндпоинтов (в списке `GET /` — все, кроме самой подсказки): 10 в
 разделе агентов (CRUD, генерация и статистика), 9 контекста (сжатие, стратегии,
 ветки, факты), 10 памяти, 6 профилей пользователей, 11 состояния задачи, 6
 инвариантов, 5 MCP активного соединения, 3 флота MCP-серверов, 14 планировщика, 5
-пайплайна, 6 оркестрации, 9 индексации, 8 расходов и провайдера LLM (журнал,
-состояние, прогноз, модели, непиковые часы, провайдер, демо локальной модели и
-прогон профилей её настройки),
+пайплайна, 6 оркестрации, 9 индексации, 11 расходов и провайдера LLM (журнал,
+состояние, прогноз, модели, непиковые часы, провайдер, демо локальной модели,
+прогон профилей её настройки, а с дня 30 — настройки удалённой LLM в Colab,
+проверка связи с ней и шаг её демо),
 7 RAG (поиск по
 корпусу, режим без RAG, сравнение, сравнение режимов отбора, вопросы демо, прогон
 демо и сравнение провайдеров) и 5 мини-чата (сессия, реплика, память задачи, история
 реплик и закрытие
 сессии). Вместе с корневым
-`GET /` приложение объявляет 114 эндпоинтов, а уникальных путей в OpenAPI — 95:
+`GET /` приложение объявляет 117 эндпоинтов, а уникальных путей в OpenAPI — 98:
 FastAPI сводит методы одного пути
 (`GET`/`POST`/`DELETE /orchestration/runs/{run_id}` — это три записи одного пути) в
 одну запись схемы.
@@ -276,10 +277,13 @@ FastAPI сводит методы одного пути
 | POST | `/llm/estimate` | прогноз экономии по числам токенов: вклад кэша, сжатия, непика и предела ответа | 200 LLMSavingsOut |
 | GET | `/llm/models` | маршрутизация моделей: тип задачи → модель и предел ответа, доля цены кэша, тарифы моделей | 200 LLMModelsOut |
 | GET | `/llm/peak` | правило непиковых окон DeepSeek (UTC) и текущий статус окна | 200 `{off_peak_weekday_hours_utc, peak_weekday_hours_utc, weekends_off_peak, discount_percent, status}` |
-| GET | `/llm/provider` | провайдер ответа по умолчанию (день 26), список допустимых имён, подписи и параметры локальной модели (`local_model`, `local_url`, `local_timeout`), плюс профиль настройки дня 29 (`local_profile`, `profiles`, `profile_labels`, `local_num_ctx`, `local_temperature`, `local_chat_max_tokens`) | 200 `{provider, providers, labels, local_model, local_url, local_timeout, local_profile, profiles, profile_labels, local_num_ctx, local_temperature, local_chat_max_tokens}` |
+| GET | `/llm/provider` | провайдер ответа по умолчанию (день 26), `providers` — список допустимых имён (`deepseek`/`local`/`remote`), подписи и параметры локальной модели (`local_model`, `local_url`, `local_timeout`), плюс профиль настройки дня 29 (`local_profile`, `profiles`, `profile_labels`, `local_num_ctx`, `local_temperature`, `local_chat_max_tokens`) | 200 `{provider, providers, labels, local_model, local_url, local_timeout, local_profile, profiles, profile_labels, local_num_ctx, local_temperature, local_chat_max_tokens}` |
 | POST | `/llm/local-demo` | три запроса к локальной модели (факт, логика, код) через Ollama по HTTP: ответы, время, токены и эвристика качества | 200 LocalDemoOut; 502 — Ollama недоступна |
 | POST | `/llm/tune` | прогон одного варианта «профиль × модель» локальной модели на вопросах корпуса: качество (вердикт дня 24, цитаты, опора), скорость (время, токенов/с, прогрев) и ресурсы (`GET /api/ps`), плюс сводка «до/после»; поиск по корпусу не меняется (400 — незнакомый профиль, 409 — корпус не проиндексирован, 502 — Ollama недоступна) | 200 LocalTuneOut |
-| POST | `/rag/query` | ответ по корпусу RAG (`use_rag`) или тот же вопрос без контекста; поле `provider` (`deepseek`/`local`, день 26) выбирает отвечающего и возвращается в ответе; слабый контекст — режим «не знаю» без вызова модели (400 — пустой вопрос, неизвестная стратегия или незнакомый провайдер; 409 — корпус не проиндексирован) | 200 RagQueryOut |
+| GET | `/llm/remote-config` | настройки раздела дня 30: адрес туннеля, модель, ключ, предел частоты, окно контекста, границы обоих слайдеров и пять шагов демо | 200 RemoteConfigOut |
+| POST | `/llm/remote/check` | `GET {base_url}/models` по туннелю: зелёный индикатор с числом моделей или текст причины отказа (недоступный туннель — `ok: false` в 200, а не ошибка API; 400 — пустой адрес) | 200 RemoteCheckOut |
+| POST | `/llm/remote/step` | один шаг демо (`connection`/`fact`/`logic`/`code`/`rate_limit`) — строка таблицы: запрос, ответ, время, провайдер `remote`, статус, токены и счётчик частоты; сбой шага — строка со `status="error"` (400 — пустой адрес или неизвестный шаг) | 200 RemoteRowOut |
+| POST | `/rag/query` | ответ по корпусу RAG (`use_rag`) или тот же вопрос без контекста; поле `provider` (`deepseek`/`local`, день 26; `remote` — день 30) выбирает отвечающего и возвращается в ответе; слабый контекст — режим «не знаю» без вызова модели (400 — пустой вопрос, неизвестная стратегия или незнакомый провайдер; 409 — корпус не проиндексирован) | 200 RagQueryOut |
 | GET | `/rag/config` | готовность режима, состав корпуса, чанки по стратегиям и лимиты (включая порог дня 24) | 200 RagConfigOut |
 | POST | `/rag/compare` | один вопрос — два ответа: без RAG и с контекстом корпуса | 200 RagCompareOut |
 | POST | `/rag/compare_modes` | один вопрос через несколько режимов отбора сразу (`modes`) | 200 RagModesOut |
@@ -287,7 +291,7 @@ FastAPI сводит методы одного пути
 | POST | `/rag/demo-run` | прогон демо: `rows` с режимом, ответом, источниками, цитатами и вердиктом по каждому вопросу + `summary` | 200 RagDemoOut |
 | POST | `/rag/compare_providers` | список вопросов — на локальной и облачной модели, строки сравнения и сводка | 200 RagCompareProvidersOut |
 | POST | `/mini-chat/sessions` | новая сессия мини-чата (8 hex-символов) вместе с `task_id` памяти задачи `mc-<session_id>` | 201 MiniChatSessionOut |
-| POST | `/mini-chat/sessions/{session_id}/messages` | реплика: ответ по корпусу с источниками и цитатами, обновление памяти задачи; поле `provider` (`deepseek`/`local`, день 26) выбирает, кто отвечает и обновляет память; слабый контекст — режим «не знаю», повторный сбой модели — `mode="error"` (404 — неизвестная сессия, 400 — незнакомый провайдер) | 200 MiniChatAnswerOut |
+| POST | `/mini-chat/sessions/{session_id}/messages` | реплика: ответ по корпусу с источниками и цитатами, обновление памяти задачи; поле `provider` (`deepseek`/`local`, день 26; `remote` — день 30) выбирает, кто отвечает и обновляет память; слабый контекст — режим «не знаю», повторный сбой модели — `mode="error"` (404 — неизвестная сессия, 400 — незнакомый провайдер) | 200 MiniChatAnswerOut |
 | GET | `/mini-chat/sessions/{session_id}/memory` | память задачи: `goal`, `terms`, `constraints`, `clarifications` и число реплик | 200 MiniChatTaskMemoryOut |
 | GET | `/mini-chat/sessions/{session_id}/history` | реплики сессии в порядке добавления (необязательный `limit`) | 200 MiniChatHistoryOut |
 | DELETE | `/mini-chat/sessions/{session_id}` | закрыть сессию: удалить реплики (идемпотентно); память задачи остаётся | 200 MiniChatCloseOut |
@@ -5792,12 +5796,13 @@ curl.exe -X POST http://127.0.0.1:8000/mcp/servers/refresh \
 ## Расходы на LLM
 
 Оптимизация затрат — подсистема дня 21: сколько стоят запросы агентов и какими
-рычагами эта стоимость снижается. Восемь эндпоинтов `/llm` отдают то же, что видно
-во вкладке «💰 Расходы» интерфейса и в отчёте
+рычагами эта стоимость снижается. Одиннадцать эндпоинтов `/llm` отдают то же, что
+видно во вкладке «💰 Расходы» интерфейса и в отчёте
 `day21/docs/reports/cost_optimization.md`: журнал расходов, состояние рычагов,
 прогноз, справку по моделям, правило непиковых окон, провайдера ответа и демо
-локальной модели (день 26: `GET /llm/provider`, `POST /llm/local-demo`), а также
-прогон профилей её настройки (день 29: `POST /llm/tune`).
+локальной модели (день 26: `GET /llm/provider`, `POST /llm/local-demo`), прогон
+профилей её настройки (день 29: `POST /llm/tune`) и удалённую LLM в Colab (день 30:
+`GET /llm/remote-config`, `POST /llm/remote/check`, `POST /llm/remote/step`).
 
 Каждый запрос к DeepSeek пишется строкой в таблицу `llm_usage`
 (`backend/models/llm_usage.py`): агент, время, модель, тип задачи, токены ввода и
@@ -6014,25 +6019,31 @@ curl -X POST http://127.0.0.1:8000/llm/estimate -H "Content-Type: application/js
 ### GET /llm/provider
 
 Провайдер ответа процесса и параметры локальной модели (день 26): `provider` —
-`deepseek` (значение по умолчанию) или `local`, `providers` — список допустимых
-имён, `labels` — подписи для интерфейса, `local_model`, `local_url`,
-`local_timeout`. Здесь же — профиль настройки локальной модели (день 29):
-`local_profile` (`baseline` | `tuned`), `profiles` (имена), `profile_labels`
-(подписи для интерфейса) и значения **действующего** профиля локального провайдера —
-`local_num_ctx`, `local_temperature`, `local_chat_max_tokens` (при `baseline` это
-4096, 0.7 и `null`: предел ответа берётся по типу задачи, как в дне 26). Значения
-читаются из `config.LLM_PROVIDER` и домена `backend/domain/local_tuning.py` на момент
-запроса, а не на импорте, поэтому после правки `day21/.env` и перезапуска бэкенда
-ответ меняется. Переключатель в песочнице и раздел «⚙️ Оптимизация локальной LLM»
-подписывают себя этими же данными.
+`deepseek` (значение по умолчанию), `local` или `remote` (день 30), `providers` —
+список допустимых имён, `labels` — подписи для интерфейса, `local_model`,
+`local_url`, `local_timeout`. Здесь же — профиль настройки локальной модели
+(день 29): `local_profile` (`baseline` | `tuned`), `profiles` (имена),
+`profile_labels` (подписи для интерфейса) и значения **действующего** профиля
+локального провайдера — `local_num_ctx`, `local_temperature`,
+`local_chat_max_tokens` (при `baseline` это 4096, 0.7 и `null`: предел ответа
+берётся по типу задачи, как в дне 26). Значения читаются из
+`config.LLM_PROVIDER` и домена `backend/domain/local_tuning.py` на момент запроса, а
+не на импорте, поэтому после правки `day21/.env` и перезапуска бэкенда ответ
+меняется. Переключатель в песочнице и раздел «⚙️ Оптимизация локальной LLM»
+подписывают себя этими же данными. Настроек удалённого провайдера (адрес туннеля,
+окно контекста) здесь нет: они живут в `GET /llm/remote-config`, а в общий
+переключатель (`GET /llm/provider`, боковая панель, мини-чат) удалённая модель не
+входит — адрес туннеля живёт часы, и пункт меню, который чаще всего недоступен,
+только путал бы.
 
 ```bash
 curl.exe http://127.0.0.1:8000/llm/provider
 ```
 
 ```json
-{"provider":"deepseek","providers":["deepseek","local"],
- "labels":{"deepseek":"🌐 DeepSeek (облако)","local":"🖥 Local LLM (Ollama)"},
+{"provider":"deepseek","providers":["deepseek","local","remote"],
+ "labels":{"deepseek":"🌐 DeepSeek (облако)","local":"🖥 Local LLM (Ollama)",
+           "remote":"🛰 Удалённая LLM (Colab)"},
  "local_model":"qwen2.5-coder:14b","local_url":"http://localhost:11434",
  "local_timeout":120.0,"local_profile":"tuned","profiles":["baseline","tuned"],
  "profile_labels":{"baseline":"🧊 До оптимизации (baseline)",
@@ -6136,6 +6147,151 @@ curl.exe -X POST http://127.0.0.1:8000/llm/tune ^
 Коды: `200`; `400` — незнакомый профиль или отказ запроса к корпусу (пустой вопрос,
 неизвестная стратегия); `409` — корпус не проиндексирован; `502` — Ollama недоступна.
 
+### Удалённая LLM (день 30)
+
+Третий провайдер ответа — та же Ollama, но развёрнутая не на ноутбуке, а в Google
+Colab (бесплатный GPU T4) и открытая наружу туннелем Cloudflare: `RemoteLLMClient`
+говорит с ней по OpenAI-формату (`GET {base_url}/models`,
+`POST {base_url}/chat/completions`) с заголовком `Authorization: Bearer <api_key>`
+(Ollama его не проверяет, значение — любая строка). Тело каждого запроса несёт
+`model`, `messages`, `stream: false`, `temperature`, `top_p`, `max_tokens` и
+олламовское расширение `options: {"num_ctx": …}` — окно контекста задаётся именно
+там, а не в стандартном поле. Запрос к туннелю живёт до 120 с: первый ответ грузит
+веса модели в память GPU. Три эндпоинта ниже — ручки раздела «🛰 Удалённая LLM»:
+`GET /llm/remote-config` рисует раздел, `POST /llm/remote/check` отвечает за зелёный
+индикатор, `POST /llm/remote/step` выполняет **один** шаг демо, чтобы прогресс-бар
+отражал настоящий ход прогона. Роутер — `backend/api/remote_llm.py`, схемы —
+`backend/schemas/remote_llm.py`, клиент — `backend/services/remote_llm_client.py`.
+
+Предел частоты (слайдер раздела, 1…30, по умолчанию 10) реализован **на стороне
+клиента**: `RemoteLLMClient` держит очередь отметок времени за последние 60 секунд и
+на N+1-м запросе бросает `RateLimitExceeded` (смысл кода `429`), не обращаясь к
+сервису; сама Ollama такого предела не знает и приняла бы запросы дальше. Проверка
+связи (`GET /models`) счётчик не расходует. Служба `backend/services/remote_llm_service.py`
+держит клиентов в реестре по настройкам и `run_id`, поэтому счётчик переживает
+отдельные HTTP-запросы шагов.
+
+Провайдер `remote` принимается и общим контуром ответа: `provider` у
+`POST /rag/query` и мини-чата проверяется тем же списком имён, что и `deepseek` с
+`local`, поэтому `remote` там не «незнакомое имя». Но полей раздела в этих путях нет:
+адрес туннеля берётся только из `REMOTE_LLM_URL`, а профиль дня 29 к удалённой модели
+не применяется (`local_tuning.profile_for("remote", None)` отдаёт `None`) — удалённую
+модель удобнее прогонять её собственным разделом и скриптом. В переключателях
+интерфейса (боковая панель, мини-чат) её нет: они подписаны списком
+`PICKER_PROVIDERS` (`deepseek`, `local`), потому что адрес туннеля живёт часы.
+
+| Схема | Где | Поля |
+|---|---|---|
+| `RemoteSettingsIn` | тело `check` и `step` | `url`, `model`, `api_key`, `rate_limit`, `max_context`; пустая строка или ноль — «взять из `day21/.env`» |
+| `RemoteConfigOut` | ответ `remote-config` | `provider`, `label`, `url`, `model`, `api_key`, `rate_limit`, `max_context`, `timeout`, `rate_window_seconds`, четыре границы слайдеров, `steps` |
+| `RemoteStepInfoOut` | элемент `steps` | `key`, `title`, `question`, `kind` (`check` \| `ask` \| `rate`) |
+| `RemoteCheckOut` | ответ `check` | `ok`, `message`, `models`, `count`, `url`, `model`, `duration_ms`, `rate_limit` |
+| `RemoteRowOut` | ответ `step` | `step`, `title`, `question`, `answer`, `duration_ms`, `provider`, `model`, `status`, `calls`, `tokens` и необязательные `rate_limit`, `limit`, `sent`, `blocked`, `sample`, `models` |
+
+### GET /llm/remote-config
+
+Раздел интерфейса рисуется ровно по этому ответу: `provider` (`remote`), `label`,
+значения из `day21/.env` — `url` (`REMOTE_LLM_URL`, может быть пустым), `model`,
+`api_key`, `rate_limit`, `max_context`, — `timeout` и окно счётчика
+`rate_window_seconds`, границы обоих слайдеров (`rate_limit_min`/`max`,
+`max_context_min`/`max_context`) и `steps`: пять шагов прогона по порядку с полями
+`key`, `title`, `question` и `kind` (`check` | `ask` | `rate`). Значения по умолчанию
+отдаёт бэкенд, а не фронтенд, — иначе предзаполненное поле и настройка, которой
+реально отвечает служба, могли бы разойтись.
+
+```bash
+curl.exe http://127.0.0.1:8000/llm/remote-config
+```
+
+```json
+{"provider":"remote","label":"🛰 Удалённая LLM (Colab)","url":"","model":"qwen2.5-coder:7b",
+ "api_key":"ollama","rate_limit":10,"max_context":4096,"timeout":120.0,
+ "rate_window_seconds":60.0,"rate_limit_min":1,"rate_limit_max":30,
+ "max_context_min":1024,"max_context_max":8192,
+ "steps":[{"key":"connection","title":"Проверка соединения","question":"GET /models","kind":"check"},
+          {"key":"fact","title":"Простой вопрос","question":"Столица Франции?","kind":"ask"},
+          {"key":"logic","title":"Логическая задача","question":"У Алисы 3 яблока, у Боба в 2 раза больше. Сколько всего яблок?","kind":"ask"},
+          {"key":"code","title":"Генерация кода","question":"Напиши функцию на Python для сортировки списка пузырьком","kind":"ask"},
+          {"key":"rate_limit","title":"Проверка rate limit","question":"N+1 запросов подряд при лимите N в минуту","kind":"rate"}]}
+```
+
+### POST /llm/remote/check
+
+Тело — `RemoteCheckIn` с единственным полем `settings` (`RemoteSettingsIn`: `url`,
+`model`, `api_key`, `rate_limit`, `max_context`). Пустое поле означает «значение
+`day21/.env`», ноль — «граница из конфига»; незнакомый или пустой адрес даёт `400` с
+подсказкой, куда его вписать. Успех — `ok: true`, сообщение «✅ Соединение
+установлено, доступно N моделей», список `models` и время запроса `duration_ms`.
+Недоступный туннель — **не ошибка API**: ответ приходит с кодом `200`, но `ok: false`
+и текстом причины («ячейка в Colab работает, а туннель Cloudflare не закрылся»), и
+раздел показывает красный индикатор вместо падения страницы. Счётчик частоты в ответе
+идёт как есть — проверка связи его не расходует.
+
+```bash
+curl.exe -X POST http://127.0.0.1:8000/llm/remote/check ^
+  -H "Content-Type: application/json" ^
+  -d "{\"settings\":{\"url\":\"https://xxxx.trycloudflare.com/v1\",\"rate_limit\":10,\"max_context\":4096}}"
+```
+
+```json
+{"ok":true,"message":"✅ Соединение установлено, доступно 1 моделей",
+ "models":["qwen2.5-coder:7b"],"count":1,"url":"https://xxxx.trycloudflare.com/v1",
+ "model":"qwen2.5-coder:7b","duration_ms":120,
+ "rate_limit":{"limit":10,"used":0,"window_seconds":60.0}}
+```
+
+### POST /llm/remote/step
+
+Тело — `RemoteStepIn`: те же `settings`, ключ шага `step`
+(`connection` | `fact` | `logic` | `code` | `rate_limit`) и флаг `reset` (интерфейс
+передаёт `true` на первом шаге прогона, чтобы счётчик частоты начал минуту с нуля).
+Ответ — `RemoteRowOut`, строка таблицы: `step`, `title`, `question`, `answer`,
+`duration_ms`, `provider` (`remote`), `model`, `status` (`ok` | `error`), `calls`
+(сколько HTTP-запросов ушло на шаге) и `tokens` (`RagTokensOut` со
+`prompt_tokens`/`completion_tokens`; у шага про частоту их нет — это тот же вопрос,
+повторённый N+1 раз), `rate_limit` — состояние счётчика после шага. Свои поля есть
+только у тех шагов, где они что-то значат: `models` — у проверки связи, а `limit`,
+`sent`, `blocked`, `sample` — у шага про частоту.
+
+Шаг `rate_limit` начинается с `reset`, шлёт N запросов с короткой подсказкой и
+`max_tokens: 8`, а на N+1-м получает клиентский отказ: `answer` = «Rate limit
+exceeded: N запросов в минуту — N-й запрос прошёл, N+1-й отклонён клиентом»,
+`status` остаётся `ok` (ограничение сработало как задумано), `blocked: 1`. Без сброса
+счётчика отказ пришёлся бы на N−2-й запрос шага — три вопроса шагов 2–4 идут в то же
+окно минуты, поэтому полный сценарий проходит при лимите от 3. Неизвестный шаг и
+пустой адрес — `400`; сбой внутри шага (туннель закрылся, ответ не в формате OpenAI,
+пустой `choices[0].message.content`) возвращается строкой со `status: "error"`, и
+прогон показывает, где именно оборвался, а не превращает всю таблицу в красную плашку.
+
+```bash
+curl.exe -X POST http://127.0.0.1:8000/llm/remote/step ^
+  -H "Content-Type: application/json" ^
+  -d "{\"settings\":{\"url\":\"https://xxxx.trycloudflare.com/v1\"},\"step\":\"fact\",\"reset\":true}"
+```
+
+```json
+{"step":"fact","title":"Простой вопрос","question":"Столица Франции?","answer":"Париж",
+ "duration_ms":1810,"provider":"remote","model":"qwen2.5-coder:7b","status":"ok","calls":1,
+ "tokens":{"model":"qwen2.5-coder:7b","prompt_tokens":10,"completion_tokens":1,
+           "cache_hit_tokens":0,"cache_miss_tokens":10,"cache_hit_percent":0.0,
+           "cost_estimate":0.0},
+ "rate_limit":{"limit":10,"used":1,"window_seconds":60.0},
+ "limit":null,"sent":null,"blocked":null,"sample":null,"models":null}
+```
+
+Так выглядит шаг про частоту при лимите 3:
+
+```json
+{"step":"rate_limit","title":"Проверка rate limit","question":"4 запросов подряд при лимите 3/мин",
+ "answer":"Rate limit exceeded: 3 запросов в минуту — 3-й запрос прошёл, 4-й отклонён клиентом",
+ "duration_ms":194,"provider":"remote","model":"qwen2.5-coder:7b","status":"ok","calls":3,
+ "tokens":null,"rate_limit":{"limit":3,"used":3,"window_seconds":60.0},
+ "limit":3,"sent":3,"blocked":1,"sample":"ок","models":null}
+```
+
+Коды: `200` — шаг выполнен или оборвался строкой `status: "error"`; `400` — пустой
+адрес или неизвестный шаг.
+
 ## RAG-режим
 
 RAG-режим — подсистема дня 22, дополненная в дне 23 вторым этапом отбора и в
@@ -6177,8 +6333,9 @@ RAG-режим — подсистема дня 22, дополненная в д�
 (`true` — ответ с контекстом корпуса, `false` — тот же вопрос без него; различие
 запросов ровно одно — наличие блока контекста) и рычаги дня 23: `rewrite`,
 `rerank`, `min_score`, `top_k_candidates`, а также `provider` (день 26):
-`deepseek` (по умолчанию — `LLM_PROVIDER`) или `local` (Ollama по HTTP); незнакомое
-имя — 400 `Неизвестный провайдер LLM`. Ответ — `RagQueryOut`: `mode`, `answer`,
+`deepseek` (по умолчанию — `LLM_PROVIDER`) или `local` (Ollama по HTTP), а с дня 30
+принимается и `remote` — но адрес туннеля этот путь берёт только из `REMOTE_LLM_URL`
+(полей раздела в нём нет); незнакомое имя — 400 `Неизвестный провайдер LLM`. Ответ — `RagQueryOut`: `mode`, `answer`,
 `provider` (кто ответил),
 `sources` (восемь полей фрагмента с четырьмя баллами), `quotes` (по цитате на
 фрагмент, день 24), `quotes_verified` и `confidence` (опора ответа на цитаты),
@@ -6628,7 +6785,9 @@ curl.exe -X POST http://127.0.0.1:8000/mini-chat/sessions ^
 
 Реплика пользователя. Тело — `MiniChatMessageIn`: `message` (1…500 символов),
 `top_k` (1…10, по умолчанию 5) и `provider` (день 26: `deepseek` по умолчанию или
-`local` — тогда и ответ, и извлечение памяти идут в Ollama; незнакомое имя — 400).
+`local` — тогда и ответ, и извлечение памяти идут в Ollama; с дня 30 тем же списком
+принимается и `remote`, но адрес он берёт только из `REMOTE_LLM_URL`; незнакомое
+имя — 400).
 Автор ответа возвращается полем `provider` записи.
 Сервер: достаёт фрагменты отбором
 `rag_service.retrieval`, собирает контекст из трёх блоков, вызывает модель
@@ -6736,10 +6895,10 @@ curl.exe -X POST http://127.0.0.1:8000/mini-chat/sessions/464d0f5f/messages ^
 
 | Код | Когда | Тело |
 |---|---|---|
-| `400` | мини-чат: пустое после обрезки пробелов сообщение (`POST /mini-chat/sessions/{session_id}/messages`); RAG: пустой вопрос (`POST /rag/query`, `POST /rag/compare`) и неизвестная стратегия поиска (не `rag_corpus_structural`/`rag_corpus_fixed`); пустой `task_id` после обрезки пробелов в `PUT /memory/task`; недопустимый переход состояния задачи: пропуск этапа, откат больше чем на этап, переход «в себя», выход из этапа без согласования (guard-условие), любой переход из `done`, пауза из `done` и повторная пауза, `advance` и `rollback` на паузе, шаг чужого этапа, несовпадение `to_stage` с целью отката, `resume` не на паузе; цель MCP не разобрана: пустая после обрезки пробелов, URL там, где нужен запуск команды, и наоборот; `POST /mcp/call` — инструмента нет в каталоге сервера или аргументы не подходят по `input_schema` (нет обязательного, лишний, тип не тот); `POST /scheduler/tasks` — инструмент не входит в планировщик дня, лишний/отсутствующий аргумент, значение не того типа или вне границ, `source_url` без `http(s)://`, неразобранное расписание (интервал вне 1…86400, cron не из пяти полей, `date` без `run_date`); неизвестный `status` в фильтрах `/scheduler/tasks` и `/scheduler/reminders`; негодная конфигурация пайплайна (не объект, пустой список `steps`, шагов больше `PIPELINE_STEPS_MAX`, шаг без `tool`, неизвестное условие `op`) и неизвестный `status` в фильтре `/pipelines/runs`; негодный план оркестрации (не объект, пустой список `steps`, шагов больше `ORCH_STEPS_MAX`, шаг без `tool`, `args` не объект, неизвестное условие), невыполнимый сценарий оркестрации (плана нет, а флот не публикует нужных инструментов) неизвестный `status` в фильтре `/orchestration/runs`; неизвестная `strategy` индексации, пустой `query` поиска и отсутствие документов у `/indexing/*`, неизвестный период агрегации расходов у `GET /llm/usage` (не `day`/`week`/`month`/`all`) | `HTTPException` с `detail` (у `POST /tasks/{task_id}/transition` — причина и подсказка) |
+| `400` | мини-чат: пустое после обрезки пробелов сообщение (`POST /mini-chat/sessions/{session_id}/messages`); RAG: пустой вопрос (`POST /rag/query`, `POST /rag/compare`) и неизвестная стратегия поиска (не `rag_corpus_structural`/`rag_corpus_fixed`); пустой `task_id` после обрезки пробелов в `PUT /memory/task`; недопустимый переход состояния задачи: пропуск этапа, откат больше чем на этап, переход «в себя», выход из этапа без согласования (guard-условие), любой переход из `done`, пауза из `done` и повторная пауза, `advance` и `rollback` на паузе, шаг чужого этапа, несовпадение `to_stage` с целью отката, `resume` не на паузе; цель MCP не разобрана: пустая после обрезки пробелов, URL там, где нужен запуск команды, и наоборот; `POST /mcp/call` — инструмента нет в каталоге сервера или аргументы не подходят по `input_schema` (нет обязательного, лишний, тип не тот); `POST /scheduler/tasks` — инструмент не входит в планировщик дня, лишний/отсутствующий аргумент, значение не того типа или вне границ, `source_url` без `http(s)://`, неразобранное расписание (интервал вне 1…86400, cron не из пяти полей, `date` без `run_date`); неизвестный `status` в фильтрах `/scheduler/tasks` и `/scheduler/reminders`; негодная конфигурация пайплайна (не объект, пустой список `steps`, шагов больше `PIPELINE_STEPS_MAX`, шаг без `tool`, неизвестное условие `op`) и неизвестный `status` в фильтре `/pipelines/runs`; негодный план оркестрации (не объект, пустой список `steps`, шагов больше `ORCH_STEPS_MAX`, шаг без `tool`, `args` не объект, неизвестное условие), невыполнимый сценарий оркестрации (плана нет, а флот не публикует нужных инструментов) неизвестный `status` в фильтре `/orchestration/runs`; неизвестная `strategy` индексации, пустой `query` поиска и отсутствие документов у `/indexing/*`, неизвестный период агрегации расходов у `GET /llm/usage` (не `day`/`week`/`month`/`all`); удалённая LLM (день 30): пустой адрес туннеля — ни в теле запроса, ни в `REMOTE_LLM_URL` (`POST /llm/remote/check`, `POST /llm/remote/step`) — и неизвестный ключ шага демо (не `connection`/`fact`/`logic`/`code`/`rate_limit`) | `HTTPException` с `detail` (у `POST /tasks/{task_id}/transition` — причина и подсказка) |
 | `404` | неизвестный `session_id` во всех `/mini-chat/sessions/{session_id}/...`; неизвестный `agent_id` во всех `/agents/{agent_id}/...` (а для `DELETE /memory/long-term/{id}` — ещё и отсутствующая запись); нет профиля у `GET`/`PUT`/`DELETE /users/{user_id}/profile`; неизвестный `task_id` во всех `/tasks/{task_id}/...`; неизвестный `task_id` у `/scheduler/tasks/{task_id}/...` и `notification_id` у `POST /scheduler/notifications/{id}/read`; неизвестный `run_id` у `/pipelines/runs/{run_id}`, `…/steps` и `DELETE /pipelines/runs/{run_id}`, а также у `/orchestration/runs/{run_id}`, `…/steps` и `DELETE /orchestration/runs/{run_id}` и у `/indexing/runs/{run_id}`; неизвестное имя сервера у `GET /mcp/servers/{name}/tools` | `HTTPException` с `detail` |
 | `409` | мини-чат: корпус не проиндексирован и неизвестный режим отбора; корпус RAG не проиндексирован (`POST /rag/query`, `POST /rag/compare` без индексных чанков); профиль с таким `user_id` уже есть (`POST /users/{user_id}/profile`); задача с таким `task_id` уже заведена (`POST /agents/{agent_id}/tasks`); `GET /mcp/tools` и `POST /mcp/call` без соединения с MCP-сервером; пауза не активной задачи и возобновление не стоящей на паузе, запуск уже выполненной задачи планировщика; поиск по непостроенному индексу (`GET /indexing/search` без индексации) | `HTTPException` с `detail` |
-| `422` | невалидное тело запроса (Pydantic/FastAPI): у мини-чата — пустой `message` (1…500 символов), `top_k` вне 1…10, `limit` вне 1…500 и `user_id` длиннее 64 символов; невалидные поля профиля, `initial_stage` вне `planning`/`execution`/`validation`, неизвестный этап/шаг, слишком длинные `expected_action`/`reason`, пустой `task_id`, тело `PATCH /tasks/{task_id}/context` без единого флага, пустая цель или неизвестный транспорт у `POST /mcp/connect`, пустое или длиннее 100 символов имя инструмента у `POST /mcp/call`, `schedule_type` вне `date`/`interval`/`cron`, пустой или длиннее 64 символов `tool`, пустое или длиннее 100 символов `name` у `POST /scheduler/tasks`, не объект `pipeline`/`initial_args`, не булево `background` у `POST /pipelines/run`, нечисловой `limit`/`run_id` в `/pipelines/...`, пустая или длиннее 500 символов `query`, не объект `plan`/`initial_args`, не булево `background`, нечисловой `run_id`/`limit` в `/orchestration/...`, `top_k` вне 1…20, `limit` < 1 и не булево `background` в `/indexing/...` | объект с `detail` — списком ошибок |
+| `422` | невалидное тело запроса (Pydantic/FastAPI): у мини-чата — пустой `message` (1…500 символов), `top_k` вне 1…10, `limit` вне 1…500 и `user_id` длиннее 64 символов; невалидные поля профиля, `initial_stage` вне `planning`/`execution`/`validation`, неизвестный этап/шаг, слишком длинные `expected_action`/`reason`, пустой `task_id`, тело `PATCH /tasks/{task_id}/context` без единого флага, пустая цель или неизвестный транспорт у `POST /mcp/connect`, пустое или длиннее 100 символов имя инструмента у `POST /mcp/call`, `schedule_type` вне `date`/`interval`/`cron`, пустой или длиннее 64 символов `tool`, пустое или длиннее 100 символов `name` у `POST /scheduler/tasks`, не объект `pipeline`/`initial_args`, не булево `background` у `POST /pipelines/run`, нечисловой `limit`/`run_id` в `/pipelines/...`, пустая или длиннее 500 символов `query`, не объект `plan`/`initial_args`, не булево `background`, нечисловой `run_id`/`limit` в `/orchestration/...`, `top_k` вне 1…20, `limit` < 1 и не булево `background` в `/indexing/...`; у удалённой LLM (день 30) — `url`/`model`/`api_key` длиннее 500/64/128 символов, `rate_limit` вне 0…30, `max_context` вне 0…8192 и отсутствующий `step` | объект с `detail` — списком ошибок |
 | `502` | сбой генерации `POST /generate` (нет ключа, сеть, лимиты); мини-чат: сбой этапа отбора (`RAGUpstreamError`) до вызова генерации (сбой самой модели даёт не `502`, а `mode: "error"` со статусом `200`); RAG: вызов модели в режиме с контекстом не удался после повторов и откат на ответ без контекста тоже не прошёл (`POST /rag/query`, `POST /rag/compare`); MCP-сервер недоступен, команда запуска не найдена, таймаут `initialize` или ошибка `tools/list`; `POST /mcp/call` — соединение оборвалось и ответа от инструмента не было | `GenerateResponse` со `status:"error"`; у MCP — `HTTPException` с одной строкой текста и подсказкой |
 
 `400` — недопустимый переход состояния задачи. Там, где целевой этап назвал

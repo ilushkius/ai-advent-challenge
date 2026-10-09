@@ -1,6 +1,7 @@
 """
 FastAPI-приложение дня 25: память, задача, инварианты, MCP-флот, планировщик, пайплайн,
-оркестрация MCP-серверов, индексация документов, расходы на LLM, режим RAG и мини-чат.
+оркестрация MCP-серверов, индексация документов, расходы на LLM, режим RAG, мини-чат и
+удалённая LLM.
 
 Запуск из папки day21/:  uvicorn backend.api.main:app --port 8000
 Swagger-документация:  http://127.0.0.1:8000/docs
@@ -12,8 +13,8 @@ Swagger-документация:  http://127.0.0.1:8000/docs
 
 Дни 22–24 — режим RAG (``backend/api/rag.py``): поиск по корпусу, ответ с контекстом и без него,
 сравнение ответов и режимов отбора, кросс-энкодер с порогом отсечения, обязательные источники
-и цитаты, проверка опоры и режим «не знаю». День 25 добавил мини-чат
-(``backend/api/mini_chat.py``, 5 эндпоинтов): сессии, ответ с источниками, память задачи и история.
+и цитаты, проверка опоры и режим «не знаю». День 25 дал мини-чат (``backend/api/mini_chat.py``):
+сессии, ответ с источниками, история; день 30 (``backend/api/remote_llm.py``) — удалённую LLM.
 
 Здесь только сборка приложения: эндпоинты живут в ``backend/api/``, доступ к службам — в
 ``backend/core/dependencies.py``; функции ``get_manager``, ``get_mcp_registry``, ``get_scheduler``,
@@ -41,7 +42,7 @@ from ..services.schedule_service import get_schedule_service
 from ..services.scheduler import get_scheduler
 from . import (
     agents, context, indexing, invariants, llm, mcp, mcp_servers, memory,
-    mini_chat, orchestration, pipelines, profiles, rag, scheduler, tasks,
+    mini_chat, orchestration, pipelines, profiles, rag, remote_llm, scheduler, tasks,
 )
 from .lifespan import lifespan
 
@@ -74,5 +75,6 @@ app.include_router(orchestration.router)
 app.include_router(pipelines.router)
 app.include_router(profiles.router)
 app.include_router(rag.router)
+app.include_router(remote_llm.router)
 app.include_router(scheduler.router)
 app.include_router(tasks.router)

@@ -72,7 +72,13 @@
   с источниками и цитатами, память задачи и история диалога в одном промпте;
 - ``mini_chat_memory`` — правила памяти задачи мини-чата: четыре ключа рабочей
   памяти (цель, термины, ограничения, уточнения), извлечение моделью и снимок
-  для панели и API (день 25).
+  для панели и API (день 25);
+- ``remote_llm_client`` — ``RemoteLLMClient``: тот же ответ от Ollama, но по
+  OpenAI-формату через туннель Cloudflare, с расширением ``options.num_ctx`` и
+  клиентским счётчиком частоты за окно 60 секунд (день 30);
+- ``remote_llm_service`` — ``run_step``/``check_connection``/``summarize``: один
+  шаг демо на HTTP-запрос, реестр клиентов, чтобы счётчик частоты пережил
+  границы запросов, и строки-ошибки вместо исключений (день 30).
 
 Сервисы знают про домен и хранилище, но не про HTTP и не про Streamlit.
 """
@@ -88,7 +94,8 @@ from . import (
     orchestration_service, orchestrator, pipeline, pipeline_service,
     schedule_service, scheduled_jobs, scheduler, source_fetch, task_state,
     rag_corpus_index, rag_corpus_loader, rag_demo_service, rag_errors, rag_llm,
-    rag_records, rag_retrieval, rag_service, rerank_service,
+    rag_records, rag_retrieval, rag_service, remote_llm_client, remote_llm_service,
+    rerank_service,
 )
 from .apscheduler_bridge import RECONCILE_JOB_ID, TASK_JOB_PREFIX
 from .compressor import SUMMARY_SYSTEM_PROMPT, CompressionError, ContextCompressor
@@ -266,6 +273,8 @@ __all__ = [
     "rag_records",
     "rag_retrieval",
     "rag_service",
+    "remote_llm_client",
+    "remote_llm_service",
     "rerank_service",
     "prepare",
     "schedule_service",

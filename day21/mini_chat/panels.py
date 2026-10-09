@@ -38,7 +38,7 @@ def render_sidebar() -> None:
     # Провайдер ответа (день 26): ключ свой (`mc_provider`), а не общий с основной
     # песочницей — приложения независимы, и общее значение путало бы два радио.
     st.sidebar.subheader("🤖 Провайдер ответа")
-    st.sidebar.radio("Провайдер ответа", list(llm_provider.PROVIDERS),
+    st.sidebar.radio("Провайдер ответа", list(llm_provider.PICKER_PROVIDERS),
                      format_func=llm_provider.label, label_visibility="collapsed",
                      key="mc_provider")
     st.sidebar.slider("Фрагментов в контексте (top_k)", api.TOP_K_MIN, api.TOP_K_MAX,

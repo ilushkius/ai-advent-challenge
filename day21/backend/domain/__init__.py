@@ -51,7 +51,7 @@ from . import (
     aggregation,
     chunking, rag_corpus_spec, rag_eval, rag_mode,
     llm_cost,
-    local_tuning, local_tuning_eval,
+    local_tuning, local_tuning_eval, remote_demo,
     peak_hours,
     document_sources,
     indexing_fsm,

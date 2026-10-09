@@ -25,12 +25,13 @@ def render_sidebar() -> None:
     # Значение ключа заводит сам виджет (`index=0` — DeepSeek): раздел RAG читает
     # st.session_state["llm_provider"] уже после отрисовки панели.
     st.sidebar.subheader("🤖 Провайдер LLM")
-    st.sidebar.radio("Провайдер LLM", list(llm_provider.PROVIDERS),
+    st.sidebar.radio("Провайдер LLM", list(llm_provider.PICKER_PROVIDERS),
                      format_func=llm_provider.label, label_visibility="collapsed",
                      key="llm_provider")
     st.sidebar.caption("Действует на ответ по корпусу в разделе «💬 Чат и память». "
-                       "Агентский чат всегда идёт в DeepSeek; вкладка «🖥 Локальная "
-                       "LLM» и мини-чат отвечают локальной моделью сами.")
+                       "Агентский чат всегда идёт в DeepSeek; вкладки «🖥 Локальная "
+                       "LLM» и «🛰 Удалённая LLM» (день 30) и мини-чат отвечают "
+                       "своими клиентами сами.")
     if st.sidebar.button("🔄 Обновить список"):
         common.load_agents()
 
