@@ -19,6 +19,7 @@ if TYPE_CHECKING:  # только для аннотаций
     from ..agents.agent_manager import AgentManager
     from ..core.prompt_builder import PromptBuilder
     from ..services.llm_client import LLMClient
+    from ..services.dev_assistant_service import DevAssistantService
     from ..services.embedding_service import EmbeddingService
     from ..services.index_service import IndexService
     from ..services.indexing_service import IndexingService
@@ -175,6 +176,18 @@ def get_rerank_service() -> "RerankService":
     from ..api import main
 
     return main.get_rerank_service()
+
+
+def get_dev_assistant_service() -> "DevAssistantService":
+    """Служба ассистента разработчика (день 31): документация проекта плюс git через MCP.
+
+    Та же точка подмены, что у остальных служб: тесты подменяют
+    ``monkeypatch.setattr(main, "get_dev_assistant_service", ...)``, и подмену видят
+    роутер ``/dev-assistant``, скрипт демо и раздел «🧑‍💻 Ассистент разработчика».
+    """
+    from ..api import main
+
+    return main.get_dev_assistant_service()
 
 
 def get_prompt_builder() -> "PromptBuilder":

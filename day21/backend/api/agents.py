@@ -251,6 +251,10 @@ def root():
                       "GET /mini-chat/sessions/{session_id}/history, "
                       "DELETE /mini-chat/sessions/{session_id} "
                       "(5 эндпоинтов — мини-чат с RAG и памятью задачи)"),
+        "dev_assistant": ("POST /dev-assistant/help, GET /dev-assistant/tools, "
+                          "GET /dev-assistant/git-context (3 эндпоинта — ассистент "
+                          "разработчика: ответ по документации проекта и состоянию "
+                          "репозитория через свой MCP-сервер dev_server)"),
         "endpoints": [
             "POST /agents", "GET /agents", "GET /agents/{agent_id}",
             "PATCH /agents/{agent_id}", "DELETE /agents/{agent_id}",
@@ -366,5 +370,8 @@ def root():
             "GET /mini-chat/sessions/{session_id}/memory",
             "GET /mini-chat/sessions/{session_id}/history",
             "DELETE /mini-chat/sessions/{session_id}",
+            "POST /dev-assistant/help",
+            "GET /dev-assistant/tools",
+            "GET /dev-assistant/git-context",
         ],
     }

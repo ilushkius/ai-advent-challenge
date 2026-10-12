@@ -14,14 +14,16 @@ Swagger-документация:  http://127.0.0.1:8000/docs
 Дни 22–24 — режим RAG (``backend/api/rag.py``): поиск по корпусу, ответ с контекстом и без него,
 сравнение ответов и режимов отбора, кросс-энкодер с порогом отсечения, обязательные источники
 и цитаты, проверка опоры и режим «не знаю». День 25 дал мини-чат (``backend/api/mini_chat.py``):
-сессии, ответ с источниками, история; день 30 (``backend/api/remote_llm.py``) — удалённую LLM.
+сессии, ответ с источниками, история; день 30 (``backend/api/remote_llm.py``) — удалённую LLM;
+день 31 (``backend/api/dev_assistant.py``) — ассистента разработчика: вопрос ``/help`` отвечает
+по документации проекта (RAG) и состоянию репозитория (свой MCP-сервер ``dev_server``).
 
 Здесь только сборка приложения: эндпоинты живут в ``backend/api/``, доступ к службам — в
 ``backend/core/dependencies.py``; функции ``get_manager``, ``get_mcp_registry``, ``get_scheduler``,
 ``get_schedule_service``, ``get_pipeline_service``, ``get_orchestration_service``,
 ``get_indexing_service``, ``get_index_service``, ``get_embedding_service``, ``get_llm_client``,
-``get_rag_service``, ``get_mini_chat_service`` и ``get_rerank_service`` импортированы сюда как
-точки подмены для тестов.
+``get_rag_service``, ``get_mini_chat_service``, ``get_dev_assistant_service`` и
+``get_rerank_service`` импортированы сюда как точки подмены для тестов.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from ..agents.agent_manager import get_manager
 from ..core import config
 from ..services.embedding_service import get_embedding_service
+from ..services.dev_assistant_service import get_dev_assistant_service
 from ..services.index_service import get_index_service
 from ..services.indexing_service import get_indexing_service
 from ..services.llm_client import get_llm_client
@@ -41,8 +44,9 @@ from ..services.rerank_service import get_rerank_service
 from ..services.schedule_service import get_schedule_service
 from ..services.scheduler import get_scheduler
 from . import (
-    agents, context, indexing, invariants, llm, mcp, mcp_servers, memory,
-    mini_chat, orchestration, pipelines, profiles, rag, remote_llm, scheduler, tasks,
+    agents, context, dev_assistant, indexing, invariants, llm, mcp, mcp_servers,
+    memory, mini_chat, orchestration, pipelines, profiles, rag, remote_llm,
+    scheduler, tasks,
 )
 from .lifespan import lifespan
 
@@ -61,20 +65,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Пути в роутерах абсолютные (префиксов нет).
-app.include_router(agents.router)
-app.include_router(context.router)
-app.include_router(indexing.router)
-app.include_router(llm.router)
-app.include_router(invariants.router)
-app.include_router(mcp.router)
-app.include_router(mcp_servers.router)
-app.include_router(memory.router)
-app.include_router(mini_chat.router)
-app.include_router(orchestration.router)
-app.include_router(pipelines.router)
-app.include_router(profiles.router)
-app.include_router(rag.router)
-app.include_router(remote_llm.router)
-app.include_router(scheduler.router)
-app.include_router(tasks.router)
+# Пути в роутерах абсолютные (префиксов нет); порядок списка = порядок регистрации.
+for _router in (agents, context, dev_assistant, indexing, invariants, llm, mcp,
+                mcp_servers, memory, mini_chat, orchestration, pipelines, profiles,
+                rag, remote_llm, scheduler, tasks):
+    app.include_router(_router.router)

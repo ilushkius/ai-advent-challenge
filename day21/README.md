@@ -1,4 +1,67 @@
-# День 30 — удалённая LLM: Ollama в Google Colab за туннелем Cloudflare, демо одной кнопкой
+# День 31 — ассистент разработчика: `/help` по документации проекта и git-контекст через MCP
+
+Задание дня — **сделать ассистента, который понимает проект**: отвечает по документации
+(тот же корпус RAG дня 22, дополненный документами репозитория) и по состоянию
+репозитория, которое отдаёт **свой** MCP-сервер. Вопрос задаётся командой `/help` в
+интерфейсе или эндпоинтом `POST /dev-assistant/help`; ответ приходит вместе с
+источниками (файл и секция фрагмента) и списком вызванных MCP-инструментов, а провайдера
+ответа (DeepSeek или локальная Ollama) выбирает переключатель раздела.
+
+В интерфейсе это раздел **«🧑‍💻 Ассистент разработчика (Day 31)»**: кнопки-подсказки с
+пятью вопросами демо (нажатие подставляет вопрос и сразу отправляет его), переключатель
+провайдера, диалог слева с раскрывашками **«📚 Источники»** и **«🛠 MCP-инструменты»**
+под каждым ответом и панель процесса справа — каталог инструментов dev-сервера, текущая
+ветка с коммитом и кнопка «🧹 Очистить диалог».
+
+* **два источника, один ответ** — `backend/services/dev_assistant_service.py`: поиск
+  фрагментов документации (`IndexService.search` по стратегии дня 22) и вызовы
+  инструментов MCP-сервера разработки; контекст склеивается в два блока
+  («=== ДОКУМЕНТАЦИЯ ПРОЕКТА (фрагменты RAG) ===» и «=== СОСТОЯНИЕ РЕПОЗИТОРИЯ (MCP) ===»)
+  и уходит модели тем же путём, что RAG и мини-чат (`rag_llm`).
+* **`mcp_servers/dev_server`** — четвёртый MCP-сервер проекта, и единственный, который
+  работает **вне флота дня 20** (`mcp_servers.json` не меняется): служба поднимает его
+  своим клиентом по stdio и закрывает при остановке бэкенда. Четыре инструмента:
+  `get_git_branch` (ветка, коммит, изменённые файлы, признак чистого дерева),
+  `list_files` (файлы каталога с фильтром расширения), `get_git_diff` (последние N строк
+  diff рабочего дерева и индекса) и `get_project_structure` (дерево папки `day21/` с
+  числом каталогов и файлов). Проверка без модели:
+  `uv run python scripts/dev_mcp_probe.py --tool get_git_branch`.
+* **тип вопроса решает, что подтягивать** — `backend/domain/dev_assistant.py`:
+  `docs` (только документация), `git` (только репозиторий) и `mixed` (оба), плюс план
+  инструментов — `get_git_branch` всегда первым у git-вопросов, остальные — по словам
+  вопроса. Классификация — таблица подстрок, а не вызов модели: она не должна стоить
+  запроса.
+* **документация в корпусе — правка таблицы источников** — `RAG_CORPUS_SOURCES`
+  (`backend/domain/rag_corpus_spec.py`) получает пять записей: `day21/docs/api.md`,
+  корневые `README.md`, `ARCHITECT_PROMPT.md`, `WORKFLOW.md`, `AGENTS.md`; окно README
+  дня расширено до 30 000 символов, а окно `day21/backend/api/lifespan.py` — до 5 200
+  (иначе правка дня вытеснила бы из корпуса факт `model-warmup`, который проверяет
+  контрольный вопрос дня 22). Пересборка — `uv run python scripts/reindex_with_docs.py`:
+  она печатает отдельно чанки документации (минимум `DOCUMENTATION_MIN_CHUNKS` = 30 на
+  стратегию) и общий объём корпуса.
+* **отказ — это данные, а не стек** — недоступный индекс даёт предупреждение «Индекс
+  документации пуст …», недоступный сервер — «MCP-сервер разработки недоступен …»,
+  ошибка одного инструмента — запись `ok: false`, а ответ всё равно приходит по второму
+  источнику. Если не собралось ничего, служба честно отвечает «Данных нет …» и не
+  вызывает модель; `502` в API — только для сбоя самой модели.
+* **тот же прогон из консоли** — `uv run python scripts/demo_dev_assistant.py`
+  (флаги `--provider`, `--report`, `--no-report`): пять вопросов демо, печать источников и
+  инструментов по строке и отчёт
+  [docs/reports/dev_assistant_demo.md](docs/reports/dev_assistant_demo.md) с контекстом
+  запуска (корпус, чанки документации, инструменты, ветка) и полными ответами. Инструкция —
+  [docs/usage.md](docs/usage.md), раздел 13; устройство — раздел «Ассистент разработчика —
+  день 31» в [docs/architecture.md](docs/architecture.md).
+
+Что видно на вопросах демо: «как запустить тесты?» отвечает по `day21/README.md` и
+`WORKFLOW.md` (облачный прогон — десятки секунд), «что в текущей git-ветке?» — по
+`get_git_branch` без обращения к корпусу, «покажи структуру проекта» — деревом из
+`get_project_structure`, «какие файлы изменены?» — по `get_git_branch` и `get_git_diff`.
+Ограничения названы прямо: вопросы, которых нет в окнах корпуса, получают честный ответ
+«в этих фрагментах данных нет» (документация индексируется окнами `max_chars`, а не
+целиком); diff читается из рабочего дерева, поэтому после коммита дня он пуст; локальный
+провайдер отвечает по тому же контексту, но медленнее — те же пять вопросов идут минуты.
+
+## День 30 — удалённая LLM: Ollama в Google Colab за туннелем Cloudflare, демо одной кнопкой
 
 Задание дня — **развернуть локальную LLM удалённо и подключить её к проекту**: та же
 Ollama, что в дне 26, но не на этой машине. Ячейка в Google Colab (бесплатный GPU T4)
@@ -496,13 +559,15 @@ Hugging Face, в Git он не попадает. Модель задаётся �
 Локальный RAG (сравнение с облачным) — [docs/reports/local_rag_comparison.md](docs/reports/local_rag_comparison.md);
 инструкция запуска — [docs/usage.md](docs/usage.md), раздел «Локальный RAG (день 28)».
 
-Корпус собирает `scripts/prepare_rag_corpus.py` из 36 источников дня 21
+Корпус собирает `scripts/prepare_rag_corpus.py` из 41 источника
 (`RAG_CORPUS_SOURCES` домена `backend/domain/rag_corpus_spec.py`: `README.md`,
-`STRUCTURE.md`, `AGENTS.md`, `docs/` и исходники подсистем индексации и оптимизации
-затрат) в `documents/rag_corpus/`: ≈ 314 669 символов ≈ 174 страницы. Минимумы
-(`RAG_CORPUS_MIN_PAGES` = 25, `RAG_CORPUS_MIN_CHUNKS` = 50 на стратегию) проверяют
-скрипты. Оба индекса — `index/rag_corpus_fixed.index` и
-`index/rag_corpus_structural.index` — строит `scripts/index_rag_corpus.py`;
+`STRUCTURE.md`, `AGENTS.md`, документация `docs/` вместе с документами репозитория
+(корневой `README.md`, `AGENTS.md`, `WORKFLOW.md`, `ARCHITECT_PROMPT.md`, `docs/api.md`)
+и исходники подсистем дня) в `documents/rag_corpus/`: ≈ 382 652 символа ≈ 212 страниц.
+Минимумы (`RAG_CORPUS_MIN_PAGES` = 25, `RAG_CORPUS_MIN_CHUNKS` = 50 на стратегию)
+проверяют скрипты. Оба индекса — `index/rag_corpus_fixed.index` и
+`index/rag_corpus_structural.index` — строит `scripts/index_rag_corpus.py`, а вместе с
+документацией проекта (день 31) — `scripts/reindex_with_docs.py`;
 метаданные чанков лежат в той же таблице `document_chunks` (колонка `strategy` =
 `rag_corpus_fixed` / `rag_corpus_structural`), новых таблиц нет.
 
@@ -905,6 +970,7 @@ autouse-фикстурами (`isolated_indexing`, `offline_planner`, `no_real_f
 | Оптимизация локальной LLM | `unit/test_local_tuning.py`, `unit/test_local_tuning_service.py`, `unit/test_local_llm_client.py`, `unit/test_llm_factory.py`, `e2e/test_llm_api.py` | Профили и разрешение окружения, вердикты строки дня 24, сводка варианта (время только по строкам `rag`) и ранжирование пар; прогон на заглушке (параметры доходят до вызова, строка-ошибка, `LocalLLMError` при полном отказе Ollama, незнакомый профиль); окно контекста в `options` только при явном значении, `tokens_per_second`/`load_ms` из ответа Ollama и их запасной расчёт; профиль в фабрике клиента; HTTP-контракт `POST /llm/tune` (200, 400, 502) и новые поля `GET /llm/provider` |
 | Локальный RAG | `integration/test_local_rag_flow.py` (slow) | Полный локальный цикл на настоящих весах: реальный FAISS-индекс дня 22 с диска, настоящая модель эмбеддингов и настоящая Ollama; ответ по корпусу с источниками и цитатами, режим `dont_know` без вызова модели; пропускается, если Ollama или индекс недоступны |
 | Удалённая LLM | `unit/test_remote_llm_client.py`, `integration/test_remote_llm_flow.py` (slow) | Форма запроса: адрес `{base_url}/chat/completions`, заголовок `Authorization`, `stream=false`, `temperature`/`top_p`/`max_tokens` и `options.num_ctx`; системное сообщение отдельно от контекста; счётчик частоты — N запросов проходят, N+1 отклонён со статусом 429, окно сдвигается по часам; `GET /models` не тратит лимит; понятные тексты отказов (пустой адрес, недоступный туннель, 429 сервиса, не-JSON, пустой ответ); полный цикл пяти шагов по настоящему туннелю с проверкой сводки — пропускается, если адреса нет (`DAY21_REMOTE_LLM_URL` или `REMOTE_LLM_URL` в `.env`) |
+| Ассистент разработчика | `tests/dev_assistant_fakes.py`, `unit/test_dev_assistant_service.py`, `unit/test_dev_assistant_panels.py`, `integration/test_dev_assistant_flow.py` (slow) | Тип вопроса (`docs`/`git`/`mixed`) и план инструментов; ответ по документации с источниками и текстом фрагмента в промпте; вызов `get_git_branch` и git-данные в контексте; запись ошибки инструмента и недоступного сервера без потери ответа; пустой индекс и пустой вопрос; каталог из четырёх инструментов со схемами; соединение со stdio-сервером поднимается один раз и закрывается; интеграционно — настоящий корпус (41 источник) и настоящий процесс `dev_server` |
 
 Унаследованные наборы дней 11–20 (память, стратегии, профиль, задача и переходы,
 инварианты, MCP, планировщик, пайплайн, флот и оркестрация) остаются на месте.
@@ -919,44 +985,48 @@ day21/
 ├── .omp/RULES.md             # sticky-правила дня для агента (native-локация omp)
 ├── .clineignore              # служебное внутри дня — вне контекста агента
 ├── documents/                # собранные документы (производные данные, в Git не попадают): 25 файлов + manifest.json,
-│                             # rag_corpus/ — корпус RAG: 36 документов + manifest.json
+│                             # rag_corpus/ — корпус RAG: 41 документ + manifest.json
 ├── index/                    # индексы FAISS: fixed.index, structural.index, rag_corpus_fixed.index,
 │                             # rag_corpus_structural.index; index/models/ — кэш весов модели
 ├── mcp_servers.json          # конфигурация флота MCP-серверов + кэш каталогов tools_cache
 ├── mcp_servers/              # три независимых MCP-сервера дня 20 (search_server, data_server, storage_server)
+│                             # + dev_server (день 31: git, файлы и дерево дня для ассистента разработчика)
 ├── mcp_server/               # собственный MCP-сервер дня (унаследован от дней 17–19)
 ├── frontend/                 # Streamlit UI по секциям (включая indexing_api.py, indexing_section.py,
 │                             # indexing_compare.py, indexing_search.py, cost_api.py, cost_section.py,
 │                             # rag_api.py, rag_section.py, llm_api.py, local_llm_section.py,
-│                             # local_tuning_section.py, remote_llm_section.py, remote_llm_api.py)
+│                             # local_tuning_section.py, remote_llm_section.py, remote_llm_api.py,
+│                             # dev_assistant_api.py, dev_assistant_section.py)
 ├── mini_chat/                # отдельное приложение дня 25 (Streamlit, порт 8502): app.py (точка входа),
 │                             # api.py (запросы /mini-chat/...), panels.py (боковая панель и ход диалога)
 ├── backend/
-│   ├── api/                  # FastAPI: роутеры по доменам (в том числе indexing.py, llm.py, remote_llm.py, rag.py и mini_chat.py), main.py, lifespan.py
+│   ├── api/                  # FastAPI: роутеры по доменам (в том числе indexing.py, llm.py, remote_llm.py, rag.py, mini_chat.py и dev_assistant.py), main.py, lifespan.py
 │   ├── core/                 # config.py, llm_settings.py, env_file.py, prompt_builder.py, mcp_server_config.py, dependencies.py
 │   ├── domain/               # чистые правила: chunking, document_sources, index_metrics, index_scenarios,
 │   │                         # indexing_fsm, indexing_prompt, llm_cost, llm_provider, peak_hours,
 │   │                         # local_tuning, local_tuning_eval, remote_demo,
-│   │                         # rag_filter, rag_mode, rag_corpus_spec, rag_eval + унаследованные домены
+│   │                         # rag_filter, rag_mode, rag_corpus_spec, rag_eval, dev_assistant + унаследованные домены
 │   ├── services/             # chunker, embedding_service, index_service, document_loader, index_runner,
 │   │                         # index_comparison, indexing_service, llm_client, prompt_compressor, off_peak,
 │   │                         # rag_corpus_loader, rag_corpus_index, rag_errors, rag_llm, rag_records,
 │   │                         # rag_retrieval, rag_service, rerank_service, mini_chat_service, mini_chat_memory,
 │   │                         # llm_factory, local_llm_client, local_llm_demo, local_llm_resources,
-│   │                         # local_tuning_service, remote_llm_client, remote_llm_service + унаследованные
+│   │                         # local_tuning_service, remote_llm_client, remote_llm_service,
+│   │                         # dev_assistant_service + унаследованные
 │   ├── storage/              # database.py, chunk_store.py, index_run_store.py, index_rows.py, llm_usage_store.py,
 │   │                         # llm_usage_rows.py + унаследованные хранилища
 │   ├── agents/               # Agent (в generate — шаги поиска по индексу и метрики llm), MemoryManager, AgentManager
 │   ├── models/               # ORM: indexing.py (document_chunks, index_runs), llm_usage.py + унаследованные
-│   ├── schemas/              # Pydantic-схемы API (включая indexing.py, llm.py, remote_llm.py, rag.py, mini_chat.py и local_tuning.py)
+│   ├── schemas/              # Pydantic-схемы API (включая indexing.py, llm.py, remote_llm.py, rag.py, mini_chat.py, dev_assistant.py и local_tuning.py)
 │   └── utils/                # своего кода нет: общий живёт в repo-level shared/
 ├── tests/                    # pytest: unit/, integration/, e2e/ + conftest.py и фейки (indexing_fakes.py, rag_fakes.py, …)
-├── docs/                     # architecture.md, api.md, usage.md, reports/ (indexing_demo.md, cost_optimization.md, rag_modes.md, rag_quotes_eval.md, local_llm_demo.md, local_rag_comparison.md, local_llm_optimization.md, remote_llm_service.md, context_optimization.md, test_optimization.md, …)
+├── docs/                     # architecture.md, api.md, usage.md, reports/ (indexing_demo.md, cost_optimization.md, rag_modes.md, rag_quotes_eval.md, local_llm_demo.md, local_rag_comparison.md, local_llm_optimization.md, remote_llm_service.md, dev_assistant_demo.md, context_optimization.md, test_optimization.md, …)
 ├── scripts/                  # прогоны демонстраций и сборка отчётов (indexing_demo.py, prepare_documents.py,
 │                             # indexing_scenarios.py, indexing_report.py, indexing_ui_shot.py, cost_optimization_report.py,
-│                             # prepare_rag_corpus.py, index_rag_corpus.py, run_rag_eval.py, rag_eval_report.py,
-│                             # rag_eval_cells.py, demo_local_llm.py, run_local_rag_comparison.py,
-│                             # run_local_llm_optimization.py, local_tuning_report.py, demo_remote_llm.py, …)
+│                             # prepare_rag_corpus.py, index_rag_corpus.py, reindex_with_docs.py, run_rag_eval.py,
+│                             # rag_eval_report.py, rag_eval_cells.py, demo_local_llm.py, run_local_rag_comparison.py,
+│                             # run_local_llm_optimization.py, local_tuning_report.py, demo_remote_llm.py,
+│                             # dev_mcp_probe.py, demo_dev_assistant.py, …)
 ├── STRUCTURE.md              # карта модулей дня по слоям и лимит 400 строк
 ├── pyproject.toml, uv.lock   # зависимости (uv): sentence-transformers, sentencepiece, faiss-cpu, numpy, mcp, sqlalchemy…
 ├── pytest.ini, conftest.py   # конфигурация pytest (pythonpath = . tests)

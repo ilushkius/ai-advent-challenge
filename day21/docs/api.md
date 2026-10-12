@@ -295,6 +295,9 @@ FastAPI сводит методы одного пути
 | GET | `/mini-chat/sessions/{session_id}/memory` | память задачи: `goal`, `terms`, `constraints`, `clarifications` и число реплик | 200 MiniChatTaskMemoryOut |
 | GET | `/mini-chat/sessions/{session_id}/history` | реплики сессии в порядке добавления (необязательный `limit`) | 200 MiniChatHistoryOut |
 | DELETE | `/mini-chat/sessions/{session_id}` | закрыть сессию: удалить реплики (идемпотентно); память задачи остаётся | 200 MiniChatCloseOut |
+| POST | `/dev-assistant/help` | ответ ассистента разработчика: документация проекта (фрагменты корпуса RAG) плюс контекст git через свой MCP-сервер `dev_server`; `question` (ведущий `/help` снимается), `provider` (`deepseek`/`local`); ответ несёт `question_type` (`docs`/`git`/`mixed`), `sources`, `mcp_tools_used` и `warnings` (400 — пустой вопрос или незнакомый провайдер; 502 — ни одного блока контекста собрать не удалось) | 200 DevAssistantAnswerOut |
+| GET | `/dev-assistant/tools` | каталог четырёх инструментов сервера разработки со схемами: признак соединения, число инструментов, причина отказа в поле `error` (всегда 200) | 200 DevAssistantToolsOut |
+| GET | `/dev-assistant/git-context` | ветка, последний коммит и изменённые файлы по инструменту `get_git_branch` (недоступный сервер — пустые поля и причина в `error`, всегда 200) | 200 DevAssistantGitContextOut |
 | GET | `/` | список доступных эндпоинтов | 200 объект-подсказка |
 
 ## GET /
@@ -303,9 +306,9 @@ FastAPI сводит методы одного пути
 персонализации, состояния задачи (отдельным ключом — группа `task_transitions`),
 инвариантов, MCP (активное соединение), флота MCP-серверов (ключ `mcp_servers`),
 планировщика, пайплайна, оркестрации, индексации документов (ключ `indexing`),
-расходов на LLM (ключ `llm`), RAG (ключ `rag`) и мини-чата с RAG и памятью задачи
-(ключ `mini_chat`), а также перечень эндпоинтов (113
-строк — все, кроме самого `GET /`).
+расходов на LLM (ключ `llm`), RAG (ключ `rag`), мини-чата с RAG и памятью задачи
+(ключ `mini_chat`) и ассистента разработчика (ключ `dev_assistant`), а также перечень
+эндпоинтов (116 строк — все, кроме самого `GET /`).
 
 ```bash
 curl.exe http://127.0.0.1:8000/
@@ -329,6 +332,7 @@ curl.exe http://127.0.0.1:8000/
   "llm": "/llm/usage, /llm/status, /llm/estimate, /llm/models, /llm/peak, /llm/provider, /llm/local-demo, /llm/tune (8 эндпоинтов — журнал расходов, кэш контекста, непиковые часы, провайдер, демо локальной модели и оптимизация её профилей)",
   "rag": "POST /rag/query, GET /rag/config, POST /rag/compare, POST /rag/compare_modes, GET /rag/demo-questions, POST /rag/demo-run, POST /rag/compare_providers (7 эндпоинтов — поиск по корпусу, режим без RAG, сравнение, сравнение режимов, вопросы демо, прогон демо, сравнение провайдеров)",
   "mini_chat": "POST /mini-chat/sessions, POST /mini-chat/sessions/{session_id}/messages, GET /mini-chat/sessions/{session_id}/memory, GET /mini-chat/sessions/{session_id}/history, DELETE /mini-chat/sessions/{session_id} (5 эндпоинтов — мини-чат с RAG и памятью задачи)",
+  "dev_assistant": "POST /dev-assistant/help, GET /dev-assistant/tools, GET /dev-assistant/git-context (3 эндпоинта — ассистент разработчика: ответ по документации проекта и состоянию репозитория через свой MCP-сервер dev_server)",
   "endpoints": [
     "POST /agents",
     "GET /agents",
@@ -443,7 +447,10 @@ curl.exe http://127.0.0.1:8000/
     "POST /mini-chat/sessions/{session_id}/messages",
     "GET /mini-chat/sessions/{session_id}/memory",
     "GET /mini-chat/sessions/{session_id}/history",
-    "DELETE /mini-chat/sessions/{session_id}"
+    "DELETE /mini-chat/sessions/{session_id}",
+    "POST /dev-assistant/help",
+    "GET /dev-assistant/tools",
+    "GET /dev-assistant/git-context"
   ]
 }
 ```
@@ -6465,18 +6472,18 @@ curl.exe http://127.0.0.1:8000/rag/config
   "ready": true,
   "corpus": {
     "corpus_dir": "…/day21/documents/rag_corpus",
-    "documents": 36,
-    "chars": 314669,
-    "pages": 174,
+    "documents": 41,
+    "chars": 382652,
+    "pages": 212,
     "min_pages": 25,
     "subdir": "rag_corpus",
     "ready": true
   },
   "indexes": [
-    {"strategy": "rag_corpus_fixed", "chunks": 291},
-    {"strategy": "rag_corpus_structural", "chunks": 389}
+    {"strategy": "rag_corpus_fixed", "chunks": 365},
+    {"strategy": "rag_corpus_structural", "chunks": 462}
   ],
-  "chunks_total": 680,
+  "chunks_total": 827,
   "strategies": ["rag_corpus_fixed", "rag_corpus_structural"],
   "default_strategy": "rag_corpus_structural",
   "top_k_default": 5,

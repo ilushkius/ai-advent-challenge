@@ -26,6 +26,7 @@ from .document_sources import (
     KIND_CODE,
     KIND_DOCS,
     KIND_GUIDE,
+    KIND_README,
 )
 
 #: Подпапка корпуса внутри ``documents/``: ``documents/rag_corpus/``.
@@ -39,25 +40,30 @@ RAG_CORPUS_MIN_CHUNKS = 50
 #: Корень репозитория: ``day21/backend/domain/rag_corpus_spec.py`` → ``day21`` → корень.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
-#: Таблица источников корпуса: 36 файлов дня 21 — семь документов и правил проекта
-#: (``AGENTS``, ``WORKFLOW``, ``STRUCTURE``, ``README``, два документа ``docs/`` и
-#: отчёт дня 21) и двадцать девять модулей, скриптов и тестов. Порядок таблицы =
+#: Таблица источников корпуса: 41 файл: двенадцать документов проекта (включая
+#: документацию репозитория — README, AGENTS, WORKFLOW, ARCHITECT_PROMPT,
+#: docs/api.md) и двадцать девять модулей, скриптов и тестов. Порядок таблицы =
 #: порядок записей в манифесте корпуса и в отчёте.
 
 RAG_CORPUS_SOURCES: tuple[DocumentSource, ...] = (
     DocumentSource(path="day21/AGENTS.md", kind=KIND_GUIDE, max_chars=4000),
     DocumentSource(path="day21/WORKFLOW.md", kind=KIND_GUIDE, max_chars=1000),
     DocumentSource(path="day21/STRUCTURE.md", kind=KIND_DOCS, max_chars=12000),
-    DocumentSource(path="day21/README.md", kind=KIND_DOCS, max_chars=12000),
+    DocumentSource(path="day21/README.md", kind=KIND_DOCS, max_chars=30000),
     DocumentSource(path="day21/docs/architecture.md", kind=KIND_DOCS, max_chars=12000),
     DocumentSource(path="day21/docs/usage.md", kind=KIND_DOCS, max_chars=12000),
     DocumentSource(path="day21/docs/reports/indexing_demo.md", kind=KIND_DOCS, max_chars=12000),
+    DocumentSource(path="day21/docs/api.md", kind=KIND_DOCS, max_chars=24000),
+    DocumentSource(path="README.md", kind=KIND_README, max_chars=24000),
+    DocumentSource(path="ARCHITECT_PROMPT.md", kind=KIND_GUIDE, max_chars=4000),
+    DocumentSource(path="WORKFLOW.md", kind=KIND_GUIDE, max_chars=6000),
+    DocumentSource(path="AGENTS.md", kind=KIND_GUIDE, max_chars=4000),
     DocumentSource(path="day21/backend/core/config.py", kind=KIND_CODE, max_chars=18000),
     DocumentSource(path="day21/backend/core/dependencies.py", kind=KIND_CODE, max_chars=7000),
     DocumentSource(path="day21/backend/core/prompt_builder.py", kind=KIND_CODE, max_chars=16000),
     DocumentSource(path="day21/backend/core/mcp_server_config.py", kind=KIND_CODE, max_chars=4000),
     DocumentSource(path="day21/backend/api/main.py", kind=KIND_CODE, max_chars=3200),
-    DocumentSource(path="day21/backend/api/lifespan.py", kind=KIND_CODE, max_chars=3800),
+    DocumentSource(path="day21/backend/api/lifespan.py", kind=KIND_CODE, max_chars=5200),
     DocumentSource(path="day21/backend/api/indexing.py", kind=KIND_CODE, max_chars=11000),
     DocumentSource(path="day21/backend/domain/chunking.py", kind=KIND_CODE, max_chars=10000),
     DocumentSource(path="day21/backend/domain/indexing_prompt.py", kind=KIND_CODE, max_chars=2500),

@@ -52,7 +52,7 @@ def corpus_service(tmp_path, chunk_store, fake_embedder, session_factory):
 
 
 def test_prepare_corpus_builds_both_indexes_from_repository(corpus_service, chunk_store):
-    """Сборка корпуса: 36 источников, страницы и чанки не ниже минимумов."""
+    """Сборка корпуса: все источники таблицы, страницы и чанки не ниже минимумов."""
     assert rag_corpus_spec.validate_sources() == []
 
     result = corpus_service.prepare_corpus()

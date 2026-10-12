@@ -78,13 +78,17 @@
   клиентским счётчиком частоты за окно 60 секунд (день 30);
 - ``remote_llm_service`` — ``run_step``/``check_connection``/``summarize``: один
   шаг демо на HTTP-запрос, реестр клиентов, чтобы счётчик частоты пережил
-  границы запросов, и строки-ошибки вместо исключений (день 30).
+  границы запросов, и строки-ошибки вместо исключений (день 30);
+- ``dev_assistant_service`` — ``handle_help``: ответ ``/help`` по документации
+  проекта (индекс дня 22) и состоянию репозитория через свой MCP-сервер
+  ``dev_server``, плюс панели каталога инструментов и git-контекста (день 31).
 
 Сервисы знают про домен и хранилище, но не про HTTP и не про Streamlit.
 """
 
 from . import (
-    apscheduler_bridge, chunker, compressor, document_loader, embedding_service,
+    apscheduler_bridge, chunker, compressor, dev_assistant_service, document_loader,
+    embedding_service,
     index_comparison, index_runner, index_service, indexing_service,
     invariant_checker, local_llm_resources, local_tuning_service, mcp_client,
     mcp_errors,
@@ -232,6 +236,7 @@ __all__ = [
     "TaskScheduler",
     "TaskStateMachine",
     "apscheduler_bridge",
+    "dev_assistant_service",
     "chunker",
     "compressor",
     "document_loader",

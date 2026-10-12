@@ -19,7 +19,7 @@ storage_server, а результат уходит в системный про�
 День 19 добавил декларативный пайплайн, день 18 — планировщик, день 17 — MCP-клиент
 и свой сервер, день 15 — контролируемые переходы, день 14 — инварианты.
 
-Интерфейс — шестнадцать разделов основной области (переключатель вверху страницы):
+Интерфейс — семнадцать разделов основной области (переключатель вверху страницы):
 
 - «💬 Чат и память» — диалог вручную, панели трёх слоёв памяти, индикатор того,
   что ушло в последний запрос, сравнение режимов сжатия, уведомления планировщика;
@@ -60,31 +60,33 @@ storage_server, а результат уходит в системный про�
 - «🖥 Локальная LLM» — второй провайдер ответа (Ollama по HTTP): вопросы дня 26
   одной кнопкой, ответы, время, токены в секунду и оценка качества;
 - «🛰 Удалённая LLM» — та же модель в Google Colab через туннель Cloudflare:
-  адрес и ручки раздела, проверка связи и демо из пяти шагов одной кнопкой.
+  адрес и ручки раздела, проверка связи и демо из пяти шагов одной кнопкой;
+- «🧑‍💻 Ассистент разработчика (Day 31)» — `/help <вопрос>`: ответ по документации
+  проекта (RAG) и состоянию репозитория (MCP dev_server), источники и список
+  MCP-инструментов в раскрывающихся блоках, текущая ветка и переключатель провайдера.
 
 Запуск из папки day21/:  streamlit run app.py  (бэкенд запускается отдельно:
 uvicorn backend.api.main:app --port 8000)
 
-Код интерфейса разложен по пакету ``frontend/``: ``api_client`` (HTTP-транспорт),
-``common`` (подписи, форматтеры, состояние), ``sidebar``, ``chat_section``,
-``context_panels``, ``memory_panels``, ``profile_section``,
-``profile_comparison``, ``task_panel``, ``task_transitions``, ``invariant_panel``,
-``mcp_section``, ``mcp_api`` (HTTP-запросы MCP), ``mcp_call`` (ручной вызов
-инструмента), ``mcp_ask`` (агент с шагом MCP), ``scheduler_api`` (HTTP-запросы
-планировщика), ``scheduler_section`` (раздел «🗓 Планировщик»), ``notifications``
-(уведомления фоновых задач в области чата), ``pipeline_api`` (HTTP-запросы
-пайплайна), ``pipeline_section`` (раздел «🔀 Пайплайны»), ``orchestration_api``
-(HTTP-запросы оркестрации) и ``orchestration_section`` (раздел «🌐 Оркестрация»),
-``indexing_api`` (HTTP-запросы индексации), ``indexing_section`` (раздел
-«📦 Индексация»), ``indexing_compare`` (сравнение стратегий) и ``indexing_search``
-(ручной поиск по индексу), ``cost_api`` (HTTP-запросы расходов) и
-``cost_section`` (вкладка «💰 Расходы»), ``rag_api`` (HTTP-запросы корпуса),
-``rag_section`` (раздел «🆚 RAG-сравнение» и панель RAG в чате),
-``rag_demo_section`` (раздел «🧪 RAG-демо»), ``llm_api`` (HTTP-запросы локальной
-модели), ``local_llm_section`` (раздел «🖥 Локальная LLM»), ``local_rag_section``
-(раздел «🏠 Локальный RAG»), ``local_tuning_section`` (раздел «⚙️ Оптимизация
-локальной LLM»), ``remote_llm_api`` (HTTP-запросы удалённой модели) и
-``remote_llm_section`` (раздел «🛰 Удалённая LLM»).
+Код интерфейса разложен по пакету ``frontend/``: ``api_client`` (HTTP-транспорт), ``common``
+(подписи, форматтеры, состояние), ``sidebar``, ``chat_section``, ``context_panels``,
+``memory_panels``, ``profile_section``, ``profile_comparison``, ``task_panel``,
+``task_transitions``, ``invariant_panel``, ``mcp_section``, ``mcp_api`` (HTTP-запросы MCP),
+``mcp_call`` (ручной вызов инструмента), ``mcp_ask`` (агент с шагом MCP), ``scheduler_api``
+(HTTP-запросы планировщика), ``scheduler_section`` (раздел «🗓 Планировщик»),
+``notifications`` (уведомления фоновых задач в области чата), ``pipeline_api`` (HTTP-запросы
+пайплайна), ``pipeline_section`` (раздел «🔀 Пайплайны»), ``orchestration_api`` (HTTP-запросы
+оркестрации) и ``orchestration_section`` (раздел «🌐 Оркестрация»), ``indexing_api``
+(HTTP-запросы индексации), ``indexing_section`` (раздел «📦 Индексация»), ``indexing_compare``
+(сравнение стратегий) и ``indexing_search`` (ручной поиск по индексу), ``cost_api``
+(HTTP-запросы расходов) и ``cost_section`` (вкладка «💰 Расходы»), ``rag_api`` (HTTP-запросы
+корпуса), ``rag_section`` (раздел «🆚 RAG-сравнение» и панель RAG в чате), ``rag_demo_section``
+(раздел «🧪 RAG-демо»), ``llm_api`` (HTTP-запросы локальной модели), ``local_llm_section``
+(раздел «🖥 Локальная LLM»), ``local_rag_section`` (раздел «🏠 Локальный RAG»),
+``local_tuning_section`` (раздел «⚙️ Оптимизация локальной LLM»), ``remote_llm_api``
+(HTTP-запросы удалённой модели), ``remote_llm_section`` (раздел «🛰 Удалённая LLM»),
+``dev_assistant_api`` (HTTP-запросы ассистента) и ``dev_assistant_section`` (раздел
+«🧑‍💻 Ассистент разработчика»).
 """
 import streamlit as st
 

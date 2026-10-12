@@ -1,9 +1,9 @@
 """Раздел «💬 Чат и память» дня 20: карточка агента, панели, диалог и ввод.
 
 Единственная точка входа — ``render_main_area()``: заголовок и подпись,
-непрочитанные уведомления планировщика (день 18), флеш-сообщение предыдущего
-прохода, ветка «бэкенд недоступен», переключатель разделов (шестнадцать: от чата с
-памятью до удалённой LLM), карточка агента, панели стратегии и слоёв памяти, диалог,
+непрочитанные уведомления планировщика (день 18), флеш-сообщение предыдущего прохода,
+ветка «бэкенд недоступен», переключатель разделов (семнадцать: от чата с памятью до
+ассистента разработчика), карточка агента, панели стратегии и слоёв памяти, диалог,
 сравнение режимов, блок отказа по инвариантам, форма ввода и очистка истории.
 Сводка хода показывает шаг планировщика, прогон пайплайна и индексацию: строки
 «🗓 Планировщик: …», «🔀 Пайплайн: …», «📦 Индексация: …» появляются рядом с токенами
@@ -12,11 +12,11 @@
 import streamlit as st
 
 from . import (
-    api_client, common, context_panels, cost_section, indexing_section,
-    invariant_panel, local_llm_section, local_rag_section, local_tuning_section,
-    mcp_section, memory_panels, notifications,
-    orchestration_section, pipeline_section, profile_section,
-    rag_demo_section, rag_section, remote_llm_section, scheduler_section, task_panel,
+    api_client, common, context_panels, cost_section, dev_assistant_section,
+    indexing_section, invariant_panel, local_llm_section, local_rag_section,
+    local_tuning_section, mcp_section, memory_panels, notifications,
+    orchestration_section, pipeline_section, profile_section, rag_demo_section,
+    rag_section, remote_llm_section, scheduler_section, task_panel,
 )
 
 
@@ -77,7 +77,7 @@ def render_main_area() -> None:
              "📏 Инварианты", "🔌 MCP", "🗓 Планировщик", "🔀 Пайплайны",
              "🌐 Оркестрация", "📦 Индексация", "🖥 Локальная LLM", "💰 Расходы",
              "⚙️ Оптимизация локальной LLM", "🆚 RAG-сравнение", "🧪 RAG-демо",
-             "🏠 Локальный RAG", "🛰 Удалённая LLM"],
+             "🏠 Локальный RAG", "🛰 Удалённая LLM", "🧑‍💻 Ассистент разработчика (Day 31)"],
             horizontal=True, key="main_section", label_visibility="collapsed",
         )
         if section.startswith("👤"):
@@ -132,6 +132,9 @@ def render_main_area() -> None:
             # Удалённая LLM (день 30): Ollama в Google Colab через туннель Cloudflare.
             # Раздел глобальный: адрес туннеля живёт часами и агентов не касается.
             remote_llm_section.render_remote_llm_section()
+        elif section.startswith("🧑‍💻"):
+            # Ассистент разработчика (день 31): RAG по документации плюс MCP-контекст git.
+            dev_assistant_section.render_dev_assistant_section()
         else:
             if not agents:
                 st.info("Агентов пока нет — создайте первого в боковой панели. "
@@ -368,15 +371,13 @@ def render_main_area() -> None:
                                        f"Ответ получен за {record.get('duration_sec', 0):.2f} с · "
                                        f"токены {common.format_usage(record.get('usage'))} · "
                                        f"стоимость ~${tm.get('cost', 0):.6f} · "
-                                       f"finish_reason {record.get('finish_reason') or '—'}"
-                                       f"{note_text}")
+                                       f"finish_reason {record.get('finish_reason') or '—'}{note_text}")
                             else:
                                 common.flash("error", f"Генерация завершилась ошибкой: "
                                                 f"{record.get('error')}")
                             st.rerun()
-                if st.button("🧹 Очистить историю",
-                             help="Удаляет диалог, конспекты и метрики. "
-                                  "Конфигурация агента не меняется."):
+                if st.button("🧹 Очистить историю", help="Удаляет диалог, конспекты и "
+                             "метрики. Конфигурация агента не меняется."):
                     try:
                         api_client.api_clear_history(active["agent_id"])
                     except api_client.BackendError as exc:
@@ -391,9 +392,8 @@ def render_main_area() -> None:
                         st.rerun()
 
             # --- RAG-запрос по корпусу (день 22) ---
-            # Отдельная панель внизу раздела чата: вопрос ищет фрагменты в
-            # корпусе документов, а не отвечает из памяти агента, поэтому
-            # своя форма и свой выбор стратегии. Стоит вне ветки агента: корпус
-            # не зависит от того, создан ли уже агент.
+            # Отдельная панель внизу раздела чата: вопрос ищет фрагменты в корпусе
+            # документов, а не отвечает из памяти агента, поэтому своя форма и свой
+            # выбор стратегии. Стоит вне ветки агента: корпус не зависит от агента.
             st.divider()
             rag_section.render_chat_rag_panel()
