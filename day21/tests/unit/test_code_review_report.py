@@ -48,6 +48,44 @@ def test_render_markdown_has_all_sections():
     assert "<details>" not in empty
 
 
+#: Запись ревью из GitHub: у локального ревью блока «GitHub PR» нет.
+GITHUB_RECORD = dict(RECORD, github_meta={
+    "owner": "owner", "repo": "repo", "pr_number": 42,
+    "pr_url": "https://github.com/owner/repo/pull/42",
+    "changed_files_count": 4, "diff_lines": 222})
+
+
+def test_render_github_meta_block():
+    """Таблица «GitHub PR»: ссылка, размеры и различение публикации комментария."""
+    block = code_review_report.render_github_meta(GITHUB_RECORD)
+
+    assert block.startswith("### GitHub PR")
+    assert ("| PR | [https://github.com/owner/repo/pull/42]"
+            "(https://github.com/owner/repo/pull/42) |") in block
+    assert "| Репозиторий | `owner/repo` |" in block
+    assert "| Изменённых файлов | 4 |" in block and "| Строк в diff | 222 |" in block
+    assert "| Комментарий | не публиковался |" in block
+    posted = code_review_report.render_github_meta(
+        dict(GITHUB_RECORD, posted=True,
+             comment_url="https://github.com/owner/repo/pull/42#pullrequestreview-9"))
+    assert ("| Комментарий | [опубликован]"
+            "(https://github.com/owner/repo/pull/42#pullrequestreview-9) |") in posted
+    assert code_review_report.render_github_meta(RECORD) == ""
+
+
+def test_report_header_of_github_mode():
+    """Заголовок GitHub-отчёта: свой скрипт и команда запуска, а не локальный diff."""
+    text = code_review_report.upsert_report_section(
+        "", "Ревью PR fastapi/fastapi#16481", "тело",
+        header=code_review_report.github_report_header())
+
+    assert code_review.GITHUB_REPORT_TITLE in text
+    assert "scripts/run_github_pr_review.py" in text
+    assert "--pr-number 16481" in text
+    assert code_review.REPORT_TITLE not in text
+    assert "## Ревью PR fastapi/fastapi#16481" in text
+
+
 def test_report_sections_replace_without_duplicates():
     """Секция отчёта заменяется целиком: тело ревью не считается её границей."""
     first = code_review_report.upsert_report_section(

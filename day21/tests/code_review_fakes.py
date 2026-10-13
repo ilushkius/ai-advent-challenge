@@ -4,7 +4,8 @@
 теста с параметризацией, а держать их в тестовом файле нельзя — он вышел бы за
 предел 400 строк. Настоящие зависимости здесь не участвуют: индекс — фейк (отдаёт
 документацию и код изменённых файлов или падает), MCP-клиент — фейк (пишет вызовы и
-отдаёт diff по имени инструмента), модель — ``RagStubClient`` из ``rag_fakes.py``.
+отдаёт diff по имени инструмента), клиент GitHub — фейк (отдаёт diff, файлы и ссылку на
+комментарий), модель — ``RagStubClient`` из ``rag_fakes.py``.
 
 Настоящий корпус и настоящий процесс ``dev_server`` проверяет slow-интеграция
 (``tests/integration/test_code_review_flow.py``): здесь проверяется разбор ответа
@@ -19,6 +20,7 @@ from typing import Optional, Tuple
 from backend.domain import code_review, dev_assistant
 from backend.domain.mcp_tools import MCPToolResult, make_tool_info
 from backend.services.code_review_service import CodeReviewService
+from backend.services.github_client import GitHubClient
 from backend.services.index_service import IndexNotBuiltError
 from backend.services.mcp_errors import MCPConnectionError
 
@@ -49,6 +51,9 @@ diff --git a/day21/docs/usage.md b/day21/docs/usage.md
  Раздел с командами запуска.
 +Новая команда ревью: scripts/run_local_pr_review.py
 """
+
+#: Адрес PR: его отдаёт фейк GitHub и его же проверяют тесты службы.
+PR_URL = "https://github.com/owner/repo/pull/42"
 
 #: Файлы, которые служба обязана назвать своими: список приходит из payload или MCP.
 CHANGED_FILES = ["day21/backend/api/main.py",
@@ -196,6 +201,57 @@ class FailingStdioClient:
         pass
 
 
+class FakeGitHub:
+    """Клиент GitHub без сети: URL разбирает настоящим образцом, остальное — из полей.
+
+    Подменяет ``GitHubClient`` целиком: тесты службы проверяют не HTTP (его проверяет
+    ``tests/unit/test_github_client.py``), а то, что служба делает с ответами GitHub —
+    берёт diff и файлы, кладёт ``github_meta`` и публикует ревью по флагу.
+    """
+
+    parse_repo_url = staticmethod(GitHubClient.parse_repo_url)
+
+    def __init__(self, diff: str = PR_DIFF, files=None, error: Optional[Exception] = None,
+                 comment_error: Optional[Exception] = None) -> None:
+        self.diff = diff
+        self.files = list(CHANGED_FILES if files is None else files)
+        self.error = error
+        self.comment_error = comment_error
+        self.posted: list = []
+        self.closed = False
+
+    def get_repo(self, owner: str, repo: str) -> dict:
+        return {"full_name": f"{owner}/{repo}", "html_url": f"https://github.com/{owner}/{repo}"}
+
+    def get_pr(self, owner: str, repo: str, pr_number: int) -> dict:
+        return {"number": int(pr_number), "state": "open", "title": "тестовый PR",
+                "html_url": PR_URL}
+
+    def get_pr_diff(self, owner: str, repo: str, pr_number: int) -> str:
+        if self.error is not None:
+            raise self.error
+        return self.diff
+
+    def get_changed_files(self, owner: str, repo: str, pr_number: int) -> list:
+        return [{"filename": path, "status": "modified", "additions": 1, "deletions": 0,
+                 "changes": 1, "patch": "@@"} for path in self.files]
+
+    def post_review_comment(self, owner: str, repo: str, pr_number: int, body: str) -> dict:
+        if self.comment_error is not None:
+            raise self.comment_error
+        self.posted.append(str(body))
+        return {"html_url": f"{PR_URL}#pullrequestreview-1"}
+
+    def health(self) -> dict:
+        return {"status": "ok", "service": "github", "api_base": "https://api.github.com",
+                "authenticated": True, "token": "ghp_***",
+                "rate_limit": {"limit": 5000, "remaining": 4999, "used": 1,
+                               "reset": 1791918354}, "error": ""}
+
+    def close(self) -> None:
+        self.closed = True
+
+
 def payload(**overrides) -> dict:
     """Базовый payload ревью: diff и изменённые файлы уже переданы."""
     data = {"diff": PR_DIFF, "changed_files": list(CHANGED_FILES),
@@ -238,8 +294,11 @@ CASES: Tuple[Case, ...] = (
 )
 
 
-def make_service(*, index=None, mcp=None, client=None, **kwargs) -> CodeReviewService:
+def make_service(*, index=None, mcp=None, client=None, github=None,
+                 **kwargs) -> CodeReviewService:
     """Служба на фейках: подставленные зависимости вместо служб процесса."""
     return CodeReviewService(index_service=index if index is not None else FakeIndexService(),
                              mcp_client=mcp if mcp is not None else FakeMCP(),
-                             llm_client=client, sleep=lambda _seconds: None, **kwargs)
+                             llm_client=client,
+                             github_client=github if github is not None else FakeGitHub(),
+                             sleep=lambda _seconds: None, **kwargs)

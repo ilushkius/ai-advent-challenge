@@ -1282,21 +1282,28 @@ diff, список файлов. Дерево проекта поэтому не
 RAG-контекст (документация проекта и код изменённых файлов) и просит модель дать
 структурированное ревью: баги с файлом и строкой, архитектурные проблемы с
 рекомендацией, рекомендации и риски с приоритетами `P0`–`P3`. Поток один и тот же у
-двух запускающих: GitHub Action публикует ревью комментарием в PR, локальный скрипт
-печатает его в консоль и кладёт секцией в отчёт.
+трёх запускающих: GitHub Action публикует ревью комментарием в PR, локальный скрипт
+печатает его в консоль и кладёт секцией в отчёт, а режим GitHub PR берёт diff прямо из
+GitHub REST API по URL репозитория и номеру PR — без `gh`, без MCP и без локальной
+копии репозитория.
 
 ### Поток данных
 
 ```
 GitHub Action: .github/workflows/ai-review.yml (события opened/synchronize/reopened)
   │  gh pr diff + gh pr view --json files → payload {diff, changed_files, base, head}
+  │
+Streamlit / скрипт (режим GitHub PR)
+  │  repo_url + pr_number + post_comment
   ▼
-FastAPI: POST /review/pr · GET /review/health
+FastAPI: POST /review/pr · GET /review/health · POST /review/github-pr · GET /review/github-health
   │       backend/api/code_review.py (схемы — backend/schemas/code_review.py)
   ▼
 backend/services/code_review_service.py
-  │  diff из payload ИЛИ из MCP:
+  │  diff из payload, из MCP ИЛИ из GitHub REST API:
   ├──► MCPClient ──stdio──► mcp_servers/dev_server ──► get_pr_diff · get_changed_files
+  ├──► github_client.GitHubClient ──HTTPS──► api.github.com
+  │    (get_repo · get_pr · get_pr_diff · get_changed_files · post_review_comment)
   ├──► IndexService.search × N ──► документация проекта + код каждого изменённого файла
   │    (запрос: путь файла и добавленные строки diff-а; фильтр по source, не больше 8 файлов)
   │  правила и разбор — backend/domain/code_review.py (чистые функции)
@@ -1308,24 +1315,33 @@ rag_llm.answer (DeepSeek по умолчанию, локальная Ollama — 
 разбор: bugs · architecture_issues · recommendations · risks (P0–P3) + sources + warnings
   ▼
 scripts/gh_review_comment.py ──gh pr comment──► комментарий в PR
-   или scripts/run_local_pr_review.py ──► секция docs/reports/code_review_demo.md
+   scripts/run_local_pr_review.py ──► секция docs/reports/code_review_demo.md
+   scripts/run_github_pr_review.py ──► секция docs/reports/github_pr_review.md
+     └─ post_review_comment ──► комментарий в PR (флаг --post-comment)
 ```
 
 Локальный путь отличается двумя шагами: diff приходит не из payload, а из
 `git diff base..head` (или из файла `--diff-file`), а markdown уходит не в PR, а в
-отчёт. Служба, контекст и разбор при этом те же самые — «локальный режим» не отдельная
-реализация, а другой вызывающий.
+отчёт. Путь GitHub отличается тем же и ещё источником: diff и список файлов отдаёт
+`GitHubClient`, а готовое ревью по флагу публикуется отзывом в PR. Служба, контекст и
+разбор у всех трёх вызывающих те же самые — «режимы» не отдельные реализации, а разные
+вызывающие.
 
 ### Разделение модулей
 
 | Модуль | Роль |
 |---|---|
 | `backend/domain/code_review.py` | Контракт ревью: системный промпт и JSON-схема, приведение приоритетов `P0`–`P3` и сортировка рисков, обрезка diff-а, сборка запроса к индексу и контекста промпта, разбор ответа модели (терпимый к `p0`, строке вместо объекта и тексту без JSON) |
-| `backend/domain/code_review_report.py` | Разметка: markdown комментария PR и секции отчёта (таблицы багов/рисков, источники, предупреждения, полный ответ под `<details>`) и правка файла отчёта по маркерам секций |
-| `backend/services/code_review_service.py` | Сшивка: diff и файлы (payload или MCP), два поиска по корпусу, вызов модели, отказы данными, служба процесса и её соединение с dev-сервером |
-| `backend/schemas/code_review.py`, `backend/api/code_review.py` | Контракт двух эндпоинтов `/review/*` (`PrReviewIn`/`PrReviewOut`, `CodeReviewHealthOut`) |
+| `backend/domain/code_review_report.py` | Разметка: markdown комментария PR и секции отчёта (таблицы багов/рисков, источники, предупреждения, полный ответ под `<details>`), блок «GitHub PR» (`render_github_meta`, печатается только у ревью из GitHub) и правка файла отчёта по маркерам секций (`upsert_report_section` принимает свой заголовок — у локального и GitHub-прогона они разные) |
+| `backend/services/code_review_service.py` | Сшивка: diff и файлы (payload, MCP или GitHub), два поиска по корпусу, вызов модели, отказы данными, служба процесса, ленивый клиент GitHub и её соединение с dev-сервером |
+| `backend/services/code_review_context.py` | Поиск контекста: документация проекта одним запросом и код изменённых файлов по одному запросу на файл (второй запрос — по пути, когда добавленные строки увели выдачу). Вынесен из службы, которая упёрлась бы в предел 400 строк |
+| `backend/services/code_review_github.py` | Поток GitHub-ревью: URL и номер PR → diff, файлы, `github_meta`, публикация комментария флагом; отказ публикации — предупреждение, а не исключение |
+| `backend/services/github_client.py` | Клиент GitHub REST API: разбор URL (`owner/repo` из https, `.git` и scp-формы), `get_repo`/`get_pr`/`get_pr_diff` (`Accept: …v3.diff`)/`get_changed_files`, `post_review_comment` (событие `COMMENT`), `health()` по `/rate_limit`, тексты ошибок 401/403/404/422, отличие исчерпанного rate limit и маска токена |
+| `backend/schemas/code_review.py`, `backend/api/code_review.py` | Контракт четырёх эндпоинтов `/review/*` (`PrReviewIn`/`PrReviewOut`, `CodeReviewHealthOut`, `GitHubPrReviewIn`/`GitHubPrReviewOut`, `GitHubHealthOut`); `GitHubError` в роутере — 400, а не 502 |
 | `mcp_servers/dev_server/tools.py` | Новые инструменты `get_pr_diff(base, head)` и `get_changed_files(base, head)`; ref проверяется до вызова git (`REF_PATTERN`) |
+| `frontend/code_review_api.py`, `frontend/code_review_section.py` | Раздел «🔎 AI-ревью кода (Day 32)»: провайдер, вкладки «🗂 Локальный diff» и «🐙 GitHub PR», таблицы находок, источники, публикация комментария и панели готовности (`/review/health`, `/review/github-health`) |
 | `scripts/run_local_pr_review.py` | Локальный прогон: `git diff` двух ref-ов или файл diff-а, вызов службы, печать итога, секция отчёта |
+| `scripts/run_github_pr_review.py` | GitHub-прогон: URL и номер PR, флаги `--post-comment`, `--report`, `--no-report`, `--section-title`, `--top-k`, `--provider`; печать `github_meta`-чисел и ссылок, секция отчёта с блоком «GitHub PR» |
 | `scripts/gh_review_comment.py` | Публикация ответа `POST /review/pr` комментарием через `gh pr comment --body-file -` (есть `--dry-run`) |
 | `.github/workflows/ai-review.yml` | Action: поднять бэкенд, дождаться `/review/health`, собрать payload из `gh`, вызвать `/review/pr`, опубликовать комментарий |
 
@@ -1348,6 +1364,31 @@ scripts/gh_review_comment.py ──gh pr comment──► комментарий
 тогда как добавленные строки нового кода уводят её к похожим чужим фрагментам.
 Отсутствие фрагментов — строка в `warnings`, а `502` в API остаётся только за
 невозможностью ревью (нечего анализировать или MCP не поднялся и diff не добыть).
+
+### Почему клиент GitHub вынесен из службы
+
+Служба ревью стояла ровно на пределе дня (400 строк), а режим GitHub добавлял к ней
+ещё и целую предметную область: разбор URL, коды ответа, признак исчерпанного rate
+limit, маску токена, health по `/rate_limit`. Поэтому выросли три новых модуля, а не
+один большой: `services/github_client.py` (только HTTP и тексты ошибок),
+`services/code_review_context.py` (только поиск контекста — он же и разгрузил службу)
+и `services/code_review_github.py` (только последовательность шагов GitHub-ревью).
+Служба остаётся сшивкой: у неё два источника diff-а и один путь после них, а знание о
+том, что GitHub отдаёт diff по заголовку `Accept: application/vnd.github.v3.diff`,
+живёт в клиенте. Токен при этом нужен не для чтения публичных репозиториев, а для
+приватных, для публикации и для лимита 5000 запросов в час вместо 60 анонимных.
+
+### Почему отказ GitHub — 400, а не 502
+
+`502` в этом разделе означает ровно одно: сломался наш собственный MCP-путь, и diff
+не добыть. Отказ GitHub — это другое: негодный URL репозитория, ненайденный PR,
+исчерпанный лимит анонимных запросов или токен без прав — то есть проблема запроса или
+внешнего сервиса, а не сломанный путь ревью. Такие ответы идут `400` с текстом
+причины (`GitHubError` в роутере переводится в 400 вместе с `ValueError`), и клиент
+отдаёт их одним исключением с кодом и путём. Публикация комментария — отдельный
+случай: если токена нет или у него нет права на запись, ревью уже получено, и терять
+его из-за отказа публикации нельзя. Поэтому служба оставляет `posted=false`, кладёт
+причину в `warnings` и отвечает `200`; так же ведёт себя скрипт — код возврата `0`.
 
 ### Почему разбор требует JSON-контракт
 

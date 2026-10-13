@@ -13,6 +13,10 @@
     на выходе структура, а MCP-инструменты другие. Общий у них только способ
     подключения к своему stdio-серверу (``mcp_servers/dev_server``) и путь к модели.
 
+Два источника diff-а: локальный (payload или MCP по ``base``/``head``) и GitHub REST API
+(``review_github_pr`` → ``services/code_review_github.py``); поиск контекста вынесен в
+``services/code_review_context.py``, клиент GitHub — в ``services/github_client.py``.
+
 Отказы приходят ДАННЫМИ: нет индекса корпуса — ревью состоится по diff-у, и причина
 попадёт в ``warnings``; модель не ответила — честный текст в ``review_text``.
 Исключения остались там, где ревью невозможно: ``ValueError`` — diff-а нет и взять
@@ -33,9 +37,9 @@ from shared.logging_utils import get_logger
 
 from ..core import config
 from ..domain import code_review, dev_assistant, llm_provider, rag_mode
-from ..domain.document_sources import source_slug
-from . import rag_llm, rag_records
-from .index_service import IndexNotBuiltError, get_index_service
+from . import code_review_context, code_review_github, rag_llm, rag_records
+from .github_client import GitHubClient
+from .index_service import get_index_service
 from .mcp_client import MCPClient
 from .mcp_errors import MCPError
 from .rag_errors import RAGUpstreamError
@@ -87,6 +91,7 @@ class CodeReviewService:
                  mcp_target: str = dev_assistant.DEV_SERVER_TARGET,
                  mcp_cwd: Optional[object] = None,
                  top_k: int = code_review.DEFAULT_TOP_K,
+                 github_client: Optional[Any] = None,
                  sleep: Callable[[float], None] = time.sleep) -> None:
         self._index_service = index_service
         self._llm_client = llm_client
@@ -95,6 +100,8 @@ class CodeReviewService:
         self._mcp_target = mcp_target
         self._mcp_cwd = mcp_cwd
         self._top_k = int(top_k)
+        self._github_client = github_client
+        self._github_owned = github_client is None
         self._sleep = sleep
         self._server: Optional[Any] = None
         self._lock = threading.RLock()
@@ -120,6 +127,13 @@ class CodeReviewService:
             if self._server is None:
                 self._server = self._connect()
             return self._server
+
+    @property
+    def github(self) -> Any:
+        """Клиент GitHub: подменённый в тестах или один на процесс (ленивый)."""
+        if self._github_client is None:
+            self._github_client = GitHubClient()
+        return self._github_client
 
     def _connect(self) -> Any:
         """Поднимает stdio-сервер и читает его каталог; сбой — ``CodeReviewError``."""
@@ -179,8 +193,10 @@ class CodeReviewService:
                 kept=diff_info["kept_lines"], total=diff_info["total_lines"],
                 files=", ".join(diff_info["omitted_files"]) or "—"))
         query = code_review.context_query(changed, diff)
-        docs_hits = self._search_docs(query, warnings)
-        code_hits = self._search_code(changed, diff, warnings)
+        docs_hits = code_review_context.search_docs(self.index_service, query,
+                                                    self._top_k, warnings)
+        code_hits = code_review_context.search_code(self.index_service, changed, diff,
+                                                    self._top_k, warnings)
         label = str(payload.get("pr_label") or "") or self._label(payload, base, head)
         review_text, parsed = self._review(client, name, label, changed, diff_info,
                                            docs_hits, code_hits, warnings)
@@ -197,6 +213,17 @@ class CodeReviewService:
             "provider": name,
             "warnings": warnings,
         }
+
+    def review_github_pr(self, repo_url: str, pr_number: int, provider: str = "deepseek",
+                         post_comment: bool = False) -> dict:
+        """Ревью PR из GitHub: URL и номер → diff, файлы, RAG-контекст и ответ модели."""
+        return code_review_github.review_github_pr(self, repo_url, pr_number,
+                                                   provider=provider,
+                                                   post_comment=post_comment)
+
+    def github_health(self) -> dict:
+        """Готовность GitHub: доступность API, признак токена и остаток лимита."""
+        return self.github.health()
 
     def _review(self, client: Any, name: str, label: str, changed: list,
                 diff_info: dict, docs_hits: list, code_hits: list,
@@ -268,61 +295,6 @@ class CodeReviewService:
         structured = result.structured if isinstance(result.structured, dict) else {}
         return [str(item) for item in structured.get("files") or [] if str(item).strip()]
 
-    # ---------- контекст ----------
-    def _search_docs(self, query: str, warnings: list) -> list:
-        """Фрагменты документации проекта; пустой индекс — предупреждение, не отказ."""
-        try:
-            hits = self.index_service.search(query, top_k=self._top_k,
-                                            strategy=rag_mode.RAG_DEFAULT_STRATEGY)
-        except IndexNotBuiltError as exc:
-            logger.warning("Ревью: индекс корпуса недоступен: %s", exc)
-            warnings.append(code_review.WARN_INDEX_EMPTY.format(error=exc))
-            return []
-        allowed = set(dev_assistant.DOCUMENTATION_SLUGS)
-        return [hit for hit in hits if hit.get("source") in allowed]
-
-    def _search_code(self, changed_files: list, diff: str, warnings: list) -> list:
-        """Фрагменты кода изменённых файлов: по одному запросу на файл, без дублей.
-
-        Фильтра по источнику у поиска нет, поэтому фрагмент проверяется по полю
-        ``source``, а файл находится по имени в запросе. Первый запрос — путь плюс
-        добавленные строки diff-а (он описывает изменение), второй, если первый ничего
-        не дал, — только путь: добавленные строки нового кода уводят поиск к похожим
-        чужим фрагментам, а имя файла из пути тянет выдачу к самому файлу. Файла нет в
-        корпусе (модули дня 32 в индекс не входят) — предупреждение, не поломка.
-        """
-        hits: list = []
-        seen: set = set()
-        for path in list(changed_files)[:code_review.MAX_CONTEXT_FILES]:
-            detail = code_review.context_query([path], diff,
-                                               code_review.FILE_QUERY_MAX_CHARS)
-            try:
-                matched = self._file_hits(path, detail) or self._file_hits(path, path)
-            except IndexNotBuiltError:
-                # Индекс недоступен у всего процесса: причину уже записал _search_docs.
-                break
-            if not matched:
-                self._warn(warnings, code_review.WARN_FILE_NOT_INDEXED.format(path=path))
-                continue
-            for hit in matched:
-                key = str(hit.get("chunk_id") or "")
-                if key not in seen:
-                    seen.add(key)
-                    hits.append(hit)
-        return hits
-
-    def _file_hits(self, path: str, query: str) -> list:
-        """Фрагменты одного файла по запросу: поиск по корпусу плюс фильтр по источнику."""
-        found = self.index_service.search(query, top_k=self._top_k,
-                                          strategy=rag_mode.RAG_DEFAULT_STRATEGY)
-        return [hit for hit in found if hit.get("source") == source_slug(path)]
-
-    @staticmethod
-    def _warn(warnings: list, message: str) -> None:
-        """Добавляет предупреждение, если его ещё нет: файл может повториться в списке."""
-        if message not in warnings:
-            warnings.append(message)
-
     def _label(self, payload: dict, base: str, head: str) -> str:
         """Метка ревью: ``owner/repo#номер``, иначе ``base..head``, иначе «без метки»."""
         owner = str(payload.get("owner") or "").strip()
@@ -348,12 +320,17 @@ class CodeReviewService:
                 "report_path": code_review.REPORT_PATH}
 
     def close(self) -> None:
-        """Закрывает СВОЁ соединение с dev-сервером (подменённое не трогает)."""
+        """Закрывает СВОИ соединения: dev-сервер и клиент GitHub (подменённые не трогает)."""
         with self._lock:
             client = self._server
             self._server = None
+            github = self._github_client if self._github_owned else None
+            if self._github_owned:
+                self._github_client = None
         if client is not None:
             client.close()
+        if github is not None:
+            github.close()
 
     @staticmethod
     def _elapsed_ms(started: float) -> int:

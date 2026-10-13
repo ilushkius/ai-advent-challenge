@@ -5,6 +5,72 @@
 структуры кода), `docs` (документация), `rules` (правила для агента и процесса),
 `chore` (прочее: инфраструктура, скиллы, служебные изменения).
 
+## 2026-10-13 — feat — день 32 (расширение): ревью реальных GitHub PR по URL и номеру (GitHubClient, публикация комментария, UI раздела)
+
+Расширение дня 32: ревью умеет само ходить в GitHub. По URL репозитория и номеру PR
+diff и список изменённых файлов приходят из GitHub REST API, дальше идёт тот же путь,
+что у `POST /review/pr` (контекст корпуса RAG, модель по JSON-контракту, разбор
+находок), а по флагу ревью публикуется комментарием в PR. Локальный режим (`git diff`
+двух ref-ов или через MCP) не менялся и остаётся доступен.
+
+* Клиент REST API: `backend/services/github_client.py` — разбор URL репозитория
+  (https, форма с `.git`, scp-форма `git@github.com:owner/repo.git`), `get_repo`,
+  `get_pr`, `get_pr_diff` (заголовок `Accept: application/vnd.github.v3.diff`, то есть
+  тот же запрос отдаёт diff текстом), `get_changed_files`, `post_review_comment`
+  (POST отзыва с событием `COMMENT`) и `health()` по `GET /rate_limit`. Ошибки —
+  одно исключение `GitHubError` с HTTP-кодом и путём: тексты свои у 401, 403, 404 и
+  422, а 403 с исчерпанным лимитом отличается от «нет прав» и печатает остаток и время
+  сброса. Токен необязателен (`GITHUB_TOKEN` из окружения или `day21/.env`): без него
+  публичные репозитории читаются анонимно с лимитом 60 запросов в час, с ним — 5000;
+  в логи и health токен уходит только маской (`mask_token`).
+* Разгрузка службы по лимиту 400 строк: поиск контекста вынесен в
+  `backend/services/code_review_context.py` (документация проекта одним запросом, код
+  изменённых файлов — по одному запросу на файл), поток GitHub-ревью — в
+  `backend/services/code_review_github.py`, HTTP — в клиент. Служба
+  (`code_review_service.py`) осталась сшивкой: у неё три источника diff-а, ленивый
+  клиент GitHub (`github`), `review_github_pr` и `github_health`, а `close()` закрывает
+  только свои соединения и не трогает подменённые.
+* `review_github_pr` кладёт в запись `github_meta` (репозиторий, номер PR, ссылка,
+  число файлов и строк diff-а), `pr_url`, `posted` и `comment_url`. Отказ публикации не
+  отменяет ревью: исключения нет, `posted=false`, причина — предупреждением
+  `WARN_GITHUB_COMMENT_FAILED`.
+* Домен: `code_review.py` — `GITHUB_REPORT_PATH`/`GITHUB_REPORT_TITLE` и текст отказа
+  публикации; `code_review_report.py` — `render_github_meta` (таблица «GitHub PR»,
+  возвращает пустую строку у локального ревью), `github_report_header` и
+  `upsert_report_section(..., header=…)` со своим заголовком отчёта у каждого режима.
+* API: `POST /review/github-pr` (схемы `GitHubPrReviewIn`, `GitHubPrReviewOut`,
+  `GitHubMetaOut`) и `GET /review/github-health` (`GitHubHealthOut`,
+  `GitHubRateLimitOut`); `GitHubError` в роутере переводится в `400`, а не в `502`:
+  это негодный запрос или недоступность внешнего сервиса, а не сломанный MCP-путь.
+  Корневая точка `GET /` называет четыре эндпоинта раздела (124 строки перечня).
+* Интерфейс: раздел «🔎 AI-ревью кода (Day 32)» — `frontend/code_review_api.py` и
+  `frontend/code_review_section.py`, восемнадцатый пункт переключателя разделов. Две
+  вкладки по источнику diff-а («🗂 Локальный diff» и «🐙 GitHub PR»), переключатель
+  провайдера, поля URL и номера PR, чекбокс публикации, таблицы багов, архитектурных
+  проблем и рисков, рекомендации, источники RAG, ссылки на PR и комментарий и панель
+  готовности обеих служб (служба ревью и GitHub: маска токена, остаток лимита).
+  `frontend/chat_section.py` остался в пределе 400 строк.
+* Скрипт и отчёт: `scripts/run_github_pr_review.py` (`--repo-url`, `--pr-number`,
+  `--post-comment`, `--provider`, `--report`, `--no-report`, `--section-title`,
+  `--top-k`; коды 0/1/2) пишет секцию `docs/reports/github_pr_review.md` с блоком
+  «GitHub PR». Живой прогон по `fastapi/fastapi#16481` (4 файла, 222 строки diff-а)
+  зафиксирован в отчёте; публикация комментария живьём не проверялась — в окружении нет
+  `GITHUB_TOKEN`, и это отмечено в отчёте честной строкой.
+* Тесты: `tests/unit/test_github_client.py` (клиент на `httpx.MockTransport`: формы URL,
+  заголовки `Accept`/`Authorization`, коды 401/403/404/422, rate limit, публикация
+  отзыва, health, маска), новые тесты службы (`github_meta`, публикация и её отказ),
+  тест блока «GitHub PR» и заголовка отчёта, фейк `FakeGitHub` в
+  `tests/code_review_fakes.py` и slow-тест `tests/integration/test_github_pr_flow.py`
+  с маркером `github` (живой API по токену, без токена — skip). Маркер зарегистрирован
+  в `pytest.ini`, autouse-запрет сети в `tests/conftest.py` снимается и им.
+* Документация: раздел «Режим GitHub PR» в `docs/usage.md` (токен и права, флаги
+  скрипта, эндпоинты, шаги в интерфейсе, отчёт), ограничения дня (файлы чужого
+  репозитория вне корпуса, лимит 60 в час, непроверенная публикация) и две строки в
+  «Частые ошибки»; подраздел GitHub в `docs/api.md` и `docs/architecture.md`
+  (поток данных, разделение модулей, почему клиент отдельно и почему отказ GitHub — 400);
+  блок дня в `README.md`, дерево и числа в `STRUCTURE.md` (services 55, frontend 43,
+  tests 172, scripts 59) и `GITHUB_TOKEN` в `day21/.env.example`.
+
 ## 2026-10-13 — feat — день 32: автоматическое AI-ревью PR (diff через MCP, RAG-контекст корпуса и GitHub Action)
 
 Кейс дня — **пайплайн ревью кода**: ассистент получает diff нового PR, подтягивает

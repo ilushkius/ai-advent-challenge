@@ -90,16 +90,21 @@ Pydantic-схемы — в `schemas/`, HTTP — в `api/`. Сваливать ф
    `scripts/reindex_with_docs.py` (пересборка корпуса с документацией),
    `scripts/dev_mcp_probe.py` (проба инструмента) и `scripts/demo_dev_assistant.py`
    (пять вопросов и отчёт `docs/reports/dev_assistant_demo.md`).
-10. **AI-ревью PR** (день 32) — пайплайн ревью изменений: diff из запроса или через
-   MCP (`get_pr_diff`, `get_changed_files`), RAG-контекст документации проекта и кода
-   изменённых файлов, ответ модели по JSON-контракту и разбор в структуру (баги с
-   файлом и строкой, архитектурные проблемы с рекомендацией, рекомендации, риски
-   `P0`–`P3`). Домены `code_review` (контракт и разбор) и `code_review_report`
-   (markdown комментария и секции отчёта), служба `code_review_service`, два эндпоинта
-   `/review/*`, скрипты `scripts/run_local_pr_review.py` (локальный прогон двух ref-ов
-   или файла diff-а) и `scripts/gh_review_comment.py` (публикация комментария через
-   `gh`), GitHub Action `.github/workflows/ai-review.yml` в корне репозитория, отчёт
-   `docs/reports/code_review_demo.md` с двумя примерами.
+10. **AI-ревью PR** (день 32) — пайплайн ревью изменений: diff из запроса, через
+   MCP (`get_pr_diff`, `get_changed_files`) или из GitHub REST API по URL репозитория и
+   номеру PR, RAG-контекст документации проекта и кода изменённых файлов, ответ модели по
+   JSON-контракту и разбор в структуру (баги с файлом и строкой, архитектурные проблемы с
+   рекомендацией, рекомендации, риски `P0`–`P3`). Домены `code_review` (контракт и разбор)
+   и `code_review_report` (markdown комментария и секции отчёта), службы
+   `code_review_service` (сшивка и клиент GitHub), `code_review_context` (поиск контекста)
+   и `code_review_github` (поток GitHub-ревью), клиент REST API `github_client`, четыре
+   эндпоинта `/review/*`, раздел интерфейса «🔎 AI-ревью кода (Day 32)» с вкладками
+   «🗂 Локальный diff» и «🐙 GitHub PR», скрипты `scripts/run_local_pr_review.py`
+   (локальный прогон двух ref-ов или файла diff-а), `scripts/run_github_pr_review.py`
+   (URL и номер PR, публикация по `--post-comment`) и `scripts/gh_review_comment.py`
+   (публикация комментария через `gh`), GitHub Action `.github/workflows/ai-review.yml` в
+   корне репозитория, отчёты `docs/reports/code_review_demo.md` с двумя примерами и
+   `docs/reports/github_pr_review.md` с ревью живого PR.
 
 Унаследовано из дня 20 — одной строкой: **остальное дерево, включая `mcp_server/`,
 `mcp_servers/` с `mcp_servers.json`, память, профиль, состояние задачи, инварианты,
@@ -184,7 +189,7 @@ day21/
 │                             # git-контекст (ветка, коммит, diff), файлы каталога, дерево папки дня (день 31),
 │                             # а с дня 32 — diff PR и список изменённых файлов (get_pr_diff, get_changed_files)
 ├── mcp_server/               # собственный MCP-сервер дня — унаследован от дней 17–19 (11 модулей, девять инструментов, stdio)
-├── frontend/                 # Streamlit UI по секциям (41 модуль, включая __init__.py)
+├── frontend/                 # Streamlit UI по секциям (43 модуля, включая __init__.py)
 │   ├── indexing_api.py       # HTTP-запросы индексации (/indexing/...) поверх api_client
 │   ├── indexing_section.py   # раздел «📦 Индексация»: кнопка демо, прогресс этапов, история, очистка
 │   ├── indexing_compare.py   # сравнение стратегий: таблица метрик, гистограммы, примеры чанков, тестовые запросы
@@ -201,6 +206,9 @@ day21/
 │   ├── remote_llm_section.py # раздел «🛰 Удалённая LLM»: поля URL и модели, слайдеры лимита и окна, кнопка демо, таблица
 │   ├── dev_assistant_api.py  # HTTP-запросы ассистента разработчика (/dev-assistant/...)
 │   ├── dev_assistant_section.py # раздел «🧑‍💻 Ассистент разработчика (Day 31)»: подсказки, диалог, источники, панели MCP и git
+│   ├── code_review_api.py    # HTTP-запросы ревью (/review/pr, /review/github-pr и обе проверки готовности)
+│   ├── code_review_section.py # раздел «🔎 AI-ревью кода (Day 32)»: провайдер, вкладки локального diff-а и GitHub PR,
+│   │                          # таблицы находок, источники, публикация комментария, панели готовности службы и GitHub
 │   └── …                     # остальные секции унаследованы от дня 20
 ├── mini_chat/                # ОТДЕЛЬНОЕ приложение дня 25 (Streamlit, порт 8502): app.py — точка входа
 │                             # (root дня в sys.path + панели), api.py — HTTP-запросы /mini-chat/... поверх
@@ -223,13 +231,14 @@ day21/
 │   │                         # контракт ассистента разработчика (dev_assistant), контракт AI-ревью
 │   │                         # (code_review) и разметка его отчёта (code_review_report)
 │   │                         # и унаследованные домены
-│   ├── services/             # 52 модуля: индексация (chunker, embedding_service, index_service, document_loader,
+│   ├── services/             # 55 модулей: индексация (chunker, embedding_service, index_service, document_loader,
 │   │                         # index_runner, index_comparison, indexing_service), затраты (llm_client,
 │   │                         # prompt_compressor, off_peak), RAG (rag_corpus_loader, rag_service, rag_retrieval,
 │   │                         # rag_records, rag_llm, rag_errors, rag_corpus_index, rerank_service, rag_compare_service), мини-чат
 │   │                         # (mini_chat_service, mini_chat_memory), провайдер (llm_factory, local_llm_client,
 │   │                         # local_llm_demo, remote_llm_client, remote_llm_service), ассистент разработчика
-│   │                         # (dev_assistant_service), AI-ревью PR (code_review_service) и оптимизация
+│   │                         # (dev_assistant_service), AI-ревью PR (code_review_service, code_review_context,
+│   │                         # code_review_github, github_client) и оптимизация
 │   │                         # локальной модели (local_llm_resources, local_tuning_service) плюс унаследованные
 │   ├── storage/              # 17 модулей: chunk_store и index_run_store (журнал прогонов индексации),
 │   │                         # llm_usage_store и llm_usage_rows (журнал расходов) плюс унаследованные хранилища
@@ -241,7 +250,7 @@ day21/
 │   ├── data/                 # данные дня: demo_questions.json (10 контрольных вопросов RAG) и
 │   │                         # mini_chat_scenarios.json (два сценария мини-чата: 14 и 12 реплик)
 │   └── utils/                # своего кода нет (общий — в repo-level shared/)
-├── tests/                    # pytest: 2777 тестов (unit/ — 1934, integration/ — 594, e2e/ — 249); по умолчанию 2686 (91 slow отложен)
+├── tests/                    # pytest: 2803 теста (unit/ — 1959, integration/ — 595, e2e/ — 249); по умолчанию 2711 (92 slow отложено)
 │   ├── conftest.py           # общие фикстуры (session-scoped schema_template для схемы БД) + autouse no_real_network
 │   ├── fixtures_fleet.py     # фикстуры флота MCP-серверов и оркестрации (вынесены из conftest: лимит 400 строк)
 │   ├── fixtures_indexing.py  # фикстуры индексации документов (тоже вынесены из conftest)
@@ -264,12 +273,16 @@ day21/
 │   ├── unit/test_dev_assistant_panels.py       # unit дня 31: каталог инструментов, git-контекст, соединение со stdio-сервером и его закрытие, клиент по ключу, синглтон
 │   ├── integration/test_dev_assistant_flow.py  # slow дня 31: настоящий корпус и настоящий процесс mcp_servers/dev_server/server.py, заглушка модели
 │   ├── unit/test_code_review_service.py        # unit дня 32: пять кейсов структуры ревью (payload, MCP, отказ MCP, отказ модели, пустой индекс),
-│   │                                           # отказ «нечего анализировать», запрос по пути файла и порядок приоритетов P0–P3
-│   ├── unit/test_code_review_report.py         # unit дня 32: разделы markdown, обрезка полного ответа и замена секции отчёта без дублей
+│   │                                           # отказ «нечего анализировать», запрос по пути файла, порядок приоритетов P0–P3
+│   │                                           # и режим GitHub: github_meta, публикация комментария и её отказ предупреждением
+│   ├── unit/test_code_review_report.py         # unit дня 32: разделы markdown, обрезка полного ответа, замена секции отчёта без дублей и блок «GitHub PR»
+│   ├── unit/test_github_client.py              # unit дня 32: клиент REST API на httpx.MockTransport — три формы URL, заголовки Accept/Authorization,
+│   │                                           # коды 401/403/404/422, отличие rate limit, публикация отзыва, health и маска токена
 │   ├── integration/test_code_review_flow.py    # slow дня 32: настоящий git diff day30..day31 через dev_server, обрезка до 2000 строк, документация в источниках
+│   ├── integration/test_github_pr_flow.py      # slow + github дня 32: живой GitHub API по токену (без GITHUB_TOKEN — skip)
 │   └── …                     # унаследованные помощники тестов дня 20 (orchestration_fakes, mcp_fakes, stub_api, support…)
-├── docs/                     # architecture.md, usage.md, api.md, reports/ (включая code_review_demo.md дня 32
-│                             # и вход синтетического примера reports/synthetic_pr.diff)
+├── docs/                     # architecture.md, usage.md, api.md, reports/ (включая code_review_demo.md дня 32,
+│                             # github_pr_review.md — ревью живого PR — и вход синтетического примера reports/synthetic_pr.diff)
 ├── scripts/                  # прогоны демонстраций и сборка отчётов (не пакет)
 │   ├── prepare_documents.py  # сборка набора документов: --force (пересобрать), --list (показать манифест)
 │   ├── indexing_scenarios.py # пять сценариев индексации (демо, одиночная стратегия, поиск, качество, рестарт) + стенд
@@ -292,6 +305,7 @@ day21/
 │   ├── dev_mcp_probe.py      # проба одного инструмента mcp_servers/dev_server по stdio (--tool, --args, --target) без модели
 │   ├── demo_dev_assistant.py # пять вопросов /help через DevAssistantService (--provider, --report, --no-report) и отчёт дня 31
 │   ├── run_local_pr_review.py # локальное ревью дня 32: git diff двух ref-ов или --diff-file, вызов службы, печать находок и секция отчёта
+│   ├── run_github_pr_review.py # ревью реального PR дня 32: URL и номер (--repo-url, --pr-number), --post-comment, печать находок и отчёт с блоком GitHub PR
 │   ├── gh_review_comment.py  # публикация ответа POST /review/pr комментарием в PR через gh (--pr, --repo, --input, --dry-run)
 │   └── …                     # унаследованные скрипты дней 18–20 (orchestration_*, pipeline_*, scheduler_*, video_*)
 ├── invariants_demo.md        # отчёт дня 14 (унаследован; лежит в корне дня — путь задан заданием дня 14)
@@ -299,7 +313,7 @@ day21/
 ├── pyproject.toml, uv.lock   # зависимости (uv): sentence-transformers, faiss-cpu, numpy, mcp, sqlalchemy…; версии — в локе
 ├── .agents/skills/           # скиллы: вендорные библиотек (uvx library-skills --copy) и проектный check_docs (проверка документации перед коммитом); не код дня
 ├── .python-version           # 3.14
-├── .env.example              # шаблон DEEPSEEK_API_KEY, DAY21_BACKEND_URL, DAY21_EMBEDDING_MODEL,
+├── .env.example              # шаблон DEEPSEEK_API_KEY, GITHUB_TOKEN, DAY21_BACKEND_URL, DAY21_EMBEDDING_MODEL,
 │                             # LLM_PROVIDER, LOCAL_LLM_MODEL, LOCAL_LLM_URL и профиля настройки
 │                             # локальной модели (LOCAL_LLM_PROFILE, LOCAL_LLM_TEMPERATURE,
 │                             # LOCAL_LLM_NUM_CTX, LOCAL_LLM_CHAT_MAX_TOKENS), REMOTE_LLM_URL,
@@ -324,6 +338,9 @@ day21/
 демо, лимит частоты и окно контекста (день 30),
 `code_review_demo.md` — два примера AI-ревью (реальный diff `day30..day31` и
 синтетический PR из `reports/synthetic_pr.diff`, день 32),
+`github_pr_review.md` — ревью живого PR из GitHub REST API
+(`fastapi/fastapi#16481`: 4 файла, 222 строки diff-а) с блоком «GitHub PR» и пометкой,
+что публикация комментария без `GITHUB_TOKEN` не проверялась живьём (день 32),
 остальные (`orchestration_demo.md`,
 `pipeline_demo.md`, `scheduler_demo.md`, `mcp_tool_demo.md`, `mcp_demo.md`,
 `task_state_demo.md`, `personalization_comparison.md`) унаследованы и читаются как
@@ -593,21 +610,27 @@ Ollama), а параметры вызова уходят аргументами:
 | Модуль | Назначение |
 |---|---|
 | `backend/domain/code_review.py` | Контракт ревью без HTTP, диска и модели: `SYSTEM_PROMPT` с JSON-схемой и границами находок (не больше 3 багов, 2 архитектурных проблем, 2 рекомендаций, 3 рисков — ответ идёт типом задачи `chat` с пределом 1000 токенов), `normalize_priority` (`"p0"`/`2`/`"P1 (важно)"` → `P0`–`P3`), `sort_risks`, `changed_files_from_diff`, `added_lines`, `context_query` (пути плюс добавленные строки), `truncate_diff` (предел 2000 строк и список пропущенных файлов), `strip_json_fence`/`normalize_review` (терпимый разбор: строка вместо объекта, `message` вместо `issue`, текст без JSON), `review_question`, `render_context`, тексты предупреждений |
-| `backend/domain/code_review_report.py` | Разметка: `render_markdown` (разделы комментария PR и секции отчёта — изменённые файлы, таблицы багов и рисков, рекомендации, источники, предупреждения, полный ответ модели под `<details>`), `report_header`, `upsert_report_section` с маркером `SECTION_MARKER` (граница секции — невидимый `<!-- section: … -->`, а не заголовок: тело ревью само начинается с `## 🤖 AI-ревью`) |
-| `backend/services/code_review_service.py` | Служба: diff из payload или через MCP `get_pr_diff`, файлы из payload/MCP/самого diff-а, поиск фрагментов документации и кода изменённых файлов (не больше восьми; второй запрос по пути файла, если добавленные строки увели выдачу), обрезка diff-а, вызов модели, разбор ответа, `mcp_tools_used`/`sources`/`warnings`, `health()`, синглтон `get_code_review_service` и закрытие соединения |
-| `backend/schemas/code_review.py`, `backend/api/code_review.py` | Схемы (`PrReviewIn`, `PrReviewOut`, `CodeReviewHealthOut` и вложенные) и два эндпоинта: `POST /review/pr` (400 — нечего анализировать или незнакомый провайдер, 502 — MCP не поднялся и diff не добыть), `GET /review/health` (всегда 200) |
-| `backend/core/dependencies.py`, `backend/api/main.py`, `backend/api/__init__.py`, `backend/services/__init__.py`, `backend/api/lifespan.py`, `backend/api/agents.py` | Прошивка: точка подмены `get_code_review_service`, роутер в цикле регистрации и в `__all__` пакета, закрытие соединения при остановке, ключ `code_review` и две строки в перечне эндпоинтов корневой точки |
+| `backend/domain/code_review_report.py` | Разметка: `render_markdown` (разделы комментария PR и секции отчёта — изменённые файлы, таблицы багов и рисков, рекомендации, источники, предупреждения, полный ответ модели под `<details>`), `render_github_meta` (блок «GitHub PR»: ссылка, число файлов и строк diff-а, признак публикации; у локального ревью возвращает пустую строку), `github_report_header`, `report_header`, `upsert_report_section` с маркером `SECTION_MARKER` и своим заголовком (граница секции — невидимый `<!-- section: … -->`, а не заголовок: тело ревью само начинается с `## 🤖 AI-ревью`) |
+| `backend/services/code_review_service.py` | Служба: diff из payload, через MCP `get_pr_diff` или из GitHub REST API, файлы из payload/MCP/самого diff-а, обрезка diff-а, вызов модели, разбор ответа, `mcp_tools_used`/`sources`/`warnings`, ленивый клиент GitHub (`review_github_pr`, `github_health`), `health()`, синглтон `get_code_review_service` и закрытие своих соединений |
+| `backend/services/code_review_context.py` | Поиск контекста, вынесенный из службы на пределе 400 строк: фрагменты документации проекта одним запросом и код изменённых файлов по одному запросу на файл (второй запрос — по пути, когда добавленные строки увели выдачу); отказы данными, а не исключениями |
+| `backend/services/code_review_github.py` | Поток GitHub-ревью: URL и номер PR → `get_repo`/`get_pr`/`get_pr_diff`/`get_changed_files`, запись `github_meta`, публикация комментария по флагу; отказ публикации — предупреждение и `posted=false` |
+| `backend/services/github_client.py` | Клиент GitHub REST API: разбор URL (https, `.git`, scp-форма), чтения PR с заголовком `Accept: application/vnd.github.v3.diff`, `post_review_comment` (событие `COMMENT`), `health()` по `/rate_limit`, тексты ошибок 401/403/404/422, отличие исчерпанного rate limit, маска токена (в лог и health токен целиком не попадает) |
+| `backend/schemas/code_review.py`, `backend/api/code_review.py` | Схемы (`PrReviewIn`, `PrReviewOut`, `CodeReviewHealthOut` и вложенные, плюс `GitHubPrReviewIn`, `GitHubPrReviewOut`, `GitHubMetaOut`, `GitHubRateLimitOut`, `GitHubHealthOut`) и четыре эндпоинта: `POST /review/pr` (400 — нечего анализировать или незнакомый провайдер, 502 — MCP не поднялся и diff не добыть), `GET /review/health`, `POST /review/github-pr` (`GitHubError` → 400, а не 502) и `GET /review/github-health` (всегда 200) |
+| `backend/core/dependencies.py`, `backend/api/main.py`, `backend/api/__init__.py`, `backend/services/__init__.py`, `backend/api/lifespan.py`, `backend/api/agents.py` | Прошивка: точка подмены `get_code_review_service`, роутер в цикле регистрации и в `__all__` пакета, закрытие соединения при остановке, ключ `code_review` (4 эндпоинта) и четыре строки в перечне эндпоинтов корневой точки |
+| `frontend/chat_section.py`, `frontend/code_review_api.py`, `frontend/code_review_section.py` | Раздел «🔎 AI-ревью кода (Day 32)»: восемнадцатый пункт переключателя разделов, HTTP-запросы (`api_review_pr`, `api_review_github_pr`, обе проверки готовности) и сам раздел — провайдер, вкладки «🗂 Локальный diff» и «🐙 GitHub PR», таблицы находок, источники, ссылки на PR и комментарий, панели готовности |
 | `backend/domain/dev_assistant.py`, `mcp_servers/dev_server/config.py`, `schemas.py`, `tools.py`, `server.py` | Правки dev-сервера: имена `TOOL_PR_DIFF`/`TOOL_CHANGED_FILES` в реестре `TOOLS` (по нему собирается каталог панели и ограничение `--tool`), `MAX_CHANGED_FILES = 300` и образец ref-а, `TypedDict ChangedFiles`, два инструмента и их регистрация |
 | `scripts/run_local_pr_review.py` | Локальный прогон: `git diff base..head` или `--diff-file`, вызов службы, печать строк прогресса, предупреждений и источников, секция отчёта `docs/reports/code_review_demo.md` (`--pr-label`, `--section-title`, `--report`, `--no-report`, `--top-k`, `--provider`); коды 0/1/2 |
+| `scripts/run_github_pr_review.py` | GitHub-прогон: `--repo-url` и `--pr-number` (обязательные), `--post-comment`, `--provider`, `--report`, `--no-report`, `--section-title`, `--top-k`; печатает `github_meta`-числа, предупреждения, источники, ссылки на PR и комментарий, пишет секцию отчёта `docs/reports/github_pr_review.md` с блоком «GitHub PR»; коды 0/1/2 |
 | `scripts/gh_review_comment.py` | Публикация ответа `POST /review/pr` комментарием: `render_markdown` → `gh pr comment --body-file -`; `--dry-run` печатает разметку; коды 0/1/2 |
 | `.github/workflows/ai-review.yml` | Action в корне репозитория: на `opened`/`synchronize`/`reopened` поднимает бэкенд на раннере, ждёт `/review/health`, собирает payload из `gh pr diff` и `gh pr view --json files`, зовёт `/review/pr` и публикует комментарий |
-| `docs/reports/synthetic_pr.diff`, `docs/reports/code_review_demo.md` | Вход синтетического примера (два метода `IndexService` с намеренными проблемами; `git apply --check` проходит) и отчёт с двумя секциями |
-| `tests/code_review_fakes.py`, `tests/unit/test_code_review_service.py`, `tests/unit/test_code_review_report.py`, `tests/integration/test_code_review_flow.py` | Фейки (diff трёх файлов, попадания документации и кода, индекс без фрагментов, MCP-клиент с diff-ом, подмена `MCPClient`, пять кейсов) вынесены отдельным модулем — как фейки дня 31. Unit: структура ответа и разбор находок по кейсам, отказы MCP, модели и пустого индекса, отказ «нечего анализировать», запрос по пути файла, порядок приоритетов; разметка отчёта и замена его секции без дублей. Slow-интеграция: настоящий `git diff day30..day31` через настоящий `dev_server` |
+| `docs/reports/synthetic_pr.diff`, `docs/reports/code_review_demo.md`, `docs/reports/github_pr_review.md` | Вход синтетического примера (два метода `IndexService` с намеренными проблемами; `git apply --check` проходит), отчёт с двумя секциями и отчёт ревью живого PR `fastapi/fastapi#16481` |
+| `tests/code_review_fakes.py`, `tests/unit/test_code_review_service.py`, `tests/unit/test_code_review_report.py`, `tests/unit/test_github_client.py`, `tests/integration/test_code_review_flow.py`, `tests/integration/test_github_pr_flow.py` | Фейки (diff трёх файлов, попадания документации и кода, индекс без фрагментов, MCP-клиент с diff-ом, `FakeGitHub` с diff-ом, файлами и записью публикаций, подмена `MCPClient`, пять кейсов) вынесены отдельным модулем — как фейки дня 31. Unit: структура ответа и разбор находок по кейсам, отказы MCP, модели и пустого индекса, отказ «нечего анализировать», запрос по пути файла, порядок приоритетов; разметка отчёта, блок «GitHub PR» и замена секции без дублей; режим GitHub (мета, публикация и её отказ) и клиент REST API на подменённом транспорте. Slow-интеграция: настоящий `git diff day30..day31` через настоящий `dev_server` и живой GitHub API по токену (без токена — skip) |
 
-День 32 не заводит ни таблиц, ни интерфейса: он переиспользует индекс корпуса дня 22,
-клиент модели (`rag_llm`), MCP-сервер дня 31 и путь публикации через `gh`. Поэтому
-недоступный индекс или файл вне корпуса — штатный случай: ревью идёт по diff-у, а
-причина остаётся в `warnings` и в отчёте.
+День 32 не заводит ни таблиц, ни новых индексов: он переиспользует индекс корпуса дня 22,
+клиент модели (`rag_llm`), MCP-сервер дня 31 и путь публикации через `gh`; режим GitHub
+добавляет к этому HTTP-клиент GitHub REST API и раздел интерфейса. Поэтому недоступный
+индекс или файл вне корпуса — штатный случай: ревью идёт по diff-у, а причина остаётся в
+`warnings` и в отчёте.
 
 ### Экономия контекста агента: корень дня, `.gitignore` и настройки окружения
 
@@ -634,7 +657,7 @@ Ollama), а параметры вызова уходят аргументами:
 | `api/` | 21 | HTTP: 18 роутеров по доменам (в том числе `indexing.py` — индексация, `llm.py` — расходы, `remote_llm.py` — удалённый сервер дня 30, `rag.py` — RAG, `mini_chat.py` — мини-чат, `dev_assistant.py` — ассистент, `code_review.py` — AI-ревью PR, `orchestration.py` — запуски, `mcp_servers.py` — флот), `lifespan.py` (старт и остановка фоновых служб, чтение индексов, прогрев модели) и `main.py` (сборка `app`) |
 | `core/` | 7 | `config.py` (настройки дня: файл флота, каталоги документов и индексов, модель эмбеддингов, границы поиска и **весь раздел оптимизации затрат** — маршрутизация моделей, пределы ответа, тарифы, доля цены кэша, окна непика и параметры журнала), `llm_settings.py` (**провайдеры ответа:** DeepSeek, локальная Ollama дня 26 и удалённая дня 30 — адрес, модель, ключ, лимит частоты и окно контекста; вынесены из `config.py` на пределе 400 строк), `mcp_server_config.py` (чтение `mcp_servers.json` и запись `tools_cache`), `dependencies.py` (доступ роутов к менеджеру, реестру, планировщику, службам пайплайна, оркестрации, индексации, RAG и клиенту LLM), `prompt_builder.py` |
 | `domain/` | 64 | Чистые правила и данные без БД и сети: FSM задачи/сжатия/MCP/планировщика/пайплайна/оркестрации/**индексации**, графы переходов, расписания, агрегация, распознавание реплик, маппинг аргументов, стратегии, профиль, инварианты, тексты промптов, план шагов, **источники документов, блоки, метрики сравнения, тестовые запросы**, **стоимость запросов и правило непиковых часов**, **RAG-промпт, источники корпуса и контрольные вопросы**, **режимы отбора RAG с порогом и реранкером (день 23)**, **профили настройки локальной модели (день 29)**, **провайдеры ответа и сценарий демо удалённой LLM (день 30)**, **контракт ассистента разработчика (день 31)**, **контракт AI-ревью и разметка его отчёта (день 32)**. Знают только stdlib, `core.config` и соседей по слою |
-| `services/` | 52 | Прикладные сервисы: компрессор контекста, состояние задачи, инварианты, `mcp_*` (клиент, транспорт, ошибки, реестр с флотом, состояние сервера, раннер инструмента), планировщик и его службы, пайплайн, оркестратор, **чанкер, эмбеддинги, векторный индекс, загрузчик документов, прогон индексации, сборка метрик, служба индексации**, **клиент LLM, сжатие промптов и перенос запуска в непик**, **загрузчик корпуса RAG, служба RAG, этапы отбора, рекорды ответа, повторы вызова и служба кросс-энкодера (день 23)**, **служба мини-чата с правилами памяти задачи (день 25)**, **клиенты и службы обоих ответчиков на Ollama — локального (дни 26/29) и удалённого (день 30) с счётчиком частоты**, **служба ассистента разработчика (день 31)** и **служба AI-ревью PR (день 32)** |
+| `services/` | 55 | Прикладные сервисы: компрессор контекста, состояние задачи, инварианты, `mcp_*` (клиент, транспорт, ошибки, реестр с флотом, состояние сервера, раннер инструмента), планировщик и его службы, пайплайн, оркестратор, **чанкер, эмбеддинги, векторный индекс, загрузчик документов, прогон индексации, сборка метрик, служба индексации**, **клиент LLM, сжатие промптов и перенос запуска в непик**, **загрузчик корпуса RAG, служба RAG, этапы отбора, рекорды ответа, повторы вызова и служба кросс-энкодера (день 23)**, **служба мини-чата с правилами памяти задачи (день 25)**, **клиенты и службы обоих ответчиков на Ollama — локального (дни 26/29) и удалённого (день 30) с счётчиком частоты**, **служба ассистента разработчика (день 31)** и **служба AI-ревью PR с вынесенными поиском контекста, потоком GitHub и клиентом REST API (день 32)** |
 | `storage/` | 17 | Доступ к БД: `database.py` (движок, сессии, реэкспорт ORM), хранилища задач, инвариантов, памяти, планировщика, пайплайна, оркестрации, **чанков с журналом индексации** и **журнала расходов на LLM** (+ модули «строка → словарь») |
 | `agents/` | 12 | `Agent`, `MemoryManager`, `ProfileStore`, `AgentManager` из миксинов; менеджер передаёт агентам реестр MCP, службы пайплайна, оркестрации, **индексации (шаг поиска по документам в `generate`)** и **клиент LLM со строителем промптов** |
 | `models/` | 13 | ORM-таблицы SQLAlchemy по доменам, включая **`indexing.py`** (`document_chunks`, `index_runs`), **`llm_usage.py`**, `orchestration.py` |
@@ -660,8 +683,8 @@ remote_demo, orchestration_fsm, …`), а не реэкспортирует их
 
 ## Тесты: `tests/`
 
-Набор дня — **2777 тестов**: `unit/` — 1934 (78 файлов), `integration/` — 594
-(57 файлов), `e2e/` — 249 (16 файлов). Классификация по фикстурам: чистые модули /
+Набор дня — **2803 теста**: `unit/` — 1959 (79 файлов), `integration/` — 595
+(58 файлов), `e2e/` — 249 (16 файлов). Классификация по фикстурам: чистые модули /
 временная БД и агент / `TestClient`. Унаследованные наборы дней 11–20 (память и
 стратегии, профиль, задача и переходы, инварианты, MCP, планировщик, пайплайн, флот и
 оркестрация) остаются на месте; их раскладка по файлам — в
@@ -671,13 +694,14 @@ remote_demo, orchestration_fsm, …`), а не реэкспортирует их
 и делят одну схему БД на прогон: session-scoped `schema_template` строит её один
 раз, а `session_factory` копирует файл (2,65 мс вместо 934 мс у `create_all`) —
 изоляция сохранена (файл на тест), время полного прогона упало с 370 с до 68 с.
-Тяжёлые тесты (91 штука: подпроцессы MCP-серверов по stdio, сборка реального
+Тяжёлые тесты (92 штуки: подпроцессы MCP-серверов по stdio, сборка реального
 RAG-корпуса и часть e2e) помечены
-`slow` и по умолчанию пропускаются: `uv run pytest` идёт ~15 с и покрывает 2686
-тестов, полный набор — `uv run pytest -m ""` или `--run-slow` — ~65 с и 2777 тестов. Autouse-фикстура
+`slow` и по умолчанию пропускаются: `uv run pytest` идёт ~18 с и покрывает 2711
+тестов, полный набор — `uv run pytest -m ""` или `--run-slow` — ~57 с и 2803 теста. Autouse-фикстура
 `no_real_network` запрещает тестам TCP на нелокальные адреса (внешние API
-подменены фейками); исключение — тесты с маркером `remote`: сквозной прогон удалённой
-модели дня 30 идёт по настоящему туннелю, подменять который нечем. Замеры и разбор — в
+подменены фейками); исключение — тесты с маркерами `remote` и `github`: сквозной прогон
+удалённой модели дня 30 идёт по настоящему туннелю, а живой REST API GitHub дня 32
+(diff реального PR) фейком проверял бы не то. Замеры и разбор — в
 [`docs/reports/test_optimization.md`](docs/reports/test_optimization.md).
 
 Фикстуры индексации вынесены в `tests/fixtures_indexing.py` (импортируется обратно в
@@ -789,10 +813,12 @@ singleton протекал бы между тестами вместе с фаб
 
 | Группа | Файлы (строк) | Что проверяют |
 |---|---|---|
-| Фейки | `tests/code_review_fakes.py` (245) | Diff трёх файлов корпуса и список этих файлов, попадания документации и кода по slug-ам запроса, `FakeMCP` (diff и имена файлов по имени инструмента, ошибка связи, ошибка инструмента), `FailingStdioClient` (подмена `MCPClient`) и пять кейсов `CASES` плюс `make_service` — общие для двух юнит-файлов |
-| Служба | `unit/test_code_review_service.py` (142) | Пять кейсов параметризации: набор полей ответа, разбор находок (баг с файлом и строкой, рекомендация архитектурной проблемы), порядок рисков `P0`–`P3`, diff и файлы из payload или через MCP, `changed_files` как якорь контекста, предупреждения (обрыв MCP, пустой индекс) и честный текст при недоступной модели; отдельно — `CodeReviewError` при неработающем MCP, `ValueError` без diff-а и ref-ов, второй запрос по пути файла, когда добавленные строки увели выдачу, и семь форм записи приоритета |
-| Разметка | `unit/test_code_review_report.py` (66) | Разделы markdown ревью (включая экранирование `\|` в ячейках и приоритет с подписью), пустые разделы, обрезка полного ответа модели; замена секции отчёта целиком без дублей — регрессия на то, что границей секции служит маркер, а не заголовок (тело ревью само начинается с `## 🤖 AI-ревью`) |
+| Фейки | `tests/code_review_fakes.py` (304) | Diff трёх файлов корпуса и список этих файлов, попадания документации и кода по slug-ам запроса, `FakeMCP` (diff и имена файлов по имени инструмента, ошибка связи, ошибка инструмента), `FakeGitHub` (diff, файлы, запись публикаций, отказ публикации, `health`), `FailingStdioClient` (подмена `MCPClient`) и пять кейсов `CASES` плюс `make_service` — общие для двух юнит-файлов |
+| Служба | `unit/test_code_review_service.py` (199) | Пять кейсов параметризации: набор полей ответа, разбор находок (баг с файлом и строкой, рекомендация архитектурной проблемы), порядок рисков `P0`–`P3`, diff и файлы из payload или через MCP, `changed_files` как якорь контекста, предупреждения (обрыв MCP, пустой индекс) и честный текст при недоступной модели; отдельно — `CodeReviewError` при неработающем MCP, `ValueError` без diff-а и ref-ов, второй запрос по пути файла, когда добавленные строки увели выдачу, и семь форм записи приоритета; режим GitHub — `github_meta` из ответов клиента, публикация комментария с меткой PR, отказ публикации предупреждением при сохранённом ревью и `GitHubError` на негодном URL |
+| Разметка | `unit/test_code_review_report.py` (104) | Разделы markdown ревью (включая экранирование `\|` в ячейках и приоритет с подписью), пустые разделы, обрезка полного ответа модели; блок «GitHub PR» (ссылка, число файлов и строк diff-а, «не публиковался» против «[опубликован](…)», пустая строка у локального ревью) и свой заголовок GitHub-отчёта; замена секции отчёта целиком без дублей — регрессия на то, что границей секции служит маркер, а не заголовок (тело ревью само начинается с `## 🤖 AI-ревью`) |
+| Клиент GitHub | `unit/test_github_client.py` (225) | На подменённом транспорте `httpx.MockTransport` (сеть не открывается, autouse-запрет сети в силе): разбор URL в трёх формах и отказ на мусоре, чтения PR с заголовками `Accept` (JSON и `v3.diff`) и `Authorization: Bearer` (и его отсутствие без токена), тело публикации отзыва (`event: COMMENT`), тексты и коды 401/403/404/422, отличие исчерпанного rate limit по `X-RateLimit-Remaining`, сбой транспорта как «недоступен» с кодом 0, `health()` на живом и сломанном API, токен из окружения и его маска |
 | Полный цикл (slow) | `integration/test_code_review_flow.py` (94) | Настоящий `git diff day30..day31` (4344 строки, 35 файлов) через настоящий процесс `mcp_servers/dev_server/server.py`: инструменты `get_pr_diff` и `get_changed_files` отдают данные, diff обрезается до 2000 строк (предупреждение с именами пропущенных файлов), файл дня 31 попадает в `changed_files`, а в источниках есть документация корпуса; отдельно — `CodeReviewError`, когда MCP не поднимается |
+| Живой GitHub (slow + `github`) | `integration/test_github_pr_flow.py` (45) | Настоящий GitHub REST API по токену: метаданные PR, diff в формате unified и список файлов с непустыми именами; без `GITHUB_TOKEN` тест пропускается (анонимный лимит 60 запросов в час тратится общим на IP) |
 
 ## Что изменилось относительно дня 20
 
@@ -1011,20 +1037,25 @@ python -c "from pathlib import Path; print([(str(p), len(p.read_text(encoding='u
 импортирует их из `backend/schemas/dev_assistant.py` (105) напрямую — тот же приём, что
 у схем дня 30.
 
-День 32 удержал лимит разделением обязанностей и двумя выносами. Во-первых, домен
-ревью разложен на два модуля: `backend/domain/code_review.py` (347 — контракт, разбор
+День 32 удержал лимит разделением обязанностей и выносами. Во-первых, домен
+ревью разложен на два модуля: `backend/domain/code_review.py` (353 — контракт, разбор
 ответа, приоритеты, обрезка diff-а, контекст промпта) и
-`backend/domain/code_review_report.py` (148 — markdown комментария и секции отчёта):
-вместе они не влезли бы в 400 строк, а читатели у них разные — правила разбора нужны
-службе, разметка только скриптам. Во-вторых, разметка отчёта получила маркер секции
-(`SECTION_MARKER`), и это же решение сняло дефект: границей секции раньше служил
-следующий заголовок `##`, а тело ревью само начинается с `## 🤖 AI-ревью`, поэтому
-повторный прогон оставлял старое тело под новым — теперь секции заменяются целиком
-(регрессия закреплена тестом `unit/test_code_review_report.py`). Самые длинные новые
-файлы дня: `backend/services/code_review_service.py` (399 — ровно на пределе, поэтому
-обрезка diff-а и разметка живут в домене), `mcp_servers/dev_server/tools.py` (306:
-шесть инструментов и валидатор ref-а), `scripts/run_local_pr_review.py` (157),
-`backend/schemas/code_review.py` (126), `backend/api/code_review.py` (77). Схемы дня,
+`backend/domain/code_review_report.py` (196 — markdown комментария, секции отчёта и блок
+«GitHub PR»): вместе они не влезли бы в 400 строк, а читатели у них разные — правила
+разбора нужны службе, разметка только скриптам. Во-вторых, разметка отчёта получила
+маркер секции (`SECTION_MARKER`), и это же решение сняло дефект: границей секции раньше
+служил следующий заголовок `##`, а тело ревью само начинается с `## 🤖 AI-ревью`,
+поэтому повторный прогон оставлял старое тело под новым — теперь секции заменяются
+целиком (регрессия закреплена тестом `unit/test_code_review_report.py`). Расширение
+режима GitHub добавило третий вынос: из службы ушли поиск контекста
+(`backend/services/code_review_context.py`, 85) и поток GitHub-ревью
+(`backend/services/code_review_github.py`, 74) — служба стояла ровно на пределе и после
+выноса занимает 376 строк, а HTTP-часть GitHub живёт отдельным клиентом
+(`backend/services/github_client.py`, 230). Самые длинные новые
+файлы дня: `backend/services/code_review_service.py` (376), `mcp_servers/dev_server/tools.py` (306:
+шесть инструментов и валидатор ref-а), `frontend/code_review_section.py` (281),
+`backend/schemas/code_review.py` (184), `scripts/run_local_pr_review.py` (157),
+`scripts/run_github_pr_review.py` (139) и `backend/api/code_review.py` (127). Схемы дня,
 как и у дней 30–31, НЕ реэкспортируются через `backend/schemas/__init__.py` (395, на
 пределе): роутер импортирует их из `backend/schemas/code_review.py` напрямую.
 

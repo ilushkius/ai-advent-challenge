@@ -301,6 +301,8 @@ FastAPI сводит методы одного пути
 | GET | `/dev-assistant/git-context` | ветка, последний коммит и изменённые файлы по инструменту `get_git_branch` (недоступный сервер — пустые поля и причина в `error`, всегда 200) | 200 DevAssistantGitContextOut |
 | POST | `/review/pr` | AI-ревью изменений PR: `diff` и `changed_files` из запроса либо (если их нет) через MCP-инструменты `get_pr_diff`/`get_changed_files` dev-сервера; контекст — фрагменты документации проекта и кода изменённых файлов из корпуса RAG, diff обрезается до 2000 строк; ответ несёт `review_text`, `bugs`, `architecture_issues`, `recommendations`, `risks` (P0–P3), `sources`, `mcp_tools_used`, `changed_files` и `warnings` (400 — нет diff-а и ref-ов, пустой diff или незнакомый провайдер; 502 — MCP-сервер недоступен, и diff не добыть) | 200 PrReviewOut |
 | GET | `/review/health` | готовность службы ревью: провайдер по умолчанию, список провайдеров, инструменты MCP, стратегия поиска по корпусу, предел diff-а и путь отчёта (всегда 200, ни MCP, ни индекс не трогаются) | 200 CodeReviewHealthOut |
+| POST | `/review/github-pr` | AI-ревью реального PR: `repo_url` и `pr_number` обязательны, diff и список изменённых файлов берутся из GitHub REST API (без MCP и без локальной копии репозитория), контекст — из корпуса RAG; `post_comment=true` публикует ревью комментарием в PR; ответ — как у `/review/pr` плюс `github_meta`, `pr_url`, `posted`, `comment_url` (400 — негодный URL, ненайденные репозиторий или PR, исчерпанный rate limit, незнакомый провайдер, пустой diff; 502 GitHub-путь не отдаёт; отказ публикации не отменяет ревью — 200, `posted=false` и предупреждение) | 200 GitHubPrReviewOut |
+| GET | `/review/github-health` | готовность GitHub-режима: `GET /rate_limit` (доступность API, `authenticated`, маска токена, остаток лимита) — всегда 200, недоступность отдаётся `status="degraded"` и полем `error` | 200 GitHubHealthOut |
 | GET | `/` | список доступных эндпоинтов | 200 объект-подсказка |
 
 ## GET /
@@ -311,7 +313,7 @@ FastAPI сводит методы одного пути
 планировщика, пайплайна, оркестрации, индексации документов (ключ `indexing`),
 расходов на LLM (ключ `llm`), RAG (ключ `rag`), мини-чата с RAG и памятью задачи
 (ключ `mini_chat`), ассистента разработчика (ключ `dev_assistant`) и ревью кода
-(ключ `code_review`), а также перечень эндпоинтов (122 строки — все, кроме самого
+(ключ `code_review`), а также перечень эндпоинтов (124 строки — все, кроме самого
 `GET /`).
 
 ```bash
@@ -337,7 +339,7 @@ curl.exe http://127.0.0.1:8000/
   "rag": "POST /rag/query, GET /rag/config, POST /rag/compare, POST /rag/compare_modes, GET /rag/demo-questions, POST /rag/demo-run, POST /rag/compare_providers (7 эндпоинтов — поиск по корпусу, режим без RAG, сравнение, сравнение режимов, вопросы демо, прогон демо, сравнение провайдеров)",
   "mini_chat": "POST /mini-chat/sessions, POST /mini-chat/sessions/{session_id}/messages, GET /mini-chat/sessions/{session_id}/memory, GET /mini-chat/sessions/{session_id}/history, DELETE /mini-chat/sessions/{session_id} (5 эндпоинтов — мини-чат с RAG и памятью задачи)",
   "dev_assistant": "POST /dev-assistant/help, GET /dev-assistant/tools, GET /dev-assistant/git-context (3 эндпоинта — ассистент разработчика: ответ по документации проекта и состоянию репозитория через свой MCP-сервер dev_server)",
-  "code_review": "POST /review/pr, GET /review/health (2 эндпоинта — AI-ревью PR: diff, контекст корпуса RAG и структурированное ревью от модели)",
+  "code_review": "POST /review/pr, GET /review/health, POST /review/github-pr, GET /review/github-health (4 эндпоинта — AI-ревью PR: diff, контекст корпуса RAG и структурированное ревью от модели, в том числе по URL и номеру реального PR из GitHub)",
   "endpoints": [
     "POST /agents",
     "GET /agents",
@@ -457,7 +459,9 @@ curl.exe http://127.0.0.1:8000/
     "GET /dev-assistant/tools",
     "GET /dev-assistant/git-context",
     "POST /review/pr",
-    "GET /review/health"
+    "GET /review/health",
+    "POST /review/github-pr",
+    "GET /review/github-health"
   ]
 }
 ```
@@ -6998,15 +7002,91 @@ curl.exe http://127.0.0.1:8000/review/health
 [`usage.md`](usage.md#14-ai-ревью-кода-день-32); примеры ревью — в
 [`reports/code_review_demo.md`](reports/code_review_demo.md).
 
+### Режим GitHub PR
+
+`POST /review/github-pr` делает то же ревью, но diff и список изменённых файлов берутся
+не из запроса и не через MCP, а из GitHub REST API по URL репозитория и номеру PR:
+`GET /repos/{owner}/{repo}`, `GET …/pulls/{n}`, `GET …/pulls/{n}` с заголовком
+`Accept: application/vnd.github.v3.diff` и `GET …/pulls/{n}/files`. Локальная копия
+репозитория и `gh` не нужны. Токен необязателен: без `GITHUB_TOKEN` (окружение или
+`day21/.env`) публичные репозитории читаются анонимно с лимитом 60 запросов в час на
+IP, с токеном — 5000. Схемы — `GitHubPrReviewIn`, `GitHubPrReviewOut`,
+`GitHubMetaOut`, `GitHubRateLimitOut`, `GitHubHealthOut`; клиент —
+`backend/services/github_client.py`, поток — `backend/services/code_review_github.py`.
+
+Тело запроса (`GitHubPrReviewIn`):
+
+| Поле | Тип и границы | Смысл |
+|---|---|---|
+| `repo_url` | строка ≤ 300, обязательна | `https://github.com/owner/repo`, форма с `.git` или `git@github.com:owner/repo.git`; мусор — `400` |
+| `pr_number` | целое ≥ 1, обязательно | номер PR |
+| `provider` | строка ≤ 16 | `deepseek` (по умолчанию) или `local`; незнакомое имя — `400` |
+| `post_comment` | булево (по умолчанию `false`) | опубликовать готовое ревью комментарием в PR (нужен токен с правом `pull requests: write`) |
+
+Ответ (`GitHubPrReviewOut`) — все поля `PrReviewOut` плюс `github_meta`
+(`owner`, `repo`, `pr_number`, `pr_url`, `changed_files_count`, `diff_lines`),
+`pr_url`, `posted` и `comment_url`. `mcp_tools_used` остаётся в ответе пустым списком:
+в этом режиме MCP не вызывается.
+
+| Схема | Поля |
+|---|---|
+| `GitHubPrReviewIn` | `repo_url`, `pr_number`, `provider`, `post_comment` |
+| `GitHubMetaOut` | `owner`, `repo`, `pr_number`, `pr_url`, `changed_files_count`, `diff_lines` |
+| `GitHubPrReviewOut` | поля `PrReviewOut` плюс `github_meta` ([GitHubMetaOut](#ai-ревью-кода-день-32)), `pr_url`, `posted`, `comment_url` |
+| `GitHubRateLimitOut` | `limit`, `remaining`, `used`, `reset` (Unix-время сброса, UTC) |
+| `GitHubHealthOut` | `status` (`ok`/`degraded`), `service`, `api_base`, `authenticated`, `token` (маска: первые 4 символа и звёздочки), `rate_limit`, `error` |
+
+```bash
+curl.exe -X POST http://127.0.0.1:8000/review/github-pr \
+  -H "Content-Type: application/json" \
+  -d "{\"repo_url\": \"https://github.com/fastapi/fastapi\", \"pr_number\": 16481}"
+```
+
+```json
+{
+  "github_meta": {"owner": "fastapi", "repo": "fastapi", "pr_number": 16481,
+                  "pr_url": "https://github.com/fastapi/fastapi/pull/16481",
+                  "changed_files_count": 4, "diff_lines": 222},
+  "pr_url": "https://github.com/fastapi/fastapi/pull/16481",
+  "posted": false,
+  "comment_url": "",
+  "mcp_tools_used": [],
+  "changed_files": ["fastapi/_compat/__init__.py", "fastapi/_compat/shared.py",
+                    "fastapi/dependencies/utils.py", "tests/test_form_allow_empty_string.py"],
+  "warnings": ["В контексте нет фрагментов файла fastapi/_compat/shared.py: …"]
+}
+```
+
+```bash
+curl.exe http://127.0.0.1:8000/review/github-health
+```
+
+```json
+{
+  "status": "ok",
+  "service": "github",
+  "api_base": "https://api.github.com",
+  "authenticated": false,
+  "token": "",
+  "rate_limit": {"limit": 60, "remaining": 50, "used": 10, "reset": 1791918354},
+  "error": ""
+}
+```
+
+Прогон из консоли — `uv run python scripts/run_github_pr_review.py --repo-url
+https://github.com/fastapi/fastapi --pr-number 16481` (отчёт
+[`reports/github_pr_review.md`](reports/github_pr_review.md)), раздел интерфейса —
+«🔎 AI-ревью кода (Day 32)», вкладка «🐙 GitHub PR».
+
 ## Коды ошибок
 
 | Код | Когда | Тело |
 |---|---|---|
-| `400` | мини-чат: пустое после обрезки пробелов сообщение (`POST /mini-chat/sessions/{session_id}/messages`); RAG: пустой вопрос (`POST /rag/query`, `POST /rag/compare`) и неизвестная стратегия поиска (не `rag_corpus_structural`/`rag_corpus_fixed`); пустой `task_id` после обрезки пробелов в `PUT /memory/task`; недопустимый переход состояния задачи: пропуск этапа, откат больше чем на этап, переход «в себя», выход из этапа без согласования (guard-условие), любой переход из `done`, пауза из `done` и повторная пауза, `advance` и `rollback` на паузе, шаг чужого этапа, несовпадение `to_stage` с целью отката, `resume` не на паузе; цель MCP не разобрана: пустая после обрезки пробелов, URL там, где нужен запуск команды, и наоборот; `POST /mcp/call` — инструмента нет в каталоге сервера или аргументы не подходят по `input_schema` (нет обязательного, лишний, тип не тот); `POST /scheduler/tasks` — инструмент не входит в планировщик дня, лишний/отсутствующий аргумент, значение не того типа или вне границ, `source_url` без `http(s)://`, неразобранное расписание (интервал вне 1…86400, cron не из пяти полей, `date` без `run_date`); неизвестный `status` в фильтрах `/scheduler/tasks` и `/scheduler/reminders`; негодная конфигурация пайплайна (не объект, пустой список `steps`, шагов больше `PIPELINE_STEPS_MAX`, шаг без `tool`, неизвестное условие `op`) и неизвестный `status` в фильтре `/pipelines/runs`; негодный план оркестрации (не объект, пустой список `steps`, шагов больше `ORCH_STEPS_MAX`, шаг без `tool`, `args` не объект, неизвестное условие), невыполнимый сценарий оркестрации (плана нет, а флот не публикует нужных инструментов) неизвестный `status` в фильтре `/orchestration/runs`; неизвестная `strategy` индексации, пустой `query` поиска и отсутствие документов у `/indexing/*`, неизвестный период агрегации расходов у `GET /llm/usage` (не `day`/`week`/`month`/`all`); удалённая LLM (день 30): пустой адрес туннеля — ни в теле запроса, ни в `REMOTE_LLM_URL` (`POST /llm/remote/check`, `POST /llm/remote/step`) — и неизвестный ключ шага демо (не `connection`/`fact`/`logic`/`code`/`rate_limit`); ревью кода (день 32): нет ни `diff`, ни пары `base`/`head` (`Нужен diff или base и head …`), полученный через MCP diff пуст (`Diff пуст …`) или незнакомый `provider` | `HTTPException` с `detail` (у `POST /tasks/{task_id}/transition` — причина и подсказка) |
+| `400` | мини-чат: пустое после обрезки пробелов сообщение (`POST /mini-chat/sessions/{session_id}/messages`); RAG: пустой вопрос (`POST /rag/query`, `POST /rag/compare`) и неизвестная стратегия поиска (не `rag_corpus_structural`/`rag_corpus_fixed`); пустой `task_id` после обрезки пробелов в `PUT /memory/task`; недопустимый переход состояния задачи: пропуск этапа, откат больше чем на этап, переход «в себя», выход из этапа без согласования (guard-условие), любой переход из `done`, пауза из `done` и повторная пауза, `advance` и `rollback` на паузе, шаг чужого этапа, несовпадение `to_stage` с целью отката, `resume` не на паузе; цель MCP не разобрана: пустая после обрезки пробелов, URL там, где нужен запуск команды, и наоборот; `POST /mcp/call` — инструмента нет в каталоге сервера или аргументы не подходят по `input_schema` (нет обязательного, лишний, тип не тот); `POST /scheduler/tasks` — инструмент не входит в планировщик дня, лишний/отсутствующий аргумент, значение не того типа или вне границ, `source_url` без `http(s)://`, неразобранное расписание (интервал вне 1…86400, cron не из пяти полей, `date` без `run_date`); неизвестный `status` в фильтрах `/scheduler/tasks` и `/scheduler/reminders`; негодная конфигурация пайплайна (не объект, пустой список `steps`, шагов больше `PIPELINE_STEPS_MAX`, шаг без `tool`, неизвестное условие `op`) и неизвестный `status` в фильтре `/pipelines/runs`; негодный план оркестрации (не объект, пустой список `steps`, шагов больше `ORCH_STEPS_MAX`, шаг без `tool`, `args` не объект, неизвестное условие), невыполнимый сценарий оркестрации (плана нет, а флот не публикует нужных инструментов) неизвестный `status` в фильтре `/orchestration/runs`; неизвестная `strategy` индексации, пустой `query` поиска и отсутствие документов у `/indexing/*`, неизвестный период агрегации расходов у `GET /llm/usage` (не `day`/`week`/`month`/`all`); удалённая LLM (день 30): пустой адрес туннеля — ни в теле запроса, ни в `REMOTE_LLM_URL` (`POST /llm/remote/check`, `POST /llm/remote/step`) — и неизвестный ключ шага демо (не `connection`/`fact`/`logic`/`code`/`rate_limit`); ревью кода (день 32): нет ни `diff`, ни пары `base`/`head` (`Нужен diff или base и head …`), полученный через MCP diff пуст (`Diff пуст …`) или незнакомый `provider`; режим GitHub (`POST /review/github-pr`): негодный URL репозитория (`Не похоже на URL репозитория GitHub …`), ненайденный репозиторий или PR (`GitHub не нашёл PR (404) …`), отклонённый токен (`GitHub отклонил токен (401) …`), исчерпанный лимит (`GitHub rate limit исчерпан (403) …`), отказ доступа без признака лимита (`GitHub отказал в доступе (403) …`) и отклонённые GitHub параметры (`GitHub отклонил запрос (422) …`) | `HTTPException` с `detail` (у `POST /tasks/{task_id}/transition` — причина и подсказка) |
 | `404` | неизвестный `session_id` во всех `/mini-chat/sessions/{session_id}/...`; неизвестный `agent_id` во всех `/agents/{agent_id}/...` (а для `DELETE /memory/long-term/{id}` — ещё и отсутствующая запись); нет профиля у `GET`/`PUT`/`DELETE /users/{user_id}/profile`; неизвестный `task_id` во всех `/tasks/{task_id}/...`; неизвестный `task_id` у `/scheduler/tasks/{task_id}/...` и `notification_id` у `POST /scheduler/notifications/{id}/read`; неизвестный `run_id` у `/pipelines/runs/{run_id}`, `…/steps` и `DELETE /pipelines/runs/{run_id}`, а также у `/orchestration/runs/{run_id}`, `…/steps` и `DELETE /orchestration/runs/{run_id}` и у `/indexing/runs/{run_id}`; неизвестное имя сервера у `GET /mcp/servers/{name}/tools` | `HTTPException` с `detail` |
 | `409` | мини-чат: корпус не проиндексирован и неизвестный режим отбора; корпус RAG не проиндексирован (`POST /rag/query`, `POST /rag/compare` без индексных чанков); профиль с таким `user_id` уже есть (`POST /users/{user_id}/profile`); задача с таким `task_id` уже заведена (`POST /agents/{agent_id}/tasks`); `GET /mcp/tools` и `POST /mcp/call` без соединения с MCP-сервером; пауза не активной задачи и возобновление не стоящей на паузе, запуск уже выполненной задачи планировщика; поиск по непостроенному индексу (`GET /indexing/search` без индексации) | `HTTPException` с `detail` |
-| `422` | невалидное тело запроса (Pydantic/FastAPI): у мини-чата — пустой `message` (1…500 символов), `top_k` вне 1…10, `limit` вне 1…500 и `user_id` длиннее 64 символов; невалидные поля профиля, `initial_stage` вне `planning`/`execution`/`validation`, неизвестный этап/шаг, слишком длинные `expected_action`/`reason`, пустой `task_id`, тело `PATCH /tasks/{task_id}/context` без единого флага, пустая цель или неизвестный транспорт у `POST /mcp/connect`, пустое или длиннее 100 символов имя инструмента у `POST /mcp/call`, `schedule_type` вне `date`/`interval`/`cron`, пустой или длиннее 64 символов `tool`, пустое или длиннее 100 символов `name` у `POST /scheduler/tasks`, не объект `pipeline`/`initial_args`, не булево `background` у `POST /pipelines/run`, нечисловой `limit`/`run_id` в `/pipelines/...`, пустая или длиннее 500 символов `query`, не объект `plan`/`initial_args`, не булево `background`, нечисловой `run_id`/`limit` в `/orchestration/...`, `top_k` вне 1…20, `limit` < 1 и не булево `background` в `/indexing/...`; у удалённой LLM (день 30) — `url`/`model`/`api_key` длиннее 500/64/128 символов, `rate_limit` вне 0…30, `max_context` вне 0…8192 и отсутствующий `step`; у ревью кода (день 32) — `base`/`head`/`pr_label` длиннее 200 символов, `owner`/`repo` длиннее 120, `pr_number` меньше нуля и `provider` длиннее 16 | объект с `detail` — списком ошибок |
-| `502` | сбой генерации `POST /generate` (нет ключа, сеть, лимиты); мини-чат: сбой этапа отбора (`RAGUpstreamError`) до вызова генерации (сбой самой модели даёт не `502`, а `mode: "error"` со статусом `200`); RAG: вызов модели в режиме с контекстом не удался после повторов и откат на ответ без контекста тоже не прошёл (`POST /rag/query`, `POST /rag/compare`); MCP-сервер недоступен, команда запуска не найдена, таймаут `initialize` или ошибка `tools/list`; `POST /mcp/call` — соединение оборвалось и ответа от инструмента не было; ревью кода (день 32): diff не передан, а MCP-сервер разработки не поднялся — diff не добыть (`MCP-сервер разработки недоступен …`) | `GenerateResponse` со `status:"error"`; у MCP — `HTTPException` с одной строкой текста и подсказкой |
+| `422` | невалидное тело запроса (Pydantic/FastAPI): у мини-чата — пустой `message` (1…500 символов), `top_k` вне 1…10, `limit` вне 1…500 и `user_id` длиннее 64 символов; невалидные поля профиля, `initial_stage` вне `planning`/`execution`/`validation`, неизвестный этап/шаг, слишком длинные `expected_action`/`reason`, пустой `task_id`, тело `PATCH /tasks/{task_id}/context` без единого флага, пустая цель или неизвестный транспорт у `POST /mcp/connect`, пустое или длиннее 100 символов имя инструмента у `POST /mcp/call`, `schedule_type` вне `date`/`interval`/`cron`, пустой или длиннее 64 символов `tool`, пустое или длиннее 100 символов `name` у `POST /scheduler/tasks`, не объект `pipeline`/`initial_args`, не булево `background` у `POST /pipelines/run`, нечисловой `limit`/`run_id` в `/pipelines/...`, пустая или длиннее 500 символов `query`, не объект `plan`/`initial_args`, не булево `background`, нечисловой `run_id`/`limit` в `/orchestration/...`, `top_k` вне 1…20, `limit` < 1 и не булево `background` в `/indexing/...`; у удалённой LLM (день 30) — `url`/`model`/`api_key` длиннее 500/64/128 символов, `rate_limit` вне 0…30, `max_context` вне 0…8192 и отсутствующий `step`; у ревью кода (день 32) — `base`/`head`/`pr_label` длиннее 200 символов, `owner`/`repo` длиннее 120, `pr_number` меньше нуля и `provider` длиннее 16; у GitHub-режима ревью — `repo_url` длиннее 300 символов и `pr_number` меньше 1 | объект с `detail` — списком ошибок |
+| `502` | сбой генерации `POST /generate` (нет ключа, сеть, лимиты); мини-чат: сбой этапа отбора (`RAGUpstreamError`) до вызова генерации (сбой самой модели даёт не `502`, а `mode: "error"` со статусом `200`); RAG: вызов модели в режиме с контекстом не удался после повторов и откат на ответ без контекста тоже не прошёл (`POST /rag/query`, `POST /rag/compare`); MCP-сервер недоступен, команда запуска не найдена, таймаут `initialize` или ошибка `tools/list`; `POST /mcp/call` — соединение оборвалось и ответа от инструмента не было; ревью кода (день 32): diff не передан, а MCP-сервер разработки не поднялся — diff не добыть (`MCP-сервер разработки недоступен …`); GitHub-путь `502` не отдаёт: его отказы — `400`, потому что говорят о запросе или о внешнем сервисе, а не о сломанном MCP-пути | `GenerateResponse` со `status:"error"`; у MCP — `HTTPException` с одной строкой текста и подсказкой |
 
 `400` — недопустимый переход состояния задачи. Там, где целевой этап назвал
 пользователь (`POST /tasks/{task_id}/transition`), `detail` — короткая причина

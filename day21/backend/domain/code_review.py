@@ -44,6 +44,9 @@ FILE_QUERY_MAX_CHARS = 500
 #: Путь отчёта по умолчанию (от корня дня), заголовок и предел текста модели.
 REPORT_PATH = "docs/reports/code_review_demo.md"
 REPORT_TITLE = "# Отчёт дня 32: автоматическое AI-ревью кода"
+#: Путь и заголовок отчёта режима GitHub (скрипт ``run_github_pr_review.py``).
+GITHUB_REPORT_PATH = "docs/reports/github_pr_review.md"
+GITHUB_REPORT_TITLE = "# Отчёт дня 32: ревью реального GitHub PR"
 MAX_REVIEW_CHARS = 6000
 
 #: Контракт ответа модели: он же попадает в системный промпт целиком.
@@ -91,6 +94,7 @@ WARN_MCP_UNAVAILABLE = "MCP-сервер разработки недоступе
 WARN_TOOL_FAILED = "MCP-инструмент {tool} вернул ошибку: {error}"
 WARN_JSON = "Модель вернула не JSON: структура ревью не разобрана ({error})"
 WARN_DIFF_TRUNCATED = DIFF_TRUNCATED_NOTE  # тот же текст идёт в warnings
+WARN_GITHUB_COMMENT_FAILED = "Комментарий в PR не опубликован: {error}"
 LLM_UNAVAILABLE_ANSWER = "Ревью недоступно: провайдер «{provider}» не ответил ({error})"
 EMPTY_DIFF_ERROR = "Diff пуст: ревью нечего анализировать"
 NO_DIFF_ERROR = ("Нужен diff или base и head: без них ревью нечего анализировать")
@@ -103,14 +107,16 @@ _PRIORITY_RE = re.compile(r"P?([0-3])")
 __all__ = ["AGENT_ID", "CONTEXT_CODE_HEADER", "CONTEXT_DIFF_HEADER",
            "CONTEXT_DOCS_HEADER", "CONTEXT_FILES_HEADER", "DEFAULT_TOP_K",
            "DIFF_TRUNCATED_NOTE", "EMPTY_DIFF_ERROR", "FILE_QUERY_MAX_CHARS",
-           "JSON_CONTRACT", "LLM_UNAVAILABLE_ANSWER", "MAX_ARCHITECTURE", "MAX_BUGS",
+           "GITHUB_REPORT_PATH", "GITHUB_REPORT_TITLE", "JSON_CONTRACT",
+           "LLM_UNAVAILABLE_ANSWER", "MAX_ARCHITECTURE", "MAX_BUGS",
            "MAX_CONTEXT_FILES", "MAX_DIFF_LINES", "MAX_RECOMMENDATIONS",
            "MAX_REVIEW_CHARS", "MAX_RISKS", "NO_DIFF_ERROR", "NO_FILES_NOTE",
            "PRIORITIES", "PRIORITY_DEFAULT", "PRIORITY_LABELS", "PRIORITY_P0",
            "PRIORITY_P1", "PRIORITY_P2", "PRIORITY_P3", "QUERY_MAX_CHARS",
            "REPORT_PATH", "REPORT_TITLE", "SYSTEM_PROMPT", "TOOL_CHANGED_FILES",
            "TOOL_PR_DIFF", "WARN_DIFF_TRUNCATED", "WARN_FILE_NOT_INDEXED",
-           "WARN_INDEX_EMPTY", "WARN_JSON", "WARN_MCP_UNAVAILABLE", "WARN_TOOL_FAILED",
+           "WARN_GITHUB_COMMENT_FAILED", "WARN_INDEX_EMPTY", "WARN_JSON",
+           "WARN_MCP_UNAVAILABLE", "WARN_TOOL_FAILED",
            "added_lines", "changed_files_from_diff", "context_query",
            "normalize_priority", "normalize_review", "render_context",
            "review_question", "sort_risks", "strip_json_fence", "truncate_diff"]

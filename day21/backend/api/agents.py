@@ -255,8 +255,11 @@ def root():
                           "GET /dev-assistant/git-context (3 эндпоинта — ассистент "
                           "разработчика: ответ по документации проекта и состоянию "
                           "репозитория через свой MCP-сервер dev_server)"),
-        "code_review": ("POST /review/pr, GET /review/health (2 эндпоинта — AI-ревью PR: "
-                        "diff, контекст корпуса RAG и структурированное ревью от модели)"),
+        "code_review": ("POST /review/pr, GET /review/health, POST /review/github-pr, "
+                        "GET /review/github-health (4 эндпоинта — AI-ревью PR: diff и "
+                        "файлы из запроса или через MCP, либо из GitHub REST API по URL "
+                        "и номеру PR; контекст корпуса RAG, структурированное ревью и "
+                        "публикация комментария)"),
         "endpoints": [
             "POST /agents", "GET /agents", "GET /agents/{agent_id}",
             "PATCH /agents/{agent_id}", "DELETE /agents/{agent_id}",
@@ -377,5 +380,7 @@ def root():
             "GET /dev-assistant/git-context",
             "POST /review/pr",
             "GET /review/health",
+            "POST /review/github-pr",
+            "GET /review/github-health",
         ],
     }

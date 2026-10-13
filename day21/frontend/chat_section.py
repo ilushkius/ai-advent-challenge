@@ -2,8 +2,8 @@
 
 Единственная точка входа — ``render_main_area()``: заголовок и подпись,
 непрочитанные уведомления планировщика (день 18), флеш-сообщение предыдущего прохода,
-ветка «бэкенд недоступен», переключатель разделов (семнадцать: от чата с памятью до
-ассистента разработчика), карточка агента, панели стратегии и слоёв памяти, диалог,
+ветка «бэкенд недоступен», переключатель разделов (восемнадцать: от чата с памятью до
+AI-ревью кода), карточка агента, панели стратегии и слоёв памяти, диалог,
 сравнение режимов, блок отказа по инвариантам, форма ввода и очистка истории.
 Сводка хода показывает шаг планировщика, прогон пайплайна и индексацию: строки
 «🗓 Планировщик: …», «🔀 Пайплайн: …», «📦 Индексация: …» появляются рядом с токенами
@@ -12,9 +12,9 @@
 import streamlit as st
 
 from . import (
-    api_client, common, context_panels, cost_section, dev_assistant_section,
-    indexing_section, invariant_panel, local_llm_section, local_rag_section,
-    local_tuning_section, mcp_section, memory_panels, notifications,
+    api_client, code_review_section, common, context_panels, cost_section,
+    dev_assistant_section, indexing_section, invariant_panel, local_llm_section,
+    local_rag_section, local_tuning_section, mcp_section, memory_panels, notifications,
     orchestration_section, pipeline_section, profile_section, rag_demo_section,
     rag_section, remote_llm_section, scheduler_section, task_panel,
 )
@@ -77,7 +77,8 @@ def render_main_area() -> None:
              "📏 Инварианты", "🔌 MCP", "🗓 Планировщик", "🔀 Пайплайны",
              "🌐 Оркестрация", "📦 Индексация", "🖥 Локальная LLM", "💰 Расходы",
              "⚙️ Оптимизация локальной LLM", "🆚 RAG-сравнение", "🧪 RAG-демо",
-             "🏠 Локальный RAG", "🛰 Удалённая LLM", "🧑‍💻 Ассистент разработчика (Day 31)"],
+             "🏠 Локальный RAG", "🛰 Удалённая LLM", "🧑‍💻 Ассистент разработчика (Day 31)",
+             "🔎 AI-ревью кода (Day 32)"],
             horizontal=True, key="main_section", label_visibility="collapsed",
         )
         if section.startswith("👤"):
@@ -101,8 +102,7 @@ def render_main_area() -> None:
             # Оркестрация дня 20: флот серверов, план шагов и один флот на процесс.
             orchestration_section.render_orchestration_section()
         elif section.startswith("📦"):
-            # Индексация дня 21: документы, два индекса FAISS и поиск по ним.
-            # Тоже служба процесса: индекс один на бэкенд, а не на агента.
+            # Индексация дня 21: документы, два индекса FAISS и поиск — служба процесса.
             indexing_section.render_indexing_section()
         elif section.startswith("🖥"):
             # Локальная LLM (день 26): второй провайдер — Ollama по HTTP. Раздел
@@ -125,16 +125,16 @@ def render_main_area() -> None:
             # «не знаю» — тоже про корпус процесса, а не про агента.
             rag_demo_section.render_rag_demo_section()
         elif section.startswith("🏠"):
-            # Локальный RAG (день 28): retrieval всегда локальный, отличается только
-            # тот, кто генерирует ответ. Служба процесса, а не свойство агента.
+            # Локальный RAG (день 28): retrieval локальный, отличается только генератор.
             local_rag_section.render_local_rag_section()
         elif section.startswith("🛰"):
             # Удалённая LLM (день 30): Ollama в Google Colab через туннель Cloudflare.
             # Раздел глобальный: адрес туннеля живёт часами и агентов не касается.
             remote_llm_section.render_remote_llm_section()
-        elif section.startswith("🧑‍💻"):
-            # Ассистент разработчика (день 31): RAG по документации плюс MCP-контекст git.
+        elif section.startswith("🧑‍💻"):  # Ассистент разработчика (день 31).
             dev_assistant_section.render_dev_assistant_section()
+        elif section.startswith("🔎"):  # AI-ревью кода (день 32).
+            code_review_section.render_code_review_section()
         else:
             if not agents:
                 st.info("Агентов пока нет — создайте первого в боковой панели. "

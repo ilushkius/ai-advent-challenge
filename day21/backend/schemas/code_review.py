@@ -1,7 +1,8 @@
 """Pydantic-схемы API AI-ревью PR (день 32).
 
-Один файл на два эндпоинта раздела: ``POST /review/pr`` (запрос ревью) и
-``GET /review/health`` (готовность службы). Запрос принимает и готовый ``diff`` со
+Один файл на два режима раздела: локальный (``POST /review/pr`` и
+``GET /review/health``) и GitHub (``POST /review/github-pr`` и
+``GET /review/github-health``). Запрос принимает и готовый ``diff`` со
 списком ``changed_files``, и пару ``base``/``head`` — во втором случае diff добывает
 служба через MCP-инструмент ``get_pr_diff``. Поэтому поля запроса необязательны все
 сразу: правило «нужен diff или base и head» — предметное, его проверяет служба и
@@ -121,6 +122,63 @@ class CodeReviewHealthOut(BaseModel):
     report_path: str = Field("", description="Путь отчёта по умолчанию (от корня дня)")
 
 
+class GitHubPrReviewIn(BaseModel):
+    """POST /review/github-pr — ревью PR из GitHub: URL репозитория, номер и публикация."""
+
+    repo_url: str = Field(..., max_length=300,
+                          description="URL репозитория: https://github.com/owner/repo или "
+                                      "git@github.com:owner/repo.git")
+    pr_number: int = Field(..., ge=1, description="Номер PR (1 и больше)")
+    provider: str = Field("deepseek", max_length=16,
+                          description="Провайдер ответа: deepseek | local; незнакомый — 400")
+    post_comment: bool = Field(False, description="Опубликовать ревью комментарием в PR "
+                                                  "(нужен GITHUB_TOKEN с правом на запись)")
+
+
+class GitHubMetaOut(BaseModel):
+    """Происхождение ревью: репозиторий, номер PR, ссылка и размеры."""
+
+    owner: str = Field("", description="Владелец репозитория")
+    repo: str = Field("", description="Имя репозитория")
+    pr_number: int = Field(0, description="Номер PR")
+    pr_url: str = Field("", description="Ссылка на PR")
+    changed_files_count: int = Field(0, description="Сколько файлов меняет PR")
+    diff_lines: int = Field(0, description="Сколько строк в diff-е от GitHub")
+
+
+class GitHubRateLimitOut(BaseModel):
+    """Остаток анонимного или токенного лимита GitHub."""
+
+    limit: int = Field(0, description="Лимит запросов в час")
+    remaining: int = Field(0, description="Осталось запросов")
+    used: int = Field(0, description="Израсходовано запросов")
+    reset: int = Field(0, description="Unix-время сброса лимита (UTC)")
+
+
+class GitHubPrReviewOut(PrReviewOut):
+    """Ответ ревью из GitHub: всё как у PrReviewOut плюс PR, публикация и мета."""
+
+    github_meta: GitHubMetaOut = Field(default_factory=GitHubMetaOut,
+                                      description="Репозиторий, PR и размеры diff-а")
+    pr_url: str = Field("", description="Ссылка на PR")
+    posted: bool = Field(False, description="Комментарий опубликован в PR")
+    comment_url: str = Field("", description="Ссылка на комментарий (пусто, если не публиковали)")
+
+
+class GitHubHealthOut(BaseModel):
+    """Готовность GitHub: доступность API, признак токена и остаток лимита."""
+
+    status: str = Field("ok", description="ok | degraded")
+    service: str = Field("github", description="Имя службы")
+    api_base: str = Field("", description="Базовый адрес REST API")
+    authenticated: bool = Field(False, description="Токен задан (окружение или day21/.env)")
+    token: str = Field("", description="Маска токена (первые 4 символа и звёздочки)")
+    rate_limit: GitHubRateLimitOut = Field(default_factory=GitHubRateLimitOut,
+                                           description="Остаток лимита запросов")
+    error: str = Field("", description="Причина отказа (пусто при status=ok)")
+
+
 __all__ = ["CodeReviewArchitectureOut", "CodeReviewFindingOut", "CodeReviewHealthOut",
            "CodeReviewRiskOut", "CodeReviewSourceOut", "CodeReviewToolUseOut",
-           "PrReviewIn", "PrReviewOut"]
+           "GitHubHealthOut", "GitHubMetaOut", "GitHubPrReviewIn", "GitHubPrReviewOut",
+           "GitHubRateLimitOut", "PrReviewIn", "PrReviewOut"]

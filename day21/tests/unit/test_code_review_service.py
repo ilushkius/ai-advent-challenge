@@ -18,11 +18,12 @@ import pytest
 from backend.domain import code_review, llm_provider, rag_mode
 from backend.domain.code_review import normalize_priority, sort_risks
 from backend.services.code_review_service import CodeReviewService, CodeReviewError
+from backend.services.github_client import GitHubError
 from backend.services.llm_client import LLMClient
 from backend.storage.llm_usage_store import LLMUsageStore
 
-from code_review_fakes import (CASES, CHANGED_FILES, PR_DIFF, REVIEW_JSON,
-                               FakeIndexService, FakeMCP, FailingStdioClient,
+from code_review_fakes import (CASES, CHANGED_FILES, PR_DIFF, PR_URL, REVIEW_JSON,
+                               FakeGitHub, FakeIndexService, FakeMCP, FailingStdioClient,
                                make_service)
 from rag_fakes import RagStubClient
 
@@ -117,6 +118,62 @@ def test_review_without_diff_and_broken_mcp_is_error(monkeypatch):
             service.review_pr({"base": "day30", "head": "day31"})
     finally:
         service.close()
+
+
+def test_review_github_pr_structure(session_factory):
+    """Ревью из GitHub: diff и файлы от клиента, ``github_meta`` и отсутствие публикации."""
+    stub = RagStubClient(reply=REVIEW_JSON)
+    github = FakeGitHub()
+    service = make_service(client=make_client(stub, session_factory), github=github)
+
+    record = service.review_github_pr("https://github.com/owner/repo", 42)
+
+    assert record["github_meta"] == {"owner": "owner", "repo": "repo", "pr_number": 42,
+                                     "pr_url": PR_URL,
+                                     "changed_files_count": len(CHANGED_FILES),
+                                     "diff_lines": len(PR_DIFF.splitlines())}
+    assert record["posted"] is False and record["comment_url"] == ""
+    assert record["pr_url"] == PR_URL
+    assert record["changed_files"] == CHANGED_FILES
+    assert record["mcp_tools_used"] == [] and github.posted == []
+    assert [item["priority"] for item in record["risks"]] == ["P0", "P1", "P3"]
+    assert code_review.CONTEXT_DIFF_HEADER in stub.calls[-1]["messages"][-1]["content"]
+
+
+def test_review_github_pr_posts_comment(session_factory):
+    """``post_comment`` публикует ревью: разметка та же, что у отчёта, и с меткой PR."""
+    github = FakeGitHub()
+    service = make_service(client=make_client(RagStubClient(reply=REVIEW_JSON),
+                                             session_factory), github=github)
+
+    record = service.review_github_pr("https://github.com/owner/repo", 42, post_comment=True)
+
+    assert record["posted"] is True
+    assert record["comment_url"].endswith("#pullrequestreview-1")
+    body = github.posted[0]
+    assert "## 🤖 AI-ревью: owner/repo#42" in body
+    assert "### Потенциальные баги" in body
+
+
+def test_review_github_pr_comment_failure_is_warning(session_factory):
+    """Отказ публикации не отменяет ревью: ``posted`` остаётся ложным, причина — в warnings."""
+    github = FakeGitHub(comment_error=GitHubError("GitHub отказал в доступе (403)", 403, ""))
+    service = make_service(client=make_client(RagStubClient(reply=REVIEW_JSON),
+                                             session_factory), github=github)
+
+    record = service.review_github_pr("https://github.com/owner/repo", 42, post_comment=True)
+
+    assert record["posted"] is False and record["comment_url"] == ""
+    assert record["bugs"] and record["review_text"]
+    assert any(code_review.WARN_GITHUB_COMMENT_FAILED[:20] in item
+               for item in record["warnings"])
+
+
+def test_review_github_pr_bad_url():
+    """Негодный URL репозитория — ``GitHubError`` для роутера (400), без обращения к API."""
+    service = make_service(client=object())
+    with pytest.raises(GitHubError):
+        service.review_github_pr("не url", 1)
 
 
 def test_review_without_diff_and_refs_is_rejected():

@@ -114,8 +114,11 @@ def no_real_network(request, monkeypatch):
     Тесты с маркером ``remote`` снимают запрет явно: сквозной прогон дня 30 идёт
     по настоящему туннелю Cloudflare, адрес которого из кода не виден, а подмена
     удалённого сервиса фейком проверяла бы не то (``test_remote_llm_flow``).
+    Маркер ``github`` снимает запрет так же: живой REST API GitHub проверяется
+    только с токеном, а его адрес подменить фейком нельзя (``test_github_pr_flow``).
     """
-    if request.node.get_closest_marker("remote"):
+    if request.node.get_closest_marker("remote") \
+            or request.node.get_closest_marker("github"):
         return
 
     real_connect = socket.socket.connect

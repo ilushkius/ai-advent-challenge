@@ -1,4 +1,4 @@
-# День 32 — автоматическое AI-ревью PR: diff и контекст корпуса, структурированное ревью и GitHub Action
+# День 32 — автоматическое AI-ревью PR: diff и контекст корпуса, структурированное ревью, режим реального GitHub PR и GitHub Action
 
 Задание дня — **настроить пайплайн ревью кода**: ассистент получает diff нового PR,
 подтягивает RAG-контекст (документация проекта и код изменённых файлов), зовёт LLM и
@@ -39,6 +39,16 @@ get_changed_files + RAG документации и кода] → DeepSeek → �
   ([docs/reports/synthetic_pr.diff](docs/reports/synthetic_pr.diff)) с заложенными
   проблемами: SQL-инъекция через f-строку, незакрытая сессия, обращение к базе мимо
   слоя хранилища и проглоченное исключение.
+* **режим реального GitHub PR** — `POST /review/github-pr` и раздел интерфейса
+  «🔎 AI-ревью кода (Day 32)»: по URL репозитория и номеру PR diff и список изменённых
+  файлов приходят из GitHub REST API (`backend/services/github_client.py`, без `gh` и
+  без `requests`), дальше — тот же RAG-контекст и та же структура находок, а по флагу
+  `post_comment` ревью публикуется комментарием в PR (нужен `GITHUB_TOKEN` с правом
+  `pull requests: write`; отказ публикации не отменяет ревью — `posted=false` и
+  предупреждение). Готовность GitHub отдаёт `GET /review/github-health` (маска токена и
+  остаток лимита), прогон из консоли — `uv run python scripts/run_github_pr_review.py
+  --repo-url https://github.com/fastapi/fastapi --pr-number 16481`, отчёт —
+  [docs/reports/github_pr_review.md](docs/reports/github_pr_review.md).
 * **публикация комментария** — `scripts/gh_review_comment.py` (`--pr`, `--repo`,
   `--input`, `--dry-run`) собирает markdown из ответа `POST /review/pr` и публикует его
   через `gh pr comment`; Action [`.github/workflows/ai-review.yml`](../.github/workflows/ai-review.yml)
@@ -1023,7 +1033,7 @@ autouse-фикстурами (`isolated_indexing`, `offline_planner`, `no_real_f
 | Локальный RAG | `integration/test_local_rag_flow.py` (slow) | Полный локальный цикл на настоящих весах: реальный FAISS-индекс дня 22 с диска, настоящая модель эмбеддингов и настоящая Ollama; ответ по корпусу с источниками и цитатами, режим `dont_know` без вызова модели; пропускается, если Ollama или индекс недоступны |
 | Удалённая LLM | `unit/test_remote_llm_client.py`, `integration/test_remote_llm_flow.py` (slow) | Форма запроса: адрес `{base_url}/chat/completions`, заголовок `Authorization`, `stream=false`, `temperature`/`top_p`/`max_tokens` и `options.num_ctx`; системное сообщение отдельно от контекста; счётчик частоты — N запросов проходят, N+1 отклонён со статусом 429, окно сдвигается по часам; `GET /models` не тратит лимит; понятные тексты отказов (пустой адрес, недоступный туннель, 429 сервиса, не-JSON, пустой ответ); полный цикл пяти шагов по настоящему туннелю с проверкой сводки — пропускается, если адреса нет (`DAY21_REMOTE_LLM_URL` или `REMOTE_LLM_URL` в `.env`) |
 | Ассистент разработчика | `tests/dev_assistant_fakes.py`, `unit/test_dev_assistant_service.py`, `unit/test_dev_assistant_panels.py`, `integration/test_dev_assistant_flow.py` (slow) | Тип вопроса (`docs`/`git`/`mixed`) и план инструментов; ответ по документации с источниками и текстом фрагмента в промпте; вызов `get_git_branch` и git-данные в контексте; запись ошибки инструмента и недоступного сервера без потери ответа; пустой индекс и пустой вопрос; каталог из шести инструментов со схемами; соединение со stdio-сервером поднимается один раз и закрывается; интеграционно — настоящий корпус (41 источник) и настоящий процесс `dev_server` |
-| AI-ревью PR (день 32) | `tests/code_review_fakes.py`, `unit/test_code_review_service.py`, `unit/test_code_review_report.py`, `integration/test_code_review_flow.py` (slow) | Структура ревью из ответа модели: баги с файлом и строкой, архитектурные проблемы с рекомендацией, рекомендации и риски в порядке `P0`–`P3`; diff и список файлов из payload и через MCP; предупреждения (обрезка diff-а, пустой индекс, файл вне корпуса, не-JSON) и честный текст при недоступной модели; `400` без diff-а и ref-ов, `502` при неработающем MCP; запрос по пути файла, когда добавленные строки увели поиск; разметка отчёта и замена его секции без дублей; интеграционно — настоящий `git diff day30..day31` через настоящий `dev_server` (инструменты `get_pr_diff` и `get_changed_files`, обрезка до 2000 строк, документация корпуса в источниках) |
+| AI-ревью PR (день 32) | `tests/code_review_fakes.py`, `unit/test_code_review_service.py`, `unit/test_code_review_report.py`, `unit/test_github_client.py`, `integration/test_code_review_flow.py` (slow), `integration/test_github_pr_flow.py` (slow + `github`, без токена пропускается) | Структура ревью из ответа модели: баги с файлом и строкой, архитектурные проблемы с рекомендацией, рекомендации и риски в порядке `P0`–`P3`; diff и список файлов из payload и через MCP; предупреждения (обрезка diff-а, пустой индекс, файл вне корпуса, не-JSON) и честный текст при недоступной модели; `400` без diff-а и ref-ов, `502` при неработающем MCP; запрос по пути файла, когда добавленные строки увели поиск; разметка отчёта и замена его секции без дублей, блок «GitHub PR»; режим GitHub — `github_meta`, публикация комментария и её отказ предупреждением; клиент REST API на подменённом транспорте (три формы URL, заголовки, коды 401/403/404/422, rate limit, health, маска токена); интеграционно — настоящий `git diff day30..day31` через настоящий `dev_server` (инструменты `get_pr_diff` и `get_changed_files`, обрезка до 2000 строк, документация корпуса в источниках) и живой GitHub API по токену |
 
 Унаследованные наборы дней 11–20 (память, стратегии, профиль, задача и переходы,
 инварианты, MCP, планировщик, пайплайн, флот и оркестрация) остаются на месте.
@@ -1050,7 +1060,8 @@ day21/
 │                             # indexing_compare.py, indexing_search.py, cost_api.py, cost_section.py,
 │                             # rag_api.py, rag_section.py, llm_api.py, local_llm_section.py,
 │                             # local_tuning_section.py, remote_llm_section.py, remote_llm_api.py,
-│                             # dev_assistant_api.py, dev_assistant_section.py)
+│                             # dev_assistant_api.py, dev_assistant_section.py,
+│                             # code_review_api.py, code_review_section.py)
 ├── mini_chat/                # отдельное приложение дня 25 (Streamlit, порт 8502): app.py (точка входа),
 │                             # api.py (запросы /mini-chat/...), panels.py (боковая панель и ход диалога)
 ├── backend/
@@ -1067,7 +1078,8 @@ day21/
 │   │                         # rag_retrieval, rag_service, rerank_service, mini_chat_service, mini_chat_memory,
 │   │                         # llm_factory, local_llm_client, local_llm_demo, local_llm_resources,
 │   │                         # local_tuning_service, remote_llm_client, remote_llm_service,
-│   │                         # dev_assistant_service, code_review_service + унаследованные
+│   │                         # dev_assistant_service, code_review_service, code_review_context,
+│   │                         # code_review_github, github_client + унаследованные
 │   ├── storage/              # database.py, chunk_store.py, index_run_store.py, index_rows.py, llm_usage_store.py,
 │   │                         # llm_usage_rows.py + унаследованные хранилища
 │   ├── agents/               # Agent (в generate — шаги поиска по индексу и метрики llm), MemoryManager, AgentManager
@@ -1075,18 +1087,18 @@ day21/
 │   ├── schemas/              # Pydantic-схемы API (включая indexing.py, llm.py, remote_llm.py, rag.py, mini_chat.py, dev_assistant.py, code_review.py и local_tuning.py)
 │   └── utils/                # своего кода нет: общий живёт в repo-level shared/
 ├── tests/                    # pytest: unit/, integration/, e2e/ + conftest.py и фейки (indexing_fakes.py, rag_fakes.py, …)
-├── docs/                     # architecture.md, api.md, usage.md, reports/ (indexing_demo.md, cost_optimization.md, rag_modes.md, rag_quotes_eval.md, local_llm_demo.md, local_rag_comparison.md, local_llm_optimization.md, remote_llm_service.md, dev_assistant_demo.md, code_review_demo.md + вход демо synthetic_pr.diff, context_optimization.md, test_optimization.md, …)
+├── docs/                     # architecture.md, api.md, usage.md, reports/ (indexing_demo.md, cost_optimization.md, rag_modes.md, rag_quotes_eval.md, local_llm_demo.md, local_rag_comparison.md, local_llm_optimization.md, remote_llm_service.md, dev_assistant_demo.md, code_review_demo.md, github_pr_review.md + вход демо synthetic_pr.diff, context_optimization.md, test_optimization.md, …)
 ├── scripts/                  # прогоны демонстраций и сборка отчётов (indexing_demo.py, prepare_documents.py,
 │                             # indexing_scenarios.py, indexing_report.py, indexing_ui_shot.py, cost_optimization_report.py,
 │                             # prepare_rag_corpus.py, index_rag_corpus.py, reindex_with_docs.py, run_rag_eval.py,
 │                             # rag_eval_report.py, rag_eval_cells.py, demo_local_llm.py, run_local_rag_comparison.py,
 │                             # run_local_llm_optimization.py, local_tuning_report.py, demo_remote_llm.py,
 │                             # dev_mcp_probe.py, demo_dev_assistant.py, run_local_pr_review.py,
-│                             # gh_review_comment.py, …)
+│                             # run_github_pr_review.py, gh_review_comment.py, …)
 ├── STRUCTURE.md              # карта модулей дня по слоям и лимит 400 строк
 ├── pyproject.toml, uv.lock   # зависимости (uv): sentence-transformers, sentencepiece, faiss-cpu, numpy, mcp, sqlalchemy…
 ├── pytest.ini, conftest.py   # конфигурация pytest (pythonpath = . tests)
-├── .env.example              # шаблон DEEPSEEK_API_KEY, DAY21_BACKEND_URL, DAY21_EMBEDDING_MODEL,
+├── .env.example              # шаблон DEEPSEEK_API_KEY, GITHUB_TOKEN, DAY21_BACKEND_URL, DAY21_EMBEDDING_MODEL,
                               # LLM_PROVIDER, LOCAL_LLM_MODEL, LOCAL_LLM_URL и профиля настройки
                               # локальной модели (LOCAL_LLM_PROFILE, LOCAL_LLM_TEMPERATURE,
                               # LOCAL_LLM_NUM_CTX, LOCAL_LLM_CHAT_MAX_TOKENS), REMOTE_LLM_URL,

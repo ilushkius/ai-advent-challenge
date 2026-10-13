@@ -16,16 +16,21 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from .code_review import (MAX_REVIEW_CHARS, PRIORITY_LABELS, REPORT_TITLE,
-                          normalize_priority)
+from .code_review import (GITHUB_REPORT_TITLE, MAX_REVIEW_CHARS, PRIORITY_LABELS,
+                          REPORT_TITLE, normalize_priority)
 
-__all__ = ["SECTION_MARKER", "render_markdown", "report_header", "upsert_report_section"]
+__all__ = ["GITHUB_META_HEADER", "SECTION_MARKER", "github_report_header",
+           "render_github_meta", "render_markdown", "report_header",
+           "upsert_report_section"]
 
 #: Маркер секции отчёта: по нему скрипт находит границы СВОЕЙ секции. HTML-комментарий
 #: не виден в markdown-просмотре, а разбор становится однозначным: в теле секции есть
 #: свои заголовки ``##`` (``## 🤖 AI-ревью: …``), поэтому «следующий заголовок» как
 #: граница не годится — по нему замена секции оставляла бы старое тело под новым.
 SECTION_MARKER = "<!-- section: {title} -->"
+
+#: Заголовок блока «GitHub PR»: он печатается ТОЛЬКО у ревью из GitHub REST API.
+GITHUB_META_HEADER = "### GitHub PR"
 
 
 def _cell(value: object) -> str:
@@ -105,6 +110,49 @@ def render_markdown(record: dict, *, label: str = "") -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_github_meta(record: dict) -> str:
+    """Таблица «GitHub PR» для отчёта: PR, файлы, размер diff и ссылка на комментарий.
+
+    Возвращает пустую строку для ревью не из GitHub (``github_meta`` в записи нет) —
+    поэтому один и тот же скрипт печатает блок только в режиме GitHub.
+    """
+    data = dict(record or {})
+    meta = dict(data.get("github_meta") or {})
+    if not meta:
+        return ""
+    url = str(meta.get("pr_url") or "")
+    comment_url = str(data.get("comment_url") or "")
+    posted = bool(data.get("posted"))
+    if posted and comment_url:
+        comment = f"[опубликован]({comment_url})"
+    else:
+        comment = "не публиковался"
+    rows = [["PR", f"[{url}]({url})" if url else "—"],
+            ["Репозиторий", f"`{meta.get('owner')}/{meta.get('repo')}`"],
+            ["Изменённых файлов", _cell(meta.get("changed_files_count"))],
+            ["Строк в diff", _cell(meta.get("diff_lines"))],
+            ["Комментарий", comment]]
+    lines = [GITHUB_META_HEADER, "", "| Параметр | Значение |", "| --- | --- |"]
+    lines += [f"| {name} | {value} |" for name, value in rows]
+    return "\n".join(lines)
+
+
+def github_report_header() -> str:
+    """Заголовок отчёта режима GitHub: что в нём и какой командой добавляется секция."""
+    return "\n".join([
+        GITHUB_REPORT_TITLE, "",
+        "Отчёт собирает скрипт `scripts/run_github_pr_review.py`: каждая секция — одно",
+        "ревью PR из GitHub REST API (diff и список файлов берутся по URL репозитория и",
+        "номеру PR). Повторный прогон с тем же заголовком секции заменяет её, новый",
+        "заголовок добавляет ещё одну; границы секции отмечены невидимым в просмотре",
+        "маркером `<!-- section: … -->`.", "",
+        "```bash",
+        "uv run python scripts/run_github_pr_review.py \\",
+        "  --repo-url https://github.com/fastapi/fastapi --pr-number 16481",
+        "```",
+    ])
+
+
 def report_header() -> str:
     """Заголовок отчёта: что в нём и какими командами добавляется секция."""
     return "\n".join([
@@ -122,7 +170,7 @@ def report_header() -> str:
     ])
 
 
-def upsert_report_section(text: str, title: str, body: str) -> str:
+def upsert_report_section(text: str, title: str, body: str, header: str = "") -> str:
     """Текст отчёта с секцией ``{title}``: одноимённая заменяется, новой дописывается.
 
     Отчёт переживает несколько прогонов: заменять файл целиком значило бы терять
@@ -139,7 +187,7 @@ def upsert_report_section(text: str, title: str, body: str) -> str:
     if start is None:
         section = f"{marker}\n\n{heading}\n\n{body}\n"
         if not current.strip():
-            return f"{report_header()}\n\n{section}"
+            return f"{(header or report_header())}\n\n{section}"
         return current.rstrip("\n") + "\n\n---\n\n" + section
     end = next((index for index in range(start + 1, len(lines))
                 if lines[index].startswith("<!-- section:")), len(lines))
