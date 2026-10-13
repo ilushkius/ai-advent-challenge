@@ -18,6 +18,7 @@ from fastapi import HTTPException
 if TYPE_CHECKING:  # только для аннотаций
     from ..agents.agent_manager import AgentManager
     from ..core.prompt_builder import PromptBuilder
+    from ..services.code_review_service import CodeReviewService
     from ..services.llm_client import LLMClient
     from ..services.dev_assistant_service import DevAssistantService
     from ..services.embedding_service import EmbeddingService
@@ -188,6 +189,12 @@ def get_dev_assistant_service() -> "DevAssistantService":
     from ..api import main
 
     return main.get_dev_assistant_service()
+
+
+def get_code_review_service() -> "CodeReviewService":
+    """Служба AI-ревью PR (день 32): diff, контекст корпуса и ответ модели."""
+    from ..api import main
+    return main.get_code_review_service()
 
 
 def get_prompt_builder() -> "PromptBuilder":

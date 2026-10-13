@@ -1,10 +1,11 @@
-"""Тела четырёх инструментов MCP-сервера разработки (день 31).
+"""Тела шести инструментов MCP-сервера разработки (день 31).
 
 Инструменты отвечают про РЕПОЗИТОРИЙ, а не про данные проекта: состояние рабочего
 дерева (``get_git_branch``), последние строки diff (``get_git_diff``), содержимое
 каталога (``list_files``) и дерево папки дня (``get_project_structure``). Ассистент
 разработчика вызывает их, когда вопрос касается ветки, коммита, изменённых файлов
-или структуры проекта.
+или структуры проекта, а служба AI-ревью (день 32) — ``get_pr_diff`` и
+``get_changed_files``: diff двух ref и список затронутых файлов.
 
 Почему ``subprocess``, а не библиотека git. Одна команда git — это одна строка
 ввода-вывода: ``rev-parse``, ``log -1``, ``status --porcelain``, ``diff HEAD``.
@@ -20,6 +21,7 @@ git не в PATH.
 """
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -30,13 +32,15 @@ from mcp_servers.dev_server.config import (  # noqa: F401  (реэкспорт �
     DAY_ROOT,
     REPO_ROOT,
 )
-from mcp_servers.dev_server.schemas import FileList, GitBranchInfo
+from mcp_servers.dev_server.schemas import ChangedFiles, FileList, GitBranchInfo
 
-__all__ = ["DAY_ROOT", "REPO_ROOT", "get_git_branch", "get_git_diff",
-           "get_project_structure", "list_files"]
+__all__ = ["DAY_ROOT", "REPO_ROOT", "get_changed_files", "get_git_branch",
+           "get_git_diff", "get_pr_diff", "get_project_structure", "list_files"]
 
 #: Что показать, когда рабочее дерево и индекс совпадают с HEAD.
 NO_CHANGES = "Изменений в рабочем дереве нет."
+#: Ответ ``get_pr_diff``, когда между ref-ами нет различий.
+NO_REF_DIFF = "Различий между {base} и {head} нет."
 
 
 def _git(*args: str) -> str:
@@ -164,6 +168,55 @@ def get_git_diff(lines: int = 50) -> str:
     return "\n".join(diff.rstrip("\n").splitlines()[-limit:])
 
 
+def get_pr_diff(base: str, head: str) -> str:
+    """Возвращает unified diff между двумя ref (``git diff base..head``).
+
+    Параметры: ``base`` и ``head`` — любые ref-ы репозитория (тег, ветка, SHA),
+    например ``"day30"`` и ``"day31"``.
+
+    Возвращает полный текст diff-а по формату ``git diff``: шапки ``diff --git``,
+    ``---``/``+++``, ханки ``@@``. Обрезку делает вызывающий: сервис ревью держит
+    предел 2000 строк (``code_review.MAX_DIFF_LINES``).
+
+    Пример: ``get_pr_diff(base="day30", head="day31")`` → ``"diff --git a/day21/…\\n…"``.
+
+    Ошибка: ref пуст или содержит недопустимые символы — ``ToolError``
+    («Недопустимый ref base: …»); неизвестный ref или сбой git — ``ToolError``
+    «git не сработал: …».
+    """
+    from_ref = _ref(base, "base")
+    to_ref = _ref(head, "head")
+    diff = _git("diff", f"{from_ref}..{to_ref}")
+    if not diff.strip():
+        return NO_REF_DIFF.format(base=from_ref, head=to_ref)
+    return diff
+
+
+def get_changed_files(base: str, head: str) -> ChangedFiles:
+    """Перечисляет изменённые файлы между двумя ref (``git diff --name-only``).
+
+    Параметры: ``base`` и ``head`` — ref-ы репозитория (см. ``get_pr_diff``).
+
+    Возвращает словарь: ``base``/``head`` — запрошенные ref-ы, ``count`` — число
+    имён в ``files``, ``truncated`` — файлов было больше ``config.MAX_CHANGED_FILES``,
+    ``files`` — пути от корня репозитория в порядке git.
+
+    Пример: ``get_changed_files(base="day30", head="day31")`` →
+    ``{"base": "day30", "head": "day31", "count": 35, "truncated": false,
+    "files": ["day21/backend/api/dev_assistant.py", …]}``.
+
+    Ошибка: недопустимый ref — ``ToolError``; сбой git — ``ToolError``.
+    """
+    from_ref = _ref(base, "base")
+    to_ref = _ref(head, "head")
+    output = _git("diff", "--name-only", f"{from_ref}..{to_ref}")
+    names = [line.strip() for line in output.splitlines() if line.strip()]
+    kept = names[:config.MAX_CHANGED_FILES]
+    return ChangedFiles(base=from_ref, head=to_ref, count=len(kept),
+                        truncated=len(names) > config.MAX_CHANGED_FILES,
+                        files=kept)
+
+
 def get_project_structure(max_depth: int = 3) -> dict:
     """Возвращает дерево папки дня: каталоги, файлы и их число.
 
@@ -194,6 +247,18 @@ def get_project_structure(max_depth: int = 3) -> dict:
     return {"root": str(DAY_ROOT), "max_depth": depth,
             "directories": budget["directories"], "files": budget["files"],
             "tree": tree}
+
+
+def _ref(value: str, name: str) -> str:
+    """Проверенный ref: имя ветки, тег или SHA; иначе ``ToolError``.
+
+    Проверка обязательна: ``base``/``head`` приходят из запроса (PR, CLI), а
+    аргумент, начинающийся с ``-``, git принял бы за опцию команды.
+    """
+    text_value = str(value or "").strip()
+    if not re.match(config.REF_PATTERN, text_value):
+        raise ToolError(f"Недопустимый ref {name}: {value!r}")
+    return text_value
 
 
 def _inside_repo(directory: str) -> Path:

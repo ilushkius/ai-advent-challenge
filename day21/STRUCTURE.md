@@ -1,6 +1,6 @@
-# Структура дня 31
+# Структура дня 32
 
-Карта модулей дня 31: что где лежит и за что отвечает. Правила структуры — в
+Карта модулей дня 32: что где лежит и за что отвечает. Правила структуры — в
 [`../docs/project-rules.md`](../docs/project-rules.md) и
 [`../docs/architecture.md`](../docs/architecture.md).
 
@@ -11,9 +11,9 @@
 Pydantic-схемы — в `schemas/`, HTTP — в `api/`. Сваливать файлы в корень
 `backend/` нельзя.
 
-**Что такое день 31.** Проект дня 21 (копия дня 20 — агент DeepSeek с памятью, FSM,
+**Что такое день 32.** Проект дня 21 (копия дня 20 — агент DeepSeek с памятью, FSM,
 инвариантами, профилем, MCP-клиентом и флотом серверов, планировщиком, пайплайном и
-оркестрацией) плюс девять подсистем, добавленных днями 21–31:
+оркестрацией) плюс десять подсистем, добавленных днями 21–32:
 
 1. **Индексация документов** — сборка набора документов из источников репозитория в
    `documents/`, две стратегии чанкинга (фиксированное окно по токенам и структурная —
@@ -82,19 +82,30 @@ Pydantic-схемы — в `schemas/`, HTTP — в `api/`. Сваливать ф
    `docs/reports/remote_llm_service.md`.
 9. **Ассистент разработчика** (день 31) — ответ на вопрос `/help` по двум источникам:
    документация проекта (фрагменты того же корпуса RAG) и состояние репозитория через
-   **свой** MCP-сервер `mcp_servers/dev_server/` (четыре инструмента: ветка и коммит,
-   diff, файлы каталога, дерево дня). Домен `dev_assistant` (типы вопросов, план
+   **свой** MCP-сервер `mcp_servers/dev_server/` (шесть инструментов: ветка и коммит,
+   diff, файлы каталога, дерево дня, а с дня 32 — diff PR и список файлов PR). Домен
+   `dev_assistant` (типы вопросов, план
    инструментов, сборка контекста), служба `dev_assistant_service`, три эндпоинта
    `/dev-assistant/*`, раздел «🧑‍💻 Ассистент разработчика (Day 31)», скрипты
    `scripts/reindex_with_docs.py` (пересборка корпуса с документацией),
    `scripts/dev_mcp_probe.py` (проба инструмента) и `scripts/demo_dev_assistant.py`
    (пять вопросов и отчёт `docs/reports/dev_assistant_demo.md`).
+10. **AI-ревью PR** (день 32) — пайплайн ревью изменений: diff из запроса или через
+   MCP (`get_pr_diff`, `get_changed_files`), RAG-контекст документации проекта и кода
+   изменённых файлов, ответ модели по JSON-контракту и разбор в структуру (баги с
+   файлом и строкой, архитектурные проблемы с рекомендацией, рекомендации, риски
+   `P0`–`P3`). Домены `code_review` (контракт и разбор) и `code_review_report`
+   (markdown комментария и секции отчёта), служба `code_review_service`, два эндпоинта
+   `/review/*`, скрипты `scripts/run_local_pr_review.py` (локальный прогон двух ref-ов
+   или файла diff-а) и `scripts/gh_review_comment.py` (публикация комментария через
+   `gh`), GitHub Action `.github/workflows/ai-review.yml` в корне репозитория, отчёт
+   `docs/reports/code_review_demo.md` с двумя примерами.
 
 Унаследовано из дня 20 — одной строкой: **остальное дерево, включая `mcp_server/`,
 `mcp_servers/` с `mcp_servers.json`, память, профиль, состояние задачи, инварианты,
 планировщик, пайплайн и оркестрацию, — копия дня 20 без изменений**; карта этих
 модулей построчно — в [`day20/STRUCTURE.md`](../day20/STRUCTURE.md). Ниже описано
-только то, что дни 21–31 добавили или изменили.
+только то, что дни 21–32 добавили или изменили.
 
 ## Почему сделано так (решения дня 21)
 
@@ -170,7 +181,8 @@ day21/
 ├── mcp_servers.json          # КОНФИГУРАЦИЯ ФЛОТА (унаследована от дня 20): три сервера + кэш каталогов tools_cache
 ├── mcp_servers/              # три независимых MCP-сервера флота — унаследованы от дня 20 (по процессу на сервер, stdio)
 │   └── dev_server/           # ЧЕТВЁРТЫЙ сервер дня 31 (вне флота): config.py, schemas.py, tools.py, server.py —
-│                             # git-контекст (ветка, коммит, diff), файлы каталога и дерево папки дня по stdio
+│                             # git-контекст (ветка, коммит, diff), файлы каталога, дерево папки дня (день 31),
+│                             # а с дня 32 — diff PR и список изменённых файлов (get_pr_diff, get_changed_files)
 ├── mcp_server/               # собственный MCP-сервер дня — унаследован от дней 17–19 (11 модулей, девять инструментов, stdio)
 ├── frontend/                 # Streamlit UI по секциям (41 модуль, включая __init__.py)
 │   ├── indexing_api.py       # HTTP-запросы индексации (/indexing/...) поверх api_client
@@ -195,39 +207,41 @@ day21/
 │                             # frontend.api_client, panels.py — боковая панель и ход диалога
 ├── backend/                  # FastAPI-бэкенд, домен и доступ к данным (девять слоёв, в каждом __init__.py)
 │   ├── __init__.py           # описание пакета + корень репозитория в sys.path (для shared/)
-│   ├── api/                  # 20 модулей: 17 роутеров по доменам (в том числе indexing.py, llm.py,
-│   │                         # remote_llm.py, rag.py, mini_chat.py и dev_assistant.py), main.py, lifespan.py
+│   ├── api/                  # 21 модуль: 18 роутеров по доменам (в том числе indexing.py, llm.py,
+│   │                         # remote_llm.py, rag.py, mini_chat.py, dev_assistant.py и code_review.py),
+│   │                         # main.py, lifespan.py
 │   ├── core/                 # 7 модулей: config (сборка настроек и разделы оптимизации затрат),
 │   │                         # llm_settings (провайдеры ответа: DeepSeek, локальная Ollama дня 26
 │   │                         # и удалённая дня 30), env_file (путь .env дня и парсер его строк),
 │   │                         # dependencies, mcp_server_config
 │   │                         # и prompt_builder (строитель промптов с кэшем префикса)
-│   ├── domain/               # 62 модуля: чистые правила и данные — индексация (chunking, document_sources,
+│   ├── domain/               # 64 модуля: чистые правила и данные — индексация (chunking, document_sources,
 │   │                         # index_metrics, index_scenarios, indexing_fsm, indexing_prompt), стоимость и непик
 │   │                         # (llm_cost, peak_hours), RAG (rag_mode, rag_filter, rag_corpus_spec, rag_eval,
 │   │                         # rag_compare), провайдер LLM (llm_provider), оптимизация локальной модели
 │   │                         # (local_tuning, local_tuning_eval), сценарий демо удалённой LLM (remote_demo),
-│   │                         # контракт ассистента разработчика (dev_assistant)
+│   │                         # контракт ассистента разработчика (dev_assistant), контракт AI-ревью
+│   │                         # (code_review) и разметка его отчёта (code_review_report)
 │   │                         # и унаследованные домены
-│   ├── services/             # 51 модуль: индексация (chunker, embedding_service, index_service, document_loader,
+│   ├── services/             # 52 модуля: индексация (chunker, embedding_service, index_service, document_loader,
 │   │                         # index_runner, index_comparison, indexing_service), затраты (llm_client,
 │   │                         # prompt_compressor, off_peak), RAG (rag_corpus_loader, rag_service, rag_retrieval,
 │   │                         # rag_records, rag_llm, rag_errors, rag_corpus_index, rerank_service, rag_compare_service), мини-чат
 │   │                         # (mini_chat_service, mini_chat_memory), провайдер (llm_factory, local_llm_client,
 │   │                         # local_llm_demo, remote_llm_client, remote_llm_service), ассистент разработчика
-│   │                         # (dev_assistant_service) и оптимизация локальной модели
-│   │                         # (local_llm_resources, local_tuning_service) плюс унаследованные
+│   │                         # (dev_assistant_service), AI-ревью PR (code_review_service) и оптимизация
+│   │                         # локальной модели (local_llm_resources, local_tuning_service) плюс унаследованные
 │   ├── storage/              # 17 модулей: chunk_store и index_run_store (журнал прогонов индексации),
 │   │                         # llm_usage_store и llm_usage_rows (журнал расходов) плюс унаследованные хранилища
 │   ├── agents/               # Agent (в generate — шаг поиска по индексу, клиент LLM и строитель промптов),
 │   │                         # MemoryManager, ProfileStore, AgentManager + миксины
 │   ├── models/               # ORM-таблицы: 13 модулей, в том числе indexing.py (document_chunks, index_runs)
 │   │                         # и llm_usage.py (журнал расходов)
-│   ├── schemas/              # Pydantic-схемы API: 20 модулей, в том числе indexing.py, llm.py, remote_llm.py, rag.py, rag_compare.py, mini_chat.py, dev_assistant.py и local_tuning.py
+│   ├── schemas/              # Pydantic-схемы API: 21 модуль, в том числе indexing.py, llm.py, remote_llm.py, rag.py, rag_compare.py, mini_chat.py, dev_assistant.py, code_review.py и local_tuning.py
 │   ├── data/                 # данные дня: demo_questions.json (10 контрольных вопросов RAG) и
 │   │                         # mini_chat_scenarios.json (два сценария мини-чата: 14 и 12 реплик)
 │   └── utils/                # своего кода нет (общий — в repo-level shared/)
-├── tests/                    # pytest: 2758 тестов (unit/ — 1917, integration/ — 592, e2e/ — 249); по умолчанию 2669 (89 slow отложены)
+├── tests/                    # pytest: 2777 тестов (unit/ — 1934, integration/ — 594, e2e/ — 249); по умолчанию 2686 (91 slow отложен)
 │   ├── conftest.py           # общие фикстуры (session-scoped schema_template для схемы БД) + autouse no_real_network
 │   ├── fixtures_fleet.py     # фикстуры флота MCP-серверов и оркестрации (вынесены из conftest: лимит 400 строк)
 │   ├── fixtures_indexing.py  # фикстуры индексации документов (тоже вынесены из conftest)
@@ -235,6 +249,8 @@ day21/
 │   ├── fixtures_rag.py       # фикстуры RAG: тестовый корпус, служба поиска, стаб-клиент и служба RAG
 │   ├── rag_fakes.py          # фейки RAG: стаб-клиент DeepSeek и тексты тестового корпуса
 │   ├── dev_assistant_fakes.py # фейки дня 31: служба поиска, MCP-клиент, подмена MCPClient и make_service
+│   ├── code_review_fakes.py  # фейки дня 32: diff трёх файлов, попадания документации и кода, индекс без фрагментов,
+│   │                         # MCP-клиент с diff-ом по имени инструмента, пять кейсов ревью и make_service
 │   ├── mini_chat_fakes.py    # фейки мини-чата: стаб-клиент с двумя ответами (ответ и JSON памяти),
 │   │                         # заглушка отбора (сильная/слабая выдача) и клиент с неразобранной памятью
 │   ├── fixtures_mini_chat.py # фикстуры мини-чата: служба на фейковом отборе — сильная, слабая и сломанная
@@ -247,8 +263,13 @@ day21/
 │   ├── unit/test_dev_assistant_service.py      # unit дня 31: тип вопроса и план инструментов, контекст двух источников, отказы (индекс, сервер, инструмент, модель), пустой вопрос
 │   ├── unit/test_dev_assistant_panels.py       # unit дня 31: каталог инструментов, git-контекст, соединение со stdio-сервером и его закрытие, клиент по ключу, синглтон
 │   ├── integration/test_dev_assistant_flow.py  # slow дня 31: настоящий корпус и настоящий процесс mcp_servers/dev_server/server.py, заглушка модели
+│   ├── unit/test_code_review_service.py        # unit дня 32: пять кейсов структуры ревью (payload, MCP, отказ MCP, отказ модели, пустой индекс),
+│   │                                           # отказ «нечего анализировать», запрос по пути файла и порядок приоритетов P0–P3
+│   ├── unit/test_code_review_report.py         # unit дня 32: разделы markdown, обрезка полного ответа и замена секции отчёта без дублей
+│   ├── integration/test_code_review_flow.py    # slow дня 32: настоящий git diff day30..day31 через dev_server, обрезка до 2000 строк, документация в источниках
 │   └── …                     # унаследованные помощники тестов дня 20 (orchestration_fakes, mcp_fakes, stub_api, support…)
-├── docs/                     # architecture.md, usage.md, api.md, reports/
+├── docs/                     # architecture.md, usage.md, api.md, reports/ (включая code_review_demo.md дня 32
+│                             # и вход синтетического примера reports/synthetic_pr.diff)
 ├── scripts/                  # прогоны демонстраций и сборка отчётов (не пакет)
 │   ├── prepare_documents.py  # сборка набора документов: --force (пересобрать), --list (показать манифест)
 │   ├── indexing_scenarios.py # пять сценариев индексации (демо, одиночная стратегия, поиск, качество, рестарт) + стенд
@@ -270,6 +291,8 @@ day21/
 │   ├── reindex_with_docs.py  # пересборка корпуса RAG дня 31: чанки документации по стратегиям, минимум 30 на стратегию, общий объём
 │   ├── dev_mcp_probe.py      # проба одного инструмента mcp_servers/dev_server по stdio (--tool, --args, --target) без модели
 │   ├── demo_dev_assistant.py # пять вопросов /help через DevAssistantService (--provider, --report, --no-report) и отчёт дня 31
+│   ├── run_local_pr_review.py # локальное ревью дня 32: git diff двух ref-ов или --diff-file, вызов службы, печать находок и секция отчёта
+│   ├── gh_review_comment.py  # публикация ответа POST /review/pr комментарием в PR через gh (--pr, --repo, --input, --dry-run)
 │   └── …                     # унаследованные скрипты дней 18–20 (orchestration_*, pipeline_*, scheduler_*, video_*)
 ├── invariants_demo.md        # отчёт дня 14 (унаследован; лежит в корне дня — путь задан заданием дня 14)
 ├── conftest.py, pytest.ini   # конфигурация pytest (pythonpath = . tests)
@@ -299,6 +322,8 @@ day21/
 `local_llm_optimization.md` — профили и кванты на вопросах корпуса (день 29),
 `remote_llm_service.md` — удалённая Ollama в Colab за туннелем Cloudflare: пять шагов
 демо, лимит частоты и окно контекста (день 30),
+`code_review_demo.md` — два примера AI-ревью (реальный diff `day30..day31` и
+синтетический PR из `reports/synthetic_pr.diff`, день 32),
 остальные (`orchestration_demo.md`,
 `pipeline_demo.md`, `scheduler_demo.md`, `mcp_tool_demo.md`, `mcp_demo.md`,
 `task_state_demo.md`, `personalization_comparison.md`) унаследованы и читаются как
@@ -312,7 +337,7 @@ day21/
 что запускаются отдельным процессом, где ни корень дня, ни корень репозитория в
 `sys.path` не попадают.
 
-## Новые модули дней 21–31
+## Новые модули дней 21–32
 
 ### Индексация документов: `backend/domain/`, `services/`, `storage/`, `api/`
 
@@ -549,9 +574,9 @@ Ollama), а параметры вызова уходят аргументами:
 | `backend/schemas/dev_assistant.py`, `backend/api/dev_assistant.py` | Схемы и три эндпоинта: `POST /dev-assistant/help` (400 — пустой вопрос или незнакомый провайдер, 502 — контекста нет вовсе), `GET /dev-assistant/tools`, `GET /dev-assistant/git-context` (оба всегда 200, причина в поле `error`) |
 | `backend/core/dependencies.py`, `backend/api/main.py`, `backend/api/lifespan.py` | Точка подмены `get_dev_assistant_service` (роутер берёт службу через `dependencies`), роутер в цикле регистрации, закрытие соединения с dev-сервером при остановке бэкенда |
 | `mcp_servers/dev_server/config.py` | Корни (`REPO_ROOT` для git, `DAY_ROOT` для дерева), имя/версия/инструкция сервера, границы (`MAX_FILES`, `MAX_MODIFIED`, `MAX_TREE_FILES`, `MIN_DEPTH`/`MAX_DEPTH`, `MIN_DIFF_LINES`/`MAX_DIFF_LINES`, `GIT_TIMEOUT`), `SKIP_DIRS` |
-| `mcp_servers/dev_server/schemas.py` | `TypedDict`-ответы (`GitBranchInfo`, `FileList`) → `outputSchema` инструментов; форма дерева описана докстрингом (`dict`) — рекурсивный `TypedDict` дал бы перекрёстную ссылку в схеме |
-| `mcp_servers/dev_server/tools.py` | Четыре инструмента: `get_git_branch` (`rev-parse`/`log -1 --oneline`/`status --porcelain`, у переименования — новый путь), `list_files` (нерекурсивно, путь обязан лежать внутри `REPO_ROOT`, фильтр расширения без учёта регистра и точки), `get_git_diff` (последние N строк `git diff HEAD`), `get_project_structure` (дерево папки дня, каталоги первыми, счётчики). Всё через `subprocess` с таймаутом; сбой git и выход за границы — `ToolError` |
-| `mcp_servers/dev_server/server.py` | Сборка `MCPServer` (`mcp.server.mcpserver`, mcp 2.x) и регистрация четырёх функций `tools.py` (внешняя регистрация: SDK берёт имя, докстринг и аннотации из самой функции), запуск `run(transport="stdio")` |
+| `mcp_servers/dev_server/schemas.py` | `TypedDict`-ответы (`GitBranchInfo`, `FileList`, `ChangedFiles`) → `outputSchema` инструментов; форма дерева описана докстрингом (`dict`), а `get_pr_diff` возвращает строку — рекурсивный `TypedDict` дал бы перекрёстную ссылку в схеме |
+| `mcp_servers/dev_server/tools.py` | Шесть инструментов: `get_git_branch` (`rev-parse`/`log -1 --oneline`/`status --porcelain`, у переименования — новый путь), `list_files` (нерекурсивно, путь обязан лежать внутри `REPO_ROOT`, фильтр расширения без учёта регистра и точки), `get_git_diff` (последние N строк `git diff HEAD`), `get_project_structure` (дерево папки дня, каталоги первыми, счётчики) и добавленные днём 32 `get_pr_diff`/`get_changed_files` (diff двух ref-ов и имена изменённых файлов; ref проверяется образцом `REF_PATTERN` до вызова git, иначе аргумент стал бы опцией команды). Всё через `subprocess` с таймаутом; сбой git и выход за границы — `ToolError` |
+| `mcp_servers/dev_server/server.py` | Сборка `MCPServer` (`mcp.server.mcpserver`, mcp 2.x) и регистрация шести функций `tools.py` (внешняя регистрация: SDK берёт имя, докстринг и аннотации из самой функции), запуск `run(transport="stdio")` |
 | `frontend/dev_assistant_section.py`, `dev_assistant_api.py`, `chat_section.py` | Раздел «🧑‍💻 Ассистент разработчика (Day 31)»: кнопки-подсказки (подставляют вопрос и сразу отправляют), переключатель провайдера, диалог с раскрывашками «📚 Источники» и «🛠 MCP-инструменты», панель процесса (каталог инструментов с обновлением, ветка и коммит, очистка диалога); HTTP-обёртки `api_dev_help` (`LONG_TIMEOUT`), `api_dev_tools`, `api_dev_git_context` |
 | `scripts/reindex_with_docs.py` | Пересборка корпуса с документацией: `RAGService.prepare_corpus` плюс отдельный счётчик чанков документации по стратегиям (код 0 только при минимуме 30 чанков на стратегию и общем минимуме корпуса) |
 | `scripts/dev_mcp_probe.py` | Проба инструмента по stdio без модели: `--tool`, `--args` (JSON), `--target`; печатает каталог и структурированный результат, коды 0/1/2 |
@@ -562,6 +587,27 @@ Ollama), а параметры вызова уходят аргументами:
 `document_chunks`, что день 22, и поднимает свой сервер отдельным процессом. Поэтому
 «недоступный dev-сервер» — штатный случай: ответ строится по документации, а причина
 видна в предупреждениях и в панели раздела.
+
+### AI-ревью PR (день 32): `backend/`, `mcp_servers/dev_server/`, `scripts/`, `tests/`, `.github/`
+
+| Модуль | Назначение |
+|---|---|
+| `backend/domain/code_review.py` | Контракт ревью без HTTP, диска и модели: `SYSTEM_PROMPT` с JSON-схемой и границами находок (не больше 3 багов, 2 архитектурных проблем, 2 рекомендаций, 3 рисков — ответ идёт типом задачи `chat` с пределом 1000 токенов), `normalize_priority` (`"p0"`/`2`/`"P1 (важно)"` → `P0`–`P3`), `sort_risks`, `changed_files_from_diff`, `added_lines`, `context_query` (пути плюс добавленные строки), `truncate_diff` (предел 2000 строк и список пропущенных файлов), `strip_json_fence`/`normalize_review` (терпимый разбор: строка вместо объекта, `message` вместо `issue`, текст без JSON), `review_question`, `render_context`, тексты предупреждений |
+| `backend/domain/code_review_report.py` | Разметка: `render_markdown` (разделы комментария PR и секции отчёта — изменённые файлы, таблицы багов и рисков, рекомендации, источники, предупреждения, полный ответ модели под `<details>`), `report_header`, `upsert_report_section` с маркером `SECTION_MARKER` (граница секции — невидимый `<!-- section: … -->`, а не заголовок: тело ревью само начинается с `## 🤖 AI-ревью`) |
+| `backend/services/code_review_service.py` | Служба: diff из payload или через MCP `get_pr_diff`, файлы из payload/MCP/самого diff-а, поиск фрагментов документации и кода изменённых файлов (не больше восьми; второй запрос по пути файла, если добавленные строки увели выдачу), обрезка diff-а, вызов модели, разбор ответа, `mcp_tools_used`/`sources`/`warnings`, `health()`, синглтон `get_code_review_service` и закрытие соединения |
+| `backend/schemas/code_review.py`, `backend/api/code_review.py` | Схемы (`PrReviewIn`, `PrReviewOut`, `CodeReviewHealthOut` и вложенные) и два эндпоинта: `POST /review/pr` (400 — нечего анализировать или незнакомый провайдер, 502 — MCP не поднялся и diff не добыть), `GET /review/health` (всегда 200) |
+| `backend/core/dependencies.py`, `backend/api/main.py`, `backend/api/__init__.py`, `backend/services/__init__.py`, `backend/api/lifespan.py`, `backend/api/agents.py` | Прошивка: точка подмены `get_code_review_service`, роутер в цикле регистрации и в `__all__` пакета, закрытие соединения при остановке, ключ `code_review` и две строки в перечне эндпоинтов корневой точки |
+| `backend/domain/dev_assistant.py`, `mcp_servers/dev_server/config.py`, `schemas.py`, `tools.py`, `server.py` | Правки dev-сервера: имена `TOOL_PR_DIFF`/`TOOL_CHANGED_FILES` в реестре `TOOLS` (по нему собирается каталог панели и ограничение `--tool`), `MAX_CHANGED_FILES = 300` и образец ref-а, `TypedDict ChangedFiles`, два инструмента и их регистрация |
+| `scripts/run_local_pr_review.py` | Локальный прогон: `git diff base..head` или `--diff-file`, вызов службы, печать строк прогресса, предупреждений и источников, секция отчёта `docs/reports/code_review_demo.md` (`--pr-label`, `--section-title`, `--report`, `--no-report`, `--top-k`, `--provider`); коды 0/1/2 |
+| `scripts/gh_review_comment.py` | Публикация ответа `POST /review/pr` комментарием: `render_markdown` → `gh pr comment --body-file -`; `--dry-run` печатает разметку; коды 0/1/2 |
+| `.github/workflows/ai-review.yml` | Action в корне репозитория: на `opened`/`synchronize`/`reopened` поднимает бэкенд на раннере, ждёт `/review/health`, собирает payload из `gh pr diff` и `gh pr view --json files`, зовёт `/review/pr` и публикует комментарий |
+| `docs/reports/synthetic_pr.diff`, `docs/reports/code_review_demo.md` | Вход синтетического примера (два метода `IndexService` с намеренными проблемами; `git apply --check` проходит) и отчёт с двумя секциями |
+| `tests/code_review_fakes.py`, `tests/unit/test_code_review_service.py`, `tests/unit/test_code_review_report.py`, `tests/integration/test_code_review_flow.py` | Фейки (diff трёх файлов, попадания документации и кода, индекс без фрагментов, MCP-клиент с diff-ом, подмена `MCPClient`, пять кейсов) вынесены отдельным модулем — как фейки дня 31. Unit: структура ответа и разбор находок по кейсам, отказы MCP, модели и пустого индекса, отказ «нечего анализировать», запрос по пути файла, порядок приоритетов; разметка отчёта и замена его секции без дублей. Slow-интеграция: настоящий `git diff day30..day31` через настоящий `dev_server` |
+
+День 32 не заводит ни таблиц, ни интерфейса: он переиспользует индекс корпуса дня 22,
+клиент модели (`rag_llm`), MCP-сервер дня 31 и путь публикации через `gh`. Поэтому
+недоступный индекс или файл вне корпуса — штатный случай: ревью идёт по diff-у, а
+причина остаётся в `warnings` и в отчёте.
 
 ### Экономия контекста агента: корень дня, `.gitignore` и настройки окружения
 
@@ -585,14 +631,14 @@ Ollama), а параметры вызова уходят аргументами:
 
 | Слой | Файлов | Что там |
 |---|---|---|
-| `api/` | 19 | HTTP: 16 роутеров по доменам (в том числе `indexing.py` — индексация, `llm.py` — расходы, `remote_llm.py` — удалённый сервер дня 30, `rag.py` — RAG, `mini_chat.py` — мини-чат, `orchestration.py` — запуски, `mcp_servers.py` — флот), `lifespan.py` (старт и остановка фоновых служб, чтение индексов, прогрев модели) и `main.py` (сборка `app`) |
+| `api/` | 21 | HTTP: 18 роутеров по доменам (в том числе `indexing.py` — индексация, `llm.py` — расходы, `remote_llm.py` — удалённый сервер дня 30, `rag.py` — RAG, `mini_chat.py` — мини-чат, `dev_assistant.py` — ассистент, `code_review.py` — AI-ревью PR, `orchestration.py` — запуски, `mcp_servers.py` — флот), `lifespan.py` (старт и остановка фоновых служб, чтение индексов, прогрев модели) и `main.py` (сборка `app`) |
 | `core/` | 7 | `config.py` (настройки дня: файл флота, каталоги документов и индексов, модель эмбеддингов, границы поиска и **весь раздел оптимизации затрат** — маршрутизация моделей, пределы ответа, тарифы, доля цены кэша, окна непика и параметры журнала), `llm_settings.py` (**провайдеры ответа:** DeepSeek, локальная Ollama дня 26 и удалённая дня 30 — адрес, модель, ключ, лимит частоты и окно контекста; вынесены из `config.py` на пределе 400 строк), `mcp_server_config.py` (чтение `mcp_servers.json` и запись `tools_cache`), `dependencies.py` (доступ роутов к менеджеру, реестру, планировщику, службам пайплайна, оркестрации, индексации, RAG и клиенту LLM), `prompt_builder.py` |
-| `domain/` | 61 | Чистые правила и данные без БД и сети: FSM задачи/сжатия/MCP/планировщика/пайплайна/оркестрации/**индексации**, графы переходов, расписания, агрегация, распознавание реплик, маппинг аргументов, стратегии, профиль, инварианты, тексты промптов, план шагов, **источники документов, блоки, метрики сравнения, тестовые запросы**, **стоимость запросов и правило непиковых часов**, **RAG-промпт, источники корпуса и контрольные вопросы**, **режимы отбора RAG с порогом и реранкером (день 23)**, **профили настройки локальной модели (день 29)**, **провайдеры ответа и сценарий демо удалённой LLM (день 30)**. Знают только stdlib, `core.config` и соседей по слою |
-| `services/` | 50 | Прикладные сервисы: компрессор контекста, состояние задачи, инварианты, `mcp_*` (клиент, транспорт, ошибки, реестр с флотом, состояние сервера, раннер инструмента), планировщик и его службы, пайплайн, оркестратор, **чанкер, эмбеддинги, векторный индекс, загрузчик документов, прогон индексации, сборка метрик, служба индексации**, **клиент LLM, сжатие промптов и перенос запуска в непик**, **загрузчик корпуса RAG, служба RAG, этапы отбора, рекорды ответа, повторы вызова и служба кросс-энкодера (день 23)**, **служба мини-чата с правилами памяти задачи (день 25)**, **клиенты и службы обоих ответчиков на Ollama — локального (дни 26/29) и удалённого (день 30) с счётчиком частоты** |
+| `domain/` | 64 | Чистые правила и данные без БД и сети: FSM задачи/сжатия/MCP/планировщика/пайплайна/оркестрации/**индексации**, графы переходов, расписания, агрегация, распознавание реплик, маппинг аргументов, стратегии, профиль, инварианты, тексты промптов, план шагов, **источники документов, блоки, метрики сравнения, тестовые запросы**, **стоимость запросов и правило непиковых часов**, **RAG-промпт, источники корпуса и контрольные вопросы**, **режимы отбора RAG с порогом и реранкером (день 23)**, **профили настройки локальной модели (день 29)**, **провайдеры ответа и сценарий демо удалённой LLM (день 30)**, **контракт ассистента разработчика (день 31)**, **контракт AI-ревью и разметка его отчёта (день 32)**. Знают только stdlib, `core.config` и соседей по слою |
+| `services/` | 52 | Прикладные сервисы: компрессор контекста, состояние задачи, инварианты, `mcp_*` (клиент, транспорт, ошибки, реестр с флотом, состояние сервера, раннер инструмента), планировщик и его службы, пайплайн, оркестратор, **чанкер, эмбеддинги, векторный индекс, загрузчик документов, прогон индексации, сборка метрик, служба индексации**, **клиент LLM, сжатие промптов и перенос запуска в непик**, **загрузчик корпуса RAG, служба RAG, этапы отбора, рекорды ответа, повторы вызова и служба кросс-энкодера (день 23)**, **служба мини-чата с правилами памяти задачи (день 25)**, **клиенты и службы обоих ответчиков на Ollama — локального (дни 26/29) и удалённого (день 30) с счётчиком частоты**, **служба ассистента разработчика (день 31)** и **служба AI-ревью PR (день 32)** |
 | `storage/` | 17 | Доступ к БД: `database.py` (движок, сессии, реэкспорт ORM), хранилища задач, инвариантов, памяти, планировщика, пайплайна, оркестрации, **чанков с журналом индексации** и **журнала расходов на LLM** (+ модули «строка → словарь») |
 | `agents/` | 12 | `Agent`, `MemoryManager`, `ProfileStore`, `AgentManager` из миксинов; менеджер передаёт агентам реестр MCP, службы пайплайна, оркестрации, **индексации (шаг поиска по документам в `generate`)** и **клиент LLM со строителем промптов** |
 | `models/` | 13 | ORM-таблицы SQLAlchemy по доменам, включая **`indexing.py`** (`document_chunks`, `index_runs`), **`llm_usage.py`**, `orchestration.py` |
-| `schemas/` | 19 | Pydantic-схемы API по доменам, включая **`indexing.py`**, **`llm.py`**, **`remote_llm.py`** (настройки, проверка соединения и шаг демо удалённой LLM), **`rag.py`**, **`mini_chat.py`**, **`local_tuning.py`**, `orchestration.py` и `mcp_servers.py` |
+| `schemas/` | 21 | Pydantic-схемы API по доменам, включая **`indexing.py`**, **`llm.py`**, **`remote_llm.py`** (настройки, проверка соединения и шаг демо удалённой LLM), **`rag.py`**, **`mini_chat.py`**, **`local_tuning.py`**, **`dev_assistant.py`** (день 31), **`code_review.py`** (день 32), `orchestration.py` и `mcp_servers.py` |
 | `utils/` | 1 | Своего кода нет (`__init__.py`): общий клиент DeepSeek, база, токены и логи — в repo-level `shared/` |
 
 Девять слоёв обязательны и все содержат `__init__.py` с реэкспортом публичных
@@ -614,8 +660,8 @@ remote_demo, orchestration_fsm, …`), а не реэкспортирует их
 
 ## Тесты: `tests/`
 
-Набор дня — **2727 тестов**: `unit/` — 1890 (74 файла), `integration/` — 588
-(55 файлов), `e2e/` — 249 (16 файлов). Классификация по фикстурам: чистые модули /
+Набор дня — **2777 тестов**: `unit/` — 1934 (78 файлов), `integration/` — 594
+(57 файлов), `e2e/` — 249 (16 файлов). Классификация по фикстурам: чистые модули /
 временная БД и агент / `TestClient`. Унаследованные наборы дней 11–20 (память и
 стратегии, профиль, задача и переходы, инварианты, MCP, планировщик, пайплайн, флот и
 оркестрация) остаются на месте; их раскладка по файлам — в
@@ -625,10 +671,10 @@ remote_demo, orchestration_fsm, …`), а не реэкспортирует их
 и делят одну схему БД на прогон: session-scoped `schema_template` строит её один
 раз, а `session_factory` копирует файл (2,65 мс вместо 934 мс у `create_all`) —
 изоляция сохранена (файл на тест), время полного прогона упало с 370 с до 68 с.
-Тяжёлые тесты (85 штук: подпроцессы MCP-серверов по stdio, сборка реального
+Тяжёлые тесты (91 штука: подпроцессы MCP-серверов по stdio, сборка реального
 RAG-корпуса и часть e2e) помечены
-`slow` и по умолчанию пропускаются: `uv run pytest` идёт ~17 с и покрывает 2642
-теста, полный набор — `uv run pytest -m ""` или `--run-slow` — ~45 с и 2727 тестов. Autouse-фикстура
+`slow` и по умолчанию пропускаются: `uv run pytest` идёт ~15 с и покрывает 2686
+тестов, полный набор — `uv run pytest -m ""` или `--run-slow` — ~65 с и 2777 тестов. Autouse-фикстура
 `no_real_network` запрещает тестам TCP на нелокальные адреса (внешние API
 подменены фейками); исключение — тесты с маркером `remote`: сквозной прогон удалённой
 модели дня 30 идёт по настоящему туннелю, подменять который нечем. Замеры и разбор — в
@@ -737,11 +783,20 @@ singleton протекал бы между тестами вместе с фаб
 | Фейки | `tests/dev_assistant_fakes.py` (155) | `FakeIndexService` (заданные попадания или исключение), `FakeMCP` (вызовы, результат по имени инструмента, ошибка инструмента, обрыв связи, пустой результат), `FakeStdioClient`/`FailingStdioClient` (подмена `MCPClient` со счётчиком созданных клиентов) и `make_service` — общие для двух юнит-файлов, потому что один файл вышел бы за предел 400 строк |
 | Ответы и отказы | `unit/test_dev_assistant_service.py` (234) | Тип вопроса шестью вопросами (включая смешанный), ответ по документации с полным набором источников и текстом фрагмента в промпте, git-вопрос без поиска по корпусу, смешанный вопрос с двумя инструментами, ошибка инструмента поверх ответа, обрыв связи MCP, пустой индекс документации, «нет данных» без вызова модели, недоступная модель с текстом провайдера (отдельно — локального), текстовый результат инструмента без структуры, пустой вопрос, покрытие документации таблицей источников |
 | Панели и соединение | `unit/test_dev_assistant_panels.py` (145) | Ленивое разрешение зависимостей, каталог инструментов, недоступный сервер (каталог и git-контекст данными), ошибка инструмента в панели git, соединение: создаётся один раз, с рабочим каталогом дня, закрывается методом `close()`, плюс сервер, не поднявшийся посреди вопроса, клиент по ключу и синглтон службы процесса |
-| Полный цикл (slow) | `integration/test_dev_assistant_flow.py` (134) | Настоящий корпус (все 41 источник таблицы) и настоящий процесс `mcp_servers/dev_server/server.py`: вопрос по документации находит фрагменты из документации проекта, git-вопрос доходит до инструмента, каталог отдаёт четыре инструмента со схемами, вопрос про структуру возвращает дерево |
+| Полный цикл (slow) | `integration/test_dev_assistant_flow.py` (134) | Настоящий корпус (все 41 источник таблицы) и настоящий процесс `mcp_servers/dev_server/server.py`: вопрос по документации находит фрагменты из документации проекта, git-вопрос доходит до инструмента, каталог отдаёт шесть инструментов со схемами, вопрос про структуру возвращает дерево |
+
+### AI-ревью PR (день 32)
+
+| Группа | Файлы (строк) | Что проверяют |
+|---|---|---|
+| Фейки | `tests/code_review_fakes.py` (245) | Diff трёх файлов корпуса и список этих файлов, попадания документации и кода по slug-ам запроса, `FakeMCP` (diff и имена файлов по имени инструмента, ошибка связи, ошибка инструмента), `FailingStdioClient` (подмена `MCPClient`) и пять кейсов `CASES` плюс `make_service` — общие для двух юнит-файлов |
+| Служба | `unit/test_code_review_service.py` (142) | Пять кейсов параметризации: набор полей ответа, разбор находок (баг с файлом и строкой, рекомендация архитектурной проблемы), порядок рисков `P0`–`P3`, diff и файлы из payload или через MCP, `changed_files` как якорь контекста, предупреждения (обрыв MCP, пустой индекс) и честный текст при недоступной модели; отдельно — `CodeReviewError` при неработающем MCP, `ValueError` без diff-а и ref-ов, второй запрос по пути файла, когда добавленные строки увели выдачу, и семь форм записи приоритета |
+| Разметка | `unit/test_code_review_report.py` (66) | Разделы markdown ревью (включая экранирование `\|` в ячейках и приоритет с подписью), пустые разделы, обрезка полного ответа модели; замена секции отчёта целиком без дублей — регрессия на то, что границей секции служит маркер, а не заголовок (тело ревью само начинается с `## 🤖 AI-ревью`) |
+| Полный цикл (slow) | `integration/test_code_review_flow.py` (94) | Настоящий `git diff day30..day31` (4344 строки, 35 файлов) через настоящий процесс `mcp_servers/dev_server/server.py`: инструменты `get_pr_diff` и `get_changed_files` отдают данные, diff обрезается до 2000 строк (предупреждение с именами пропущенных файлов), файл дня 31 попадает в `changed_files`, а в источниках есть документация корпуса; отдельно — `CodeReviewError`, когда MCP не поднимается |
 
 ## Что изменилось относительно дня 20
 
-Новые модули дней 21–31 перечислены выше. Здесь — только правки **унаследованного** кода
+Новые модули дней 21–32 перечислены выше. Здесь — только правки **унаследованного** кода
 (проверены сравнением с `day20/`; в скобках — было → стало строк); правки дня 26 в уже
 изменённых файлах (`rag_llm`, `rag_service`, `mini_chat_service`, `frontend/*`, `mini_chat/*`)
 описаны в таблице «Локальная LLM как второй провайдер», правки дня 28 (`rag_service.py`,
@@ -757,7 +812,11 @@ singleton протекал бы между тестами вместе с фаб
 `.env.example`) — в таблице «Удалённая LLM», а правки дня 31 (`domain/rag_corpus_spec.py`,
 `core/dependencies.py`, `services/__init__.py`, `api/main.py`, `api/__init__.py`,
 `api/lifespan.py`, `api/agents.py`, `frontend/chat_section.py`, `app.py`, `README.md`,
-`STRUCTURE.md`, `docs/*`) — в таблице «Ассистент разработчика»:
+`STRUCTURE.md`, `docs/*`) — в таблице «Ассистент разработчика», а правки дня 32
+(`core/dependencies.py`, `api/main.py`, `api/__init__.py`, `api/lifespan.py`,
+`api/agents.py`, `services/__init__.py`, `api/dev_assistant.py`,
+`domain/dev_assistant.py`, `mcp_servers/dev_server/*`, `README.md`, `STRUCTURE.md`,
+`docs/*`) — в таблице «AI-ревью PR»:
 
 | Модуль | Строк | Что изменилось |
 |---|---|---|
@@ -765,14 +824,14 @@ singleton протекал бы между тестами вместе с фаб
 | `backend/agents/agent_manager.py` | 110 (105) | Параметры `indexing_service` и `llm_client`/`prompt_builder` — службы передаются агентам |
 | `backend/agents/manager_agents.py` | 257 (255) | Передача новых служб в обоих местах создания `Agent` |
 | `backend/core/config.py` | 399 (291) | Два новых раздела дня 21: «Индексация документов и поиск» (каталоги, модель эмбеддингов, чанкинг, границы топ-k, длины полей) и «Оптимизация затрат на LLM» (`MODEL_PRICES`, `LLM_CACHE_INPUT_RATIO`, типы задач и маршрутизация `LLM_TASK_MODELS`, пределы ответа `LLM_TASK_MAX_TOKENS`, `OFF_PEAK_WEEKDAY_HOURS_UTC`/`PEAK_WEEKDAY_HOURS_UTC`); заголовок и описание API дня 24 — «ОБЯЗАТЕЛЬНЫЕ ИСТОЧНИКИ, ЦИТАТЫ И РЕЖИМ «НЕ ЗНАЮ»», счётчик `/rag/... (6)`, `API_VERSION = "17.0.0"`. День 26 отдал чтение `.env` (`ENV_FILE`, `read_env_value`, `resolve_api_key`) в `backend/core/env_file.py` и добавил раздел «Локальная LLM»: `LLM_PROVIDER_DEFAULT`, `LOCAL_LLM_MODEL_DEFAULT`, `LOCAL_LLM_URL_DEFAULT`, `LLM_PROVIDER`, `LOCAL_LLM_MODEL`, `LOCAL_LLM_URL`, `LOCAL_LLM_TIMEOUT`, `LOCAL_LLM_DEMO_MAX_TOKENS`; день 29 расширил его настройками профиля локальной модели (см. таблицу «Оптимизация локальной LLM»), а день 30 **вынес весь раздел провайдеров ответа в `backend/core/llm_settings.py`** (файл упёрся в лимит 400 строк, как раньше `env_file.py`) и оставил нижним блоком импорта только реэкспорт — поэтому `config.LLM_PROVIDER`, `config.LOCAL_LLM_*` и `config.REMOTE_LLM_*` читаются как прежде |
-| `backend/core/dependencies.py` | 234 (115) | `get_indexing_service`, `get_index_service`, `get_embedding_service`, `get_prompt_builder`, `get_llm_client`, `get_rag_service`, `get_rerank_service`, `get_mini_chat_service`, `get_dev_assistant_service` (день 31: ассистент разработчика) |
-| `backend/api/main.py` | 72 (66) | Подключены роутеры `indexing`, `llm`, `rag`, `mini_chat` и (день 30) `remote_llm`, (день 31) `dev_assistant` и точки подмены служб индексации, клиента LLM, службы RAG, реранкера, мини-чата и ассистента. День 31 заменил 16 строк `include_router` циклом по кортежу роутеров: места стало больше, и лимит 80 строк перестал быть узким (было ровно 80) |
-| `backend/api/__init__.py` | 79 (56) | Реэкспорт роутеров `indexing`, `llm`, `rag`, `mini_chat`, `remote_llm` и `dev_assistant`; контракт ошибок дня (409 на пустой индекс, 400 на стратегию/запрос/документы, неизвестный период расходов, пустой вопрос RAG, неизвестный режим отбора, пустой адрес удалённой модели и незнакомый шаг её демо, пустой вопрос ассистента и незнакомый его провайдер, 422 на порог вне 0…1 и пул вне 1…60, 502 на сбой LLM-вызова RAG; у мини-чата — 404 на неизвестную сессию и 400 на пустое сообщение) |
-| `backend/api/lifespan.py` | 92 (60) | Пятый и шестой шаги старта — `get_index_service().load_all()` и прогрев моделей демон-потоком `model-warmup` (эмбеддинги, затем реранкер); остановка пишет индексы (`save_all`) и закрывает соединение ассистента с сервером `dev_server` (день 31) |
-| `backend/api/agents.py` | 377 (314) | В инвентаре `GET /` — группы `indexing` (9), `llm` (8, включая `GET /llm/provider`, `POST /llm/local-demo` дня 26 и `POST /llm/tune` дня 29), `remote_llm` (3 эндпоинта дня 30), `rag` (7, включая `POST /rag/compare_modes`, эндпоинты демо `GET /rag/demo-questions`/`POST /rag/demo-run` и `POST /rag/compare_providers` дня 28), `mini_chat` (5) и `dev_assistant` (3 эндпоинта дня 31), имя приложения дня 24 и 120 записей в списке эндпоинтов |
+| `backend/core/dependencies.py` | 241 (115) | `get_indexing_service`, `get_index_service`, `get_embedding_service`, `get_prompt_builder`, `get_llm_client`, `get_rag_service`, `get_rerank_service`, `get_mini_chat_service`, `get_dev_assistant_service` (день 31: ассистент разработчика) и `get_code_review_service` (день 32: служба AI-ревью PR) |
+| `backend/api/main.py` | 76 (66) | Подключены роутеры `indexing`, `llm`, `rag`, `mini_chat` и (день 30) `remote_llm`, (день 31) `dev_assistant`, (день 32) `code_review` и точки подмены служб индексации, клиента LLM, службы RAG, реранкера, мини-чата, ассистента и ревью. День 31 заменил 16 строк `include_router` циклом по кортежу роутеров: места стало больше, и лимит 80 строк перестал быть узким (было ровно 80) |
+| `backend/api/__init__.py` | 82 (56) | Реэкспорт роутеров `indexing`, `llm`, `rag`, `mini_chat`, `remote_llm`, `dev_assistant` и `code_review` (день 32); контракт ошибок дня (409 на пустой индекс, 400 на стратегию/запрос/документы, неизвестный период расходов, пустой вопрос RAG, неизвестный режим отбора, пустой адрес удалённой модели и незнакомый шаг её демо, пустой вопрос ассистента и незнакомый его провайдер, отсутствие diff-а и ref-ов в ревью PR, 422 на порог вне 0…1 и пул вне 1…60, 502 на сбой LLM-вызова RAG и на недоступный MCP без diff-а; у мини-чата — 404 на неизвестную сессию и 400 на пустое сообщение) |
+| `backend/api/lifespan.py` | 94 (60) | Пятый и шестой шаги старта — `get_index_service().load_all()` и прогрев моделей демон-потоком `model-warmup` (эмбеддинги, затем реранкер); остановка пишет индексы (`save_all`) и закрывает соединение ассистента с сервером `dev_server` (день 31), а затем такое же соединение службы ревью (день 32) |
+| `backend/api/agents.py` | 381 (314) | В инвентаре `GET /` — группы `indexing` (9), `llm` (8, включая `GET /llm/provider`, `POST /llm/local-demo` дня 26 и `POST /llm/tune` дня 29), `remote_llm` (3 эндпоинта дня 30), `rag` (7, включая `POST /rag/compare_modes`, эндпоинты демо `GET /rag/demo-questions`/`POST /rag/demo-run` и `POST /rag/compare_providers` дня 28), `mini_chat` (5), `dev_assistant` (3 эндпоинта дня 31) и `code_review` (2 эндпоинта дня 32), имя приложения дня 24 и 122 записи в списке эндпоинтов |
 | `backend/api/scheduler.py` | 361 (355) | Описание флага `prefer_off_peak` и полей `off_peak`/`next_off_peak`/`discount_percent` в ответе `GET /scheduler/status` |
 | `backend/domain/__init__.py` | 399 (395) | Импорт модулей индексации, стоимости, непика, RAG и настройки локальной модели (`local_tuning`, `local_tuning_eval`) как модулей; исторические абзацы докстринга сжаты, чтобы файл остался в лимите. День 30 добавил в тот же список `remote_demo` (сценарий пяти шагов демо) — строка та же, поэтому файл остался на 399 |
-| `backend/services/__init__.py` | 287 (165) | Реэкспорт чанкера, эмбеддингов, индекса, загрузчика документов, службы индексации и её кодов отказа, `LLMClient`/`get_llm_client`, `PromptCompressor`, `shift_to_off_peak`, `RagCorpusLoader`/`get_rag_corpus_loader`, `RAGService`/`get_rag_service`, ошибок RAG, модулей дня 23 (`rag_errors`, `rag_corpus_index`, `rag_llm`, `rag_records`, `rag_retrieval`, `rerank_service`), мини-чата (`mini_chat_service`, `mini_chat_memory`, `MiniChatService`, `MiniChatSessionError`, `get_mini_chat_service`, `make_mini_chat_client`, `MINI_CHAT_AGENT_ID`), модулей дня 29 (`local_llm_resources`, `local_tuning_service`) и модулей дня 30 (`remote_llm_client`, `remote_llm_service`) |
+| `backend/services/__init__.py` | 297 (165) | Реэкспорт чанкера, эмбеддингов, индекса, загрузчика документов, службы индексации и её кодов отказа, `LLMClient`/`get_llm_client`, `PromptCompressor`, `shift_to_off_peak`, `RagCorpusLoader`/`get_rag_corpus_loader`, `RAGService`/`get_rag_service`, ошибок RAG, модулей дня 23 (`rag_errors`, `rag_corpus_index`, `rag_llm`, `rag_records`, `rag_retrieval`, `rerank_service`), мини-чата (`mini_chat_service`, `mini_chat_memory`, `MiniChatService`, `MiniChatSessionError`, `get_mini_chat_service`, `make_mini_chat_client`, `MINI_CHAT_AGENT_ID`), модулей дня 29 (`local_llm_resources`, `local_tuning_service`), дня 30 (`remote_llm_client`, `remote_llm_service`) и `code_review_service` дня 32 |
 | `backend/services/compressor.py` | 330 (329) | Вызов LLM идёт с `task_type=config.LLM_TASK_SUMMARY` — работа сжатия контекста попадает под маршрутизацию моделей и журнал |
 | `backend/services/invariant_checker.py` | 305 (296) | `task_type=config.LLM_TASK_CLASSIFY` при вызове модели и текст ошибки про `day21/.env` |
 | `backend/services/orchestration_planner.py` | 98 (94) | Клиент вызова — `LLMClient` (`call` с `task_type`), фабрика вынесена в свойство |
@@ -789,7 +848,7 @@ singleton протекал бы между тестами вместе с фаб
 | `frontend/sidebar.py`, `mini_chat/panels.py` | 205, 227 | Переключатель провайдера в обоих местах берёт `llm_provider.PICKER_PROVIDERS` (`deepseek`, `local`), а не `PROVIDERS`: у удалённой модели свой раздел, и адрес туннеля живёт часами — в общем списке она была бы третьим, часто нерабочим пунктом; подпись боковой панели упоминает новую вкладку |
 | `tests/conftest.py` | 286 (228) | Общие фикстуры (`schema_template`, `no_real_network`); фикстуры индексации, RAG (включая стаб-реранкер) и мини-чата вынесены в `fixtures_indexing.py`, `fixtures_rag.py` и `fixtures_mini_chat.py` и импортируются обратно; autouse-запрет сети пропускает тесты с маркером `remote` (сквозной прогон по туннелю дня 30) |
 | `app.py` | 100 (67) | Заголовок страницы и описание семнадцати разделов дня 31 (лимит — 100 строк: перечень модулей `frontend/` собран плотнее, чтобы новый раздел влез без превышения) |
-| `README.md`, `STRUCTURE.md`, `docs/architecture.md`, `docs/usage.md`, `docs/api.md` | 1096, 940, 1439, 1089, 7166 | Документация дня описывает текущее состояние (дни 21–31): `README` — задание дня 31 (ассистент разработчика: `/help` по документации и состоянию репозитория через свой MCP-сервер), `architecture` — устройство подсистем, включая «Ассистент разработчика — день 31» (поток данных, тип вопроса как правило домена, свой клиент MCP, документация в таблице источников корпуса), `usage` — раздел 13 о запуске (пересборка индекса, проба сервера, раздел интерфейса, скрипты с флагами, эндпоинты, тесты), `api` — три эндпоинта `/dev-assistant/*` в таблице и в примере `GET /`; `STRUCTURE` — раскладка и модули дня |
+| `README.md`, `STRUCTURE.md`, `docs/architecture.md`, `docs/usage.md`, `docs/api.md` | 1171, 1014, 1542, 1277, 7266 | Документация дня описывает текущее состояние (дни 21–32): `README` — задание дня 32 (автоматическое AI-ревью PR: скрипт, GitHub Action, отчёт), `architecture` — устройство подсистем, включая «AI-ревью кода — день 32» (поток данных, предел diff-а, предупреждения вместо ошибок, JSON-контракт, self-hosted раннер), `usage` — раздел 14 о запуске (локальный прогон и файл diff-а, флаги скриптов, эндпоинты, требования Action, отчёт, тесты и ограничения), `api` — два эндпоинта `/review/*` в таблице, в примере `GET /` и в разделе «AI-ревью кода (день 32)»; `STRUCTURE` — раскладка и модули дня |
 | `pyproject.toml` | 30 (24) | Имя `day21` и описание дня; добавлены `sentence-transformers`, `faiss-cpu`, `numpy` |
 | `.env.example` | 72 (15) | `DAY21_BACKEND_URL` вместо `DAY20_BACKEND_URL`, добавлены `DAY21_EMBEDDING_MODEL`, закомментированный `RAG_RERANK_MODEL`, порог дня 24 `RAG_RELEVANCE_THRESHOLD=0.6`, модель и адрес локальной LLM (день 26), профиль её настройки (день 29: `LOCAL_LLM_PROFILE`, `LOCAL_LLM_TEMPERATURE`, `LOCAL_LLM_NUM_CTX`, `LOCAL_LLM_CHAT_MAX_TOKENS`) и раздел удалённой LLM (день 30: `REMOTE_LLM_URL`, `REMOTE_LLM_MODEL`, `REMOTE_LLM_API_KEY`, `REMOTE_LLM_RATE_LIMIT`, `REMOTE_LLM_MAX_CONTEXT`) |
 | `pytest.ini` | — | Комментарий про день 21; зарегистрированы маркеры `slow` и `remote` (второй снимает autouse-запрет сети у сквозного прогона по туннелю дня 30) |
@@ -852,7 +911,7 @@ singleton протекал бы между тестами вместе с фаб
 | `frontend/common.py` | 400 | 400 | Ровно на границе, поэтому дни 20 и 21 его не правили: подписи разделов живут в `orchestration_*.py`, `indexing_*.py` и `cost_section.py` |
 | `backend/core/config.py` | 399 | 400 | Долго стоял ровно на границе (разделы дней 11–21); день 30 вынес настройки провайдеров ответа в `backend/core/llm_settings.py` — тот же приём, что раньше с `env_file.py`, — и файл отошёл от предела на строку |
 | `backend/domain/__init__.py` | 399 | 400 | Модули планировщика, пайплайна, оркестрации, индексации, стоимости, непика, RAG, настройки локальной модели и демо удалённой LLM импортируются как модули (`from . import …`), а не реэкспортируются именами: иначе список имён слоя вышел бы за лимит. `remote_demo` дня 30 добавлен в уже существующую строку — файл остался на 399 |
-| `GET /` — счётчик эндпоинтов | 117 записей / 98 путей | — | Инвентарь `endpoints` перечисляет эндпоинты по методу (117 записей, включая семь `/rag/*`, пять `/mini-chat/*` и одиннадцать `/llm/*`), тогда как OpenAPI группирует их по пути — уникальных путей 98. Расхождение не ошибка, а разная форма счёта |
+| `GET /` — счётчик эндпоинтов | 123 записи / 104 пути | — | Инвентарь `endpoints` перечисляет эндпоинты по методу (123 записи, включая семь `/rag/*`, пять `/mini-chat/*`, одиннадцать `/llm/*`, три `/dev-assistant/*` и два `/review/*`), тогда как OpenAPI группирует их по пути — уникальных путей 104. Расхождение не ошибка, а разная форма счёта |
 | `backend/services/mcp_client.py` | 398 | 400 | Клиент запускает свой daemon-поток с циклом событий и долгоживущую задачу сессии (контексты MCP SDK обязаны входить и выходить в одной задаче anyio); цикл событий и адаптеры SDK вынесены в `mcp_loop.py` и `mcp_transport.py` |
 | `.agents/skills/**` | 416–449 | — | Вендорные скиллы сторонних пакетов (`uvx library-skills --copy`): в трёх шаблонах Streamlit-приложений больше 400 строк. Это код библиотеки, а не дня |
 | `chunk_id` не уникален | — | — | Повторный прогон по тем же документам ДОПИСЫВАЕТ индекс и таблицу (числа растут — это видно в статистике и истории запусков). Уникальный `chunk_id` превратил бы кнопку демо-прогона в одноразовую: второй клик падал бы на ограничении вместо того, чтобы либо дописать, либо честно попросить очистку. Переиндексация с нуля — явная кнопка «🧹 Очистить обе стратегии» |
@@ -880,10 +939,9 @@ python -c "from pathlib import Path; print([(str(p), len(p.read_text(encoding='u
 
 Превышения — только у трёх шаблонов Streamlit внутри вендорного `.agents/skills/`
 (код библиотеки, а не дня) и у давно известного `backend/agents/agent.py`
-(2284 строки); код дня 30 в лимит укладывается.
+(2284 строки); код дня 32 в лимит укладывается.
 
-`app.py` (98 ≤ 100) и `backend/api/main.py` (80 ≤ 80 — ровно на пределе, поэтому
-раздел дня 30 живёт в своём роутере) в лимитах; день 30 снял с границы
+`app.py` (100 ≤ 100) и `backend/api/main.py` (76 ≤ 80) в лимитах; день 30 снял с границы
 `backend/core/config.py` (399: настройки провайдеров ответа уехали в
 `backend/core/llm_settings.py`, 96) и увёл вглубь `frontend/chat_section.py` (399
 после сжатия докстринга), `frontend/common.py` остался на 400, а
@@ -952,6 +1010,23 @@ python -c "from pathlib import Path; print([(str(p), len(p.read_text(encoding='u
 реэкспортировать через `backend/schemas/__init__.py` (395, на пределе): роутер
 импортирует их из `backend/schemas/dev_assistant.py` (105) напрямую — тот же приём, что
 у схем дня 30.
+
+День 32 удержал лимит разделением обязанностей и двумя выносами. Во-первых, домен
+ревью разложен на два модуля: `backend/domain/code_review.py` (347 — контракт, разбор
+ответа, приоритеты, обрезка diff-а, контекст промпта) и
+`backend/domain/code_review_report.py` (148 — markdown комментария и секции отчёта):
+вместе они не влезли бы в 400 строк, а читатели у них разные — правила разбора нужны
+службе, разметка только скриптам. Во-вторых, разметка отчёта получила маркер секции
+(`SECTION_MARKER`), и это же решение сняло дефект: границей секции раньше служил
+следующий заголовок `##`, а тело ревью само начинается с `## 🤖 AI-ревью`, поэтому
+повторный прогон оставлял старое тело под новым — теперь секции заменяются целиком
+(регрессия закреплена тестом `unit/test_code_review_report.py`). Самые длинные новые
+файлы дня: `backend/services/code_review_service.py` (399 — ровно на пределе, поэтому
+обрезка diff-а и разметка живут в домене), `mcp_servers/dev_server/tools.py` (306:
+шесть инструментов и валидатор ref-а), `scripts/run_local_pr_review.py` (157),
+`backend/schemas/code_review.py` (126), `backend/api/code_review.py` (77). Схемы дня,
+как и у дней 30–31, НЕ реэкспортируются через `backend/schemas/__init__.py` (395, на
+пределе): роутер импортирует их из `backend/schemas/code_review.py` напрямую.
 
 Каталог `.agents/` в выводе не случаен: в этой копии скиллы библиотек скопированы
 (а не слинкованы), и три шаблона Streamlit внутри скилла `developing-with-streamlit`

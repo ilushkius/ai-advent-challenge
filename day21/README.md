@@ -1,4 +1,55 @@
-# День 31 — ассистент разработчика: `/help` по документации проекта и git-контекст через MCP
+# День 32 — автоматическое AI-ревью PR: diff и контекст корпуса, структурированное ревью и GitHub Action
+
+Задание дня — **настроить пайплайн ревью кода**: ассистент получает diff нового PR,
+подтягивает RAG-контекст (документация проекта и код изменённых файлов), зовёт LLM и
+выдаёт структурированное ревью — баги с файлом и строкой, архитектурные проблемы,
+рекомендации и риски с приоритетами `P0`–`P3`. Тот же пайплайн работает локальным
+скриптом (печатает ревью и пишет отчёт) и в GitHub Action (публикует ревью
+комментарием в PR).
+
+Поток данных: `GitHub Action → POST /review/pr → CodeReviewService → [MCP get_pr_diff /
+get_changed_files + RAG документации и кода] → DeepSeek → комментарий в PR`; локально
+то же самое, только diff приходит из `git diff base..head`, а результат ложится секцией
+отчёта `docs/reports/code_review_demo.md`.
+
+* **один запрос — весь путь ревью** — `backend/services/code_review_service.py`:
+  diff берётся из запроса или через MCP, список файлов — из запроса, MCP или самого
+  diff-а, контекст собирается двумя поисками по корпусу дня 22 (документация проекта и
+  код изменённых файлов), diff режется до 2000 строк, а ответ модели разбирается по
+  JSON-контракту в структуру находок.
+* **два новых инструмента MCP** — `mcp_servers/dev_server/tools.py`:
+  `get_pr_diff(base, head)` возвращает `git diff base..head`, `get_changed_files(base,
+  head)` — имена изменённых файлов; ref-ы проверяются (аргумент, начинающийся с `-`,
+  был бы опцией git). Теперь у dev-сервера **шесть** инструментов, у ассистента дня 31
+  каталог в панели вырос вместе с ними.
+* **приоритеты и разбор — домен** — `backend/domain/code_review.py`: контракт JSON,
+  приведение приоритетов к `P0`–`P3`, сортировка рисков, обрезка diff-а, запрос к
+  индексу из путей и добавленных строк, а разметка отчёта и комментария PR — в
+  `backend/domain/code_review_report.py` (секции отчёта помечены маркером
+  `<!-- section: … -->`, поэтому повторный прогон заменяет свою секцию, а не копит дубли).
+* **отказ — это данные** — нет индекса корпуса или файла в нём, модели не ответила,
+  ответ не разобрался: ревью всё равно приходит, а причина видна в `warnings[]`. `400`
+  — нечего анализировать (нет ни diff-а, ни пары ref-ов), `502` — MCP-сервер не
+  поднялся, и diff не добыть.
+* **локальный прогон и отчёт** — `uv run python scripts/run_local_pr_review.py --base
+  day30 --head day31` (флаги `--diff-file`, `--changed-files`, `--pr-label`,
+  `--section-title`, `--report`, `--no-report`, `--top-k`, `--provider`); в отчёте
+  [docs/reports/code_review_demo.md](docs/reports/code_review_demo.md) два примера —
+  реальный diff `day30..day31` и синтетический PR
+  ([docs/reports/synthetic_pr.diff](docs/reports/synthetic_pr.diff)) с заложенными
+  проблемами: SQL-инъекция через f-строку, незакрытая сессия, обращение к базе мимо
+  слоя хранилища и проглоченное исключение.
+* **публикация комментария** — `scripts/gh_review_comment.py` (`--pr`, `--repo`,
+  `--input`, `--dry-run`) собирает markdown из ответа `POST /review/pr` и публикует его
+  через `gh pr comment`; Action [`.github/workflows/ai-review.yml`](../.github/workflows/ai-review.yml)
+  делает это на события `opened`/`synchronize`/`reopened` (self-hosted раннер, секрет
+  `DEEPSEEK_API_KEY`, переменные `REVIEW_ENDPOINT` и `REVIEW_PROVIDER`).
+
+Инструкция — раздел 14 в [docs/usage.md](docs/usage.md); устройство и поток данных —
+раздел «AI-ревью кода — день 32» в [docs/architecture.md](docs/architecture.md);
+контракт эндпоинтов — [docs/api.md](docs/api.md).
+
+## День 31 — ассистент разработчика: `/help` по документации проекта и git-контекст через MCP
 
 Задание дня — **сделать ассистента, который понимает проект**: отвечает по документации
 (тот же корпус RAG дня 22, дополненный документами репозитория) и по состоянию
@@ -20,11 +71,12 @@
   и уходит модели тем же путём, что RAG и мини-чат (`rag_llm`).
 * **`mcp_servers/dev_server`** — четвёртый MCP-сервер проекта, и единственный, который
   работает **вне флота дня 20** (`mcp_servers.json` не меняется): служба поднимает его
-  своим клиентом по stdio и закрывает при остановке бэкенда. Четыре инструмента:
+  своим клиентом по stdio и закрывает при остановке бэкенда. Шесть инструментов:
   `get_git_branch` (ветка, коммит, изменённые файлы, признак чистого дерева),
   `list_files` (файлы каталога с фильтром расширения), `get_git_diff` (последние N строк
-  diff рабочего дерева и индекса) и `get_project_structure` (дерево папки `day21/` с
-  числом каталогов и файлов). Проверка без модели:
+  diff рабочего дерева и индекса), `get_project_structure` (дерево папки `day21/` с
+  числом каталогов и файлов), а с дня 32 — `get_pr_diff` и `get_changed_files` (diff двух
+  ref-ов и список изменённых файлов для AI-ревью PR). Проверка без модели:
   `uv run python scripts/dev_mcp_probe.py --tool get_git_branch`.
 * **тип вопроса решает, что подтягивать** — `backend/domain/dev_assistant.py`:
   `docs` (только документация), `git` (только репозиторий) и `mixed` (оба), плюс план
@@ -970,7 +1022,8 @@ autouse-фикстурами (`isolated_indexing`, `offline_planner`, `no_real_f
 | Оптимизация локальной LLM | `unit/test_local_tuning.py`, `unit/test_local_tuning_service.py`, `unit/test_local_llm_client.py`, `unit/test_llm_factory.py`, `e2e/test_llm_api.py` | Профили и разрешение окружения, вердикты строки дня 24, сводка варианта (время только по строкам `rag`) и ранжирование пар; прогон на заглушке (параметры доходят до вызова, строка-ошибка, `LocalLLMError` при полном отказе Ollama, незнакомый профиль); окно контекста в `options` только при явном значении, `tokens_per_second`/`load_ms` из ответа Ollama и их запасной расчёт; профиль в фабрике клиента; HTTP-контракт `POST /llm/tune` (200, 400, 502) и новые поля `GET /llm/provider` |
 | Локальный RAG | `integration/test_local_rag_flow.py` (slow) | Полный локальный цикл на настоящих весах: реальный FAISS-индекс дня 22 с диска, настоящая модель эмбеддингов и настоящая Ollama; ответ по корпусу с источниками и цитатами, режим `dont_know` без вызова модели; пропускается, если Ollama или индекс недоступны |
 | Удалённая LLM | `unit/test_remote_llm_client.py`, `integration/test_remote_llm_flow.py` (slow) | Форма запроса: адрес `{base_url}/chat/completions`, заголовок `Authorization`, `stream=false`, `temperature`/`top_p`/`max_tokens` и `options.num_ctx`; системное сообщение отдельно от контекста; счётчик частоты — N запросов проходят, N+1 отклонён со статусом 429, окно сдвигается по часам; `GET /models` не тратит лимит; понятные тексты отказов (пустой адрес, недоступный туннель, 429 сервиса, не-JSON, пустой ответ); полный цикл пяти шагов по настоящему туннелю с проверкой сводки — пропускается, если адреса нет (`DAY21_REMOTE_LLM_URL` или `REMOTE_LLM_URL` в `.env`) |
-| Ассистент разработчика | `tests/dev_assistant_fakes.py`, `unit/test_dev_assistant_service.py`, `unit/test_dev_assistant_panels.py`, `integration/test_dev_assistant_flow.py` (slow) | Тип вопроса (`docs`/`git`/`mixed`) и план инструментов; ответ по документации с источниками и текстом фрагмента в промпте; вызов `get_git_branch` и git-данные в контексте; запись ошибки инструмента и недоступного сервера без потери ответа; пустой индекс и пустой вопрос; каталог из четырёх инструментов со схемами; соединение со stdio-сервером поднимается один раз и закрывается; интеграционно — настоящий корпус (41 источник) и настоящий процесс `dev_server` |
+| Ассистент разработчика | `tests/dev_assistant_fakes.py`, `unit/test_dev_assistant_service.py`, `unit/test_dev_assistant_panels.py`, `integration/test_dev_assistant_flow.py` (slow) | Тип вопроса (`docs`/`git`/`mixed`) и план инструментов; ответ по документации с источниками и текстом фрагмента в промпте; вызов `get_git_branch` и git-данные в контексте; запись ошибки инструмента и недоступного сервера без потери ответа; пустой индекс и пустой вопрос; каталог из шести инструментов со схемами; соединение со stdio-сервером поднимается один раз и закрывается; интеграционно — настоящий корпус (41 источник) и настоящий процесс `dev_server` |
+| AI-ревью PR (день 32) | `tests/code_review_fakes.py`, `unit/test_code_review_service.py`, `unit/test_code_review_report.py`, `integration/test_code_review_flow.py` (slow) | Структура ревью из ответа модели: баги с файлом и строкой, архитектурные проблемы с рекомендацией, рекомендации и риски в порядке `P0`–`P3`; diff и список файлов из payload и через MCP; предупреждения (обрезка diff-а, пустой индекс, файл вне корпуса, не-JSON) и честный текст при недоступной модели; `400` без diff-а и ref-ов, `502` при неработающем MCP; запрос по пути файла, когда добавленные строки увели поиск; разметка отчёта и замена его секции без дублей; интеграционно — настоящий `git diff day30..day31` через настоящий `dev_server` (инструменты `get_pr_diff` и `get_changed_files`, обрезка до 2000 строк, документация корпуса в источниках) |
 
 Унаследованные наборы дней 11–20 (память, стратегии, профиль, задача и переходы,
 инварианты, MCP, планировщик, пайплайн, флот и оркестрация) остаются на месте.
@@ -990,7 +1043,8 @@ day21/
 │                             # rag_corpus_structural.index; index/models/ — кэш весов модели
 ├── mcp_servers.json          # конфигурация флота MCP-серверов + кэш каталогов tools_cache
 ├── mcp_servers/              # три независимых MCP-сервера дня 20 (search_server, data_server, storage_server)
-│                             # + dev_server (день 31: git, файлы и дерево дня для ассистента разработчика)
+│                             # + dev_server (день 31: git, файлы и дерево дня для ассистента разработчика;
+│                             # день 32: get_pr_diff и get_changed_files для AI-ревью PR)
 ├── mcp_server/               # собственный MCP-сервер дня (унаследован от дней 17–19)
 ├── frontend/                 # Streamlit UI по секциям (включая indexing_api.py, indexing_section.py,
 │                             # indexing_compare.py, indexing_search.py, cost_api.py, cost_section.py,
@@ -1000,33 +1054,35 @@ day21/
 ├── mini_chat/                # отдельное приложение дня 25 (Streamlit, порт 8502): app.py (точка входа),
 │                             # api.py (запросы /mini-chat/...), panels.py (боковая панель и ход диалога)
 ├── backend/
-│   ├── api/                  # FastAPI: роутеры по доменам (в том числе indexing.py, llm.py, remote_llm.py, rag.py, mini_chat.py и dev_assistant.py), main.py, lifespan.py
+│   ├── api/                  # FastAPI: роутеры по доменам (в том числе indexing.py, llm.py, remote_llm.py, rag.py, mini_chat.py, dev_assistant.py и code_review.py), main.py, lifespan.py
 │   ├── core/                 # config.py, llm_settings.py, env_file.py, prompt_builder.py, mcp_server_config.py, dependencies.py
 │   ├── domain/               # чистые правила: chunking, document_sources, index_metrics, index_scenarios,
 │   │                         # indexing_fsm, indexing_prompt, llm_cost, llm_provider, peak_hours,
 │   │                         # local_tuning, local_tuning_eval, remote_demo,
-│   │                         # rag_filter, rag_mode, rag_corpus_spec, rag_eval, dev_assistant + унаследованные домены
+│   │                         # rag_filter, rag_mode, rag_corpus_spec, rag_eval, dev_assistant, code_review,
+│   │                         # code_review_report + унаследованные домены
 │   ├── services/             # chunker, embedding_service, index_service, document_loader, index_runner,
 │   │                         # index_comparison, indexing_service, llm_client, prompt_compressor, off_peak,
 │   │                         # rag_corpus_loader, rag_corpus_index, rag_errors, rag_llm, rag_records,
 │   │                         # rag_retrieval, rag_service, rerank_service, mini_chat_service, mini_chat_memory,
 │   │                         # llm_factory, local_llm_client, local_llm_demo, local_llm_resources,
 │   │                         # local_tuning_service, remote_llm_client, remote_llm_service,
-│   │                         # dev_assistant_service + унаследованные
+│   │                         # dev_assistant_service, code_review_service + унаследованные
 │   ├── storage/              # database.py, chunk_store.py, index_run_store.py, index_rows.py, llm_usage_store.py,
 │   │                         # llm_usage_rows.py + унаследованные хранилища
 │   ├── agents/               # Agent (в generate — шаги поиска по индексу и метрики llm), MemoryManager, AgentManager
 │   ├── models/               # ORM: indexing.py (document_chunks, index_runs), llm_usage.py + унаследованные
-│   ├── schemas/              # Pydantic-схемы API (включая indexing.py, llm.py, remote_llm.py, rag.py, mini_chat.py, dev_assistant.py и local_tuning.py)
+│   ├── schemas/              # Pydantic-схемы API (включая indexing.py, llm.py, remote_llm.py, rag.py, mini_chat.py, dev_assistant.py, code_review.py и local_tuning.py)
 │   └── utils/                # своего кода нет: общий живёт в repo-level shared/
 ├── tests/                    # pytest: unit/, integration/, e2e/ + conftest.py и фейки (indexing_fakes.py, rag_fakes.py, …)
-├── docs/                     # architecture.md, api.md, usage.md, reports/ (indexing_demo.md, cost_optimization.md, rag_modes.md, rag_quotes_eval.md, local_llm_demo.md, local_rag_comparison.md, local_llm_optimization.md, remote_llm_service.md, dev_assistant_demo.md, context_optimization.md, test_optimization.md, …)
+├── docs/                     # architecture.md, api.md, usage.md, reports/ (indexing_demo.md, cost_optimization.md, rag_modes.md, rag_quotes_eval.md, local_llm_demo.md, local_rag_comparison.md, local_llm_optimization.md, remote_llm_service.md, dev_assistant_demo.md, code_review_demo.md + вход демо synthetic_pr.diff, context_optimization.md, test_optimization.md, …)
 ├── scripts/                  # прогоны демонстраций и сборка отчётов (indexing_demo.py, prepare_documents.py,
 │                             # indexing_scenarios.py, indexing_report.py, indexing_ui_shot.py, cost_optimization_report.py,
 │                             # prepare_rag_corpus.py, index_rag_corpus.py, reindex_with_docs.py, run_rag_eval.py,
 │                             # rag_eval_report.py, rag_eval_cells.py, demo_local_llm.py, run_local_rag_comparison.py,
 │                             # run_local_llm_optimization.py, local_tuning_report.py, demo_remote_llm.py,
-│                             # dev_mcp_probe.py, demo_dev_assistant.py, …)
+│                             # dev_mcp_probe.py, demo_dev_assistant.py, run_local_pr_review.py,
+│                             # gh_review_comment.py, …)
 ├── STRUCTURE.md              # карта модулей дня по слоям и лимит 400 строк
 ├── pyproject.toml, uv.lock   # зависимости (uv): sentence-transformers, sentencepiece, faiss-cpu, numpy, mcp, sqlalchemy…
 ├── pytest.ini, conftest.py   # конфигурация pytest (pythonpath = . tests)
@@ -1038,6 +1094,10 @@ day21/
                               # REMOTE_LLM_MAX_CONTEXT
 └── output/, agents.db        # каталог save_to_file и база бэкенда (оба в .gitignore)
 ```
+
+Рядом с папкой дня, в корне репозитория, лежит `.github/workflows/ai-review.yml` —
+GitHub Action дня 32: поднимает бэкенд на раннере, зовёт `POST /review/pr` и публикует
+ревью комментарием в PR.
 
 ## Ограничения
 
@@ -1094,3 +1154,18 @@ day21/
 - **Первый ответ удалённой модели включает загрузку весов в VRAM.** Предел ожидания
   одного запроса — 120 с (`REMOTE_LLM_TIMEOUT`), и прогрев смещает среднее время
   прогона вверх.
+- **Diff ревью обрезается до 2000 строк.** Это ~вдвое меньше реального PR дня 31
+  (4344 строки, 35 файлов): модель видит начало, а какие файлы не попали — печатает
+  предупреждение (`code_review.MAX_DIFF_LINES`).
+- **Файлы вне корпуса дают контекст только из diff-а.** В индексе 41 источник, и
+  модулей дней 26–32 среди них нет: по ним приходит предупреждение «В контексте нет
+  фрагментов файла …». Индекс дня 32 не пересобирается — это штатное поведение, а не
+  поломка (в разделе 14 `usage.md` — что делать, если файл в таблице источников есть).
+- **Ответ модели ограничен типом задачи `chat`.** Предел `config.LLM_MAX_RESPONSE_TOKENS`
+  = 1000 токенов, поэтому контракт ревью просит не больше 3 багов, 2 архитектурных
+  проблем, 2 рекомендаций и 3 рисков; длинный ответ обрывается на середине JSON, и
+  структура тогда не разбирается (в отчёте — предупреждение, а прогон повторяют).
+- **GitHub Action проверен локально, а не на живом раннере.** Workflow
+  [`.github/workflows/ai-review.yml`](../.github/workflows/ai-review.yml) разобран
+  парсером YAML, а его шаги продублированы локальной эмуляцией (тот же путь запроса
+  без `gh`): раннера с индексом корпуса и секретом DeepSeek у проекта нет.

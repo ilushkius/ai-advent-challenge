@@ -61,7 +61,12 @@ TOOL_GIT_BRANCH = "get_git_branch"
 TOOL_LIST_FILES = "list_files"
 TOOL_GIT_DIFF = "get_git_diff"
 TOOL_PROJECT_STRUCTURE = "get_project_structure"
-TOOLS = (TOOL_GIT_BRANCH, TOOL_LIST_FILES, TOOL_GIT_DIFF, TOOL_PROJECT_STRUCTURE)
+#: Инструменты PR (день 32): diff двух ref и список изменённых файлов. Их зовёт
+#: служба AI-ревью, а не план ``/help``, поэтому в ``plan_tools`` они не участвуют.
+TOOL_PR_DIFF = "get_pr_diff"
+TOOL_CHANGED_FILES = "get_changed_files"
+TOOLS = (TOOL_GIT_BRANCH, TOOL_LIST_FILES, TOOL_GIT_DIFF, TOOL_PROJECT_STRUCTURE,
+         TOOL_PR_DIFF, TOOL_CHANGED_FILES)
 
 #: Умолчания аргументов плана вызовов и поиска по документации.
 DEFAULT_TOP_K = 5
@@ -140,7 +145,8 @@ __all__ = ["AGENT_ID", "CONTEXT_DOCS_HEADER", "CONTEXT_GIT_HEADER",
            "FILE_LIST_WORDS", "GIT_WORDS", "KINDS", "KIND_DOCS", "KIND_GIT",
            "KIND_LABELS", "KIND_MIXED", "LLM_UNAVAILABLE_ANSWER",
            "OLLAMA_UNAVAILABLE_ANSWER", "STRUCTURE_WORDS", "SYSTEM_PROMPT",
-           "TOOLS", "TOOL_GIT_BRANCH", "TOOL_GIT_DIFF", "TOOL_LIST_FILES",
+           "TOOLS", "TOOL_CHANGED_FILES", "TOOL_GIT_BRANCH", "TOOL_GIT_DIFF",
+           "TOOL_LIST_FILES", "TOOL_PR_DIFF",
            "TOOL_PROJECT_STRUCTURE", "WARN_INDEX_EMPTY", "WARN_MCP_UNAVAILABLE",
            "WARN_TOOL_FAILED", "WARN_TOOL_TEXT_ONLY", "classify_question",
            "normalize_question", "plan_tools", "render_context", "verdict"]

@@ -3,7 +3,7 @@
 Сервер stateless: ему нечего настраивать аргументами командной строки. Корни
 зафиксированы (``config.REPO_ROOT`` для git, ``config.DAY_ROOT`` для дерева), а
 всё, что меняется от вызова к вызову, приходит аргументами инструмента. Поэтому
-здесь нет ни ``argparse``, ни конфигурации процесса — только регистрация четырёх
+здесь нет ни ``argparse``, ни конфигурации процесса — только регистрация шести
 функций ``tools.py`` и запуск по stdio.
 
 Регистрация внешних функций (``server.tool()(tools.get_git_branch)``), а не
@@ -41,6 +41,8 @@ server.tool()(tools.get_git_branch)
 server.tool()(tools.list_files)
 server.tool()(tools.get_git_diff)
 server.tool()(tools.get_project_structure)
+server.tool()(tools.get_pr_diff)
+server.tool()(tools.get_changed_files)
 
 
 def main(argv=None) -> int:

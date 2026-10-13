@@ -64,7 +64,7 @@ def ask_help(payload: DevAssistantHelpIn) -> DevAssistantAnswerOut:
     response_model=DevAssistantToolsOut,
     summary="Инструменты MCP-сервера разработки",
     description=(
-        "Каталог четырёх инструментов сервера ``mcp_servers/dev_server`` с их "
+        "Каталог шести инструментов сервера ``mcp_servers/dev_server`` с их "
         "схемами аргументов и результата. Пустой каталог с заполненным полем "
         "``error`` означает, что сервер не поднялся: раздел показывает причину."
     ),

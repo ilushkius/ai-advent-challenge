@@ -1,4 +1,4 @@
-# API дня 30 — агенты DeepSeek, индексация документов, RAG и оптимизация затрат на LLM: обязательные источники и цитаты, режим «не знаю» (порог релевантности), реранкер, порог отсечения, переформулировка запроса, мини-чат с памятью задачи, локальная LLM как второй провайдер ответа (Ollama по HTTP), прогон профилей её настройки и удалённая LLM (та же Ollama в Google Colab за туннелем Cloudflare — свой раздел интерфейса и демо из пяти шагов одной кнопкой), оркестрация флота MCP-серверов, декларативный пайплайн, планировщик фоновых задач, контролируемые переходы, инварианты, состояние задачи, память, профиль и журнал расходов
+# API дня 32 — агенты DeepSeek, индексация документов, RAG и оптимизация затрат на LLM: обязательные источники и цитаты, режим «не знаю» (порог релевантности), реранкер, порог отсечения, переформулировка запроса, мини-чат с памятью задачи, локальная LLM как второй провайдер ответа (Ollama по HTTP), прогон профилей её настройки, удалённая LLM (та же Ollama в Google Colab за туннелем Cloudflare — свой раздел интерфейса и демо из пяти шагов одной кнопкой), ассистент разработчика по документации и git-контексту и автоматическое AI-ревью PR (diff, контекст корпуса и структурированное ревью), оркестрация флота MCP-серверов, декларативный пайплайн, планировщик фоновых задач, контролируемые переходы, инварианты, состояние задачи, память, профиль и журнал расходов
 
 Бэкенд — FastAPI-приложение `day21/backend/api/main.py`. Заголовок приложения
 намеренно остаётся «Агенты DeepSeek + индексация документов и RAG — День 24»
@@ -148,7 +148,7 @@ LLM, прогноз экономии и поле `llm` генерации),
 
 ## Эндпоинты
 
-Всего 117 записей эндпоинтов (в списке `GET /` — все, кроме самой подсказки): 10 в
+Всего 123 записи эндпоинтов (в списке `GET /` — все, кроме самой подсказки): 10 в
 разделе агентов (CRUD, генерация и статистика), 9 контекста (сжатие, стратегии,
 ветки, факты), 10 памяти, 6 профилей пользователей, 11 состояния задачи, 6
 инвариантов, 5 MCP активного соединения, 3 флота MCP-серверов, 14 планировщика, 5
@@ -158,10 +158,10 @@ LLM, прогноз экономии и поле `llm` генерации),
 проверка связи с ней и шаг её демо),
 7 RAG (поиск по
 корпусу, режим без RAG, сравнение, сравнение режимов отбора, вопросы демо, прогон
-демо и сравнение провайдеров) и 5 мини-чата (сессия, реплика, память задачи, история
-реплик и закрытие
-сессии). Вместе с корневым
-`GET /` приложение объявляет 117 эндпоинтов, а уникальных путей в OpenAPI — 98:
+демо и сравнение провайдеров), 5 мини-чата (сессия, реплика, память задачи, история
+реплик и закрытие сессии), 3 ассистента разработчика и 2 ревью кода (запрос ревью
+diff-а и проверка доступности службы). Вместе с корневым
+`GET /` приложение объявляет 123 эндпоинта, а уникальных путей в OpenAPI — 104:
 FastAPI сводит методы одного пути
 (`GET`/`POST`/`DELETE /orchestration/runs/{run_id}` — это три записи одного пути) в
 одну запись схемы.
@@ -173,8 +173,9 @@ FastAPI сводит методы одного пути
 [«Пайплайн»](#пайплайн), [«Оркестрация»](#оркестрация),
 [«Индексация документов»](#индексация-документов),
 [«RAG-режим»](#rag-режим), [«Расходы на LLM»](#расходы-на-llm),
-[«Мини-чат с RAG и памятью задачи»](#мини-чат-с-rag-и-памятью-задачи-день-25) и
-[«MCP-серверы»](#mcp-серверы).
+[«Мини-чат с RAG и памятью задачи»](#мини-чат-с-rag-и-памятью-задачи-день-25),
+[«MCP-серверы»](#mcp-серверы) и
+[«AI-ревью кода»](#ai-ревью-кода-день-32).
 
 | Метод | Путь | Назначение | Успех |
 |---|---|---|---|
@@ -296,8 +297,10 @@ FastAPI сводит методы одного пути
 | GET | `/mini-chat/sessions/{session_id}/history` | реплики сессии в порядке добавления (необязательный `limit`) | 200 MiniChatHistoryOut |
 | DELETE | `/mini-chat/sessions/{session_id}` | закрыть сессию: удалить реплики (идемпотентно); память задачи остаётся | 200 MiniChatCloseOut |
 | POST | `/dev-assistant/help` | ответ ассистента разработчика: документация проекта (фрагменты корпуса RAG) плюс контекст git через свой MCP-сервер `dev_server`; `question` (ведущий `/help` снимается), `provider` (`deepseek`/`local`); ответ несёт `question_type` (`docs`/`git`/`mixed`), `sources`, `mcp_tools_used` и `warnings` (400 — пустой вопрос или незнакомый провайдер; 502 — ни одного блока контекста собрать не удалось) | 200 DevAssistantAnswerOut |
-| GET | `/dev-assistant/tools` | каталог четырёх инструментов сервера разработки со схемами: признак соединения, число инструментов, причина отказа в поле `error` (всегда 200) | 200 DevAssistantToolsOut |
+| GET | `/dev-assistant/tools` | каталог шести инструментов сервера разработки со схемами: признак соединения, число инструментов, причина отказа в поле `error` (всегда 200) | 200 DevAssistantToolsOut |
 | GET | `/dev-assistant/git-context` | ветка, последний коммит и изменённые файлы по инструменту `get_git_branch` (недоступный сервер — пустые поля и причина в `error`, всегда 200) | 200 DevAssistantGitContextOut |
+| POST | `/review/pr` | AI-ревью изменений PR: `diff` и `changed_files` из запроса либо (если их нет) через MCP-инструменты `get_pr_diff`/`get_changed_files` dev-сервера; контекст — фрагменты документации проекта и кода изменённых файлов из корпуса RAG, diff обрезается до 2000 строк; ответ несёт `review_text`, `bugs`, `architecture_issues`, `recommendations`, `risks` (P0–P3), `sources`, `mcp_tools_used`, `changed_files` и `warnings` (400 — нет diff-а и ref-ов, пустой diff или незнакомый провайдер; 502 — MCP-сервер недоступен, и diff не добыть) | 200 PrReviewOut |
+| GET | `/review/health` | готовность службы ревью: провайдер по умолчанию, список провайдеров, инструменты MCP, стратегия поиска по корпусу, предел diff-а и путь отчёта (всегда 200, ни MCP, ни индекс не трогаются) | 200 CodeReviewHealthOut |
 | GET | `/` | список доступных эндпоинтов | 200 объект-подсказка |
 
 ## GET /
@@ -307,8 +310,9 @@ FastAPI сводит методы одного пути
 инвариантов, MCP (активное соединение), флота MCP-серверов (ключ `mcp_servers`),
 планировщика, пайплайна, оркестрации, индексации документов (ключ `indexing`),
 расходов на LLM (ключ `llm`), RAG (ключ `rag`), мини-чата с RAG и памятью задачи
-(ключ `mini_chat`) и ассистента разработчика (ключ `dev_assistant`), а также перечень
-эндпоинтов (116 строк — все, кроме самого `GET /`).
+(ключ `mini_chat`), ассистента разработчика (ключ `dev_assistant`) и ревью кода
+(ключ `code_review`), а также перечень эндпоинтов (122 строки — все, кроме самого
+`GET /`).
 
 ```bash
 curl.exe http://127.0.0.1:8000/
@@ -333,6 +337,7 @@ curl.exe http://127.0.0.1:8000/
   "rag": "POST /rag/query, GET /rag/config, POST /rag/compare, POST /rag/compare_modes, GET /rag/demo-questions, POST /rag/demo-run, POST /rag/compare_providers (7 эндпоинтов — поиск по корпусу, режим без RAG, сравнение, сравнение режимов, вопросы демо, прогон демо, сравнение провайдеров)",
   "mini_chat": "POST /mini-chat/sessions, POST /mini-chat/sessions/{session_id}/messages, GET /mini-chat/sessions/{session_id}/memory, GET /mini-chat/sessions/{session_id}/history, DELETE /mini-chat/sessions/{session_id} (5 эндпоинтов — мини-чат с RAG и памятью задачи)",
   "dev_assistant": "POST /dev-assistant/help, GET /dev-assistant/tools, GET /dev-assistant/git-context (3 эндпоинта — ассистент разработчика: ответ по документации проекта и состоянию репозитория через свой MCP-сервер dev_server)",
+  "code_review": "POST /review/pr, GET /review/health (2 эндпоинта — AI-ревью PR: diff, контекст корпуса RAG и структурированное ревью от модели)",
   "endpoints": [
     "POST /agents",
     "GET /agents",
@@ -450,7 +455,9 @@ curl.exe http://127.0.0.1:8000/
     "DELETE /mini-chat/sessions/{session_id}",
     "POST /dev-assistant/help",
     "GET /dev-assistant/tools",
-    "GET /dev-assistant/git-context"
+    "GET /dev-assistant/git-context",
+    "POST /review/pr",
+    "GET /review/health"
   ]
 }
 ```
@@ -6898,15 +6905,108 @@ curl.exe -X POST http://127.0.0.1:8000/mini-chat/sessions/464d0f5f/messages ^
 Источники, цитаты и расходы описаны теми же схемами, что у RAG-режима, — второй формы
 для них не заводится.
 
+## AI-ревью кода (день 32)
+
+`POST /review/pr` — ревью изменений: diff (из запроса или через MCP), контекст корпуса
+RAG (документация проекта и код изменённых файлов) и структурированный разбор ответа
+модели. Схемы лежат в `backend/schemas/code_review.py`, роутер — в
+`backend/api/code_review.py`, служба — `backend/services/code_review_service.py`
+(она же пишет предупреждения шагов: обрезка diff-а, недоступный индекс, файл вне
+корпуса, неразобранный ответ модели).
+
+Тело запроса (`PrReviewIn`):
+
+| Поле | Тип и границы | Смысл |
+|---|---|---|
+| `diff` | строка | готовый unified diff; если пусто — служба добудет его через MCP по ref-ам |
+| `changed_files` | список строк | изменённые файлы; если пусто — из MCP, а при его отказе из самого diff-а |
+| `base`, `head` | строки ≤ 200 | ref-ы для `git diff base..head` (нужны, если `diff` не передан) |
+| `owner`, `repo` | строки ≤ 120 | часть подписи ревью (`owner/repo#номер`) |
+| `pr_number` | целое ≥ 0 | номер PR для подписи |
+| `pr_label` | строка ≤ 200 | подпись ревью целиком (важнее `owner`/`repo`/`pr_number`) |
+| `provider` | строка ≤ 16 | `deepseek` (по умолчанию) или `local`; незнакомое имя — `400` |
+
+Ответ (`PrReviewOut`): `review_text` (ответ модели целиком), `bugs[]`
+(`file`, `line`, `issue`, `priority`), `architecture_issues[]` (`file`, `issue`,
+`recommendation`, `priority`), `recommendations[]`, `risks[]` (`priority`, `file`,
+`risk`) — отсортированы от `P0` к `P3`, `sources[]` (фрагменты RAG: `source`, `title`,
+`section`, `chunk_id`, `score`, `vector_score`, `lexical_score`, `rerank_score`),
+`mcp_tools_used[]` (`tool`, `ok`, `duration_ms`, `error`), `changed_files[]`,
+`duration_ms`, `provider`, `warnings[]`.
+
+```bash
+# diff и файлы берутся через MCP-инструменты dev-сервера
+curl.exe -X POST http://127.0.0.1:8000/review/pr \
+  -H "Content-Type: application/json" \
+  -d "{\"base\": \"day30\", \"head\": \"day31\", \"provider\": \"deepseek\"}"
+```
+
+```json
+{
+  "review_text": "{\"bugs\": [{\"file\": \"day21/backend/services/index_service.py\", \"line\": \"300\", \"issue\": \"SQL-запрос собирается f-строкой с подстановкой source — прямая SQL-инъекция\", \"priority\": \"P0\"}], \"architecture_issues\": [], \"recommendations\": [], \"risks\": [{\"priority\": \"P0\", \"file\": \"day21/backend/services/index_service.py\", \"risk\": \"Возможен произвольный SQL через source\"}]}",
+  "bugs": [{"file": "day21/backend/services/index_service.py", "line": "300", "issue": "SQL-запрос собирается f-строкой с подстановкой source — прямая SQL-инъекция", "priority": "P0"}],
+  "architecture_issues": [],
+  "recommendations": [],
+  "risks": [{"priority": "P0", "file": "day21/backend/services/index_service.py", "risk": "Возможен произвольный SQL через source"}],
+  "sources": [{"source": "day21-backend-services-index_service.py", "title": "index_service.py", "section": "get_index_service", "chunk_id": "structural:day21-backend-services-index_service.py:0012", "score": 0.591, "vector_score": 0.4, "lexical_score": 0.3, "rerank_score": null}],
+  "mcp_tools_used": [
+    {"tool": "get_pr_diff", "ok": true, "duration_ms": 88, "error": ""},
+    {"tool": "get_changed_files", "ok": true, "duration_ms": 56, "error": ""}
+  ],
+  "changed_files": ["day21/backend/services/index_service.py"],
+  "duration_ms": 16744,
+  "provider": "deepseek",
+  "warnings": []
+}
+```
+
+Контракт ответа модели — один JSON-объект без markdown-обёртки:
+`{"bugs": [{"file", "line", "issue", "priority"}], "architecture_issues":
+[{"file", "issue", "recommendation", "priority"}], "recommendations": [строка],
+"risks": [{"priority", "file", "risk"}]}`; `priority` — только `P0`…`P3` (свободная
+форма вроде `"p0"` или `0` приводится к канонической). Ответ идёт типом задачи `chat`
+с пределом `config.LLM_MAX_RESPONSE_TOKENS` (1000 токенов), поэтому промпт просит не
+больше 3 багов, 2 архитектурных проблем, 2 рекомендаций и 3 рисков: иначе JSON
+обрывается и структура не разбирается (`warnings` сообщает об этом текстом ошибки
+парсера, а `review_text` остаётся целиком).
+
+Инструменты MCP, которыми пользуется служба (сервер `mcp_servers/dev_server`):
+
+| Инструмент | Аргументы | Результат |
+|---|---|---|
+| `get_pr_diff` | `base`, `head` (любые ref-ы: тег, ветка, SHA) | текст `git diff base..head`; недопустимый ref (спецсимволы, `-` в начале) — ошибка инструмента |
+| `get_changed_files` | `base`, `head` | объект с `base`, `head`, `count`, `truncated`, `files` (пути от корня репозитория, не больше `MAX_CHANGED_FILES = 300`) |
+
+```bash
+curl.exe http://127.0.0.1:8000/review/health
+```
+
+```json
+{
+  "status": "ok",
+  "service": "code-review",
+  "default_provider": "deepseek",
+  "providers": ["deepseek", "local", "remote"],
+  "mcp_tools": ["get_pr_diff", "get_changed_files"],
+  "index_strategy": "rag_corpus_structural",
+  "max_diff_lines": 2000,
+  "report_path": "docs/reports/code_review_demo.md"
+}
+```
+
+Локальный прогон без HTTP (скрипт сам зовёт службу и пишет отчёт) — раздел 14
+[`usage.md`](usage.md#14-ai-ревью-кода-день-32); примеры ревью — в
+[`reports/code_review_demo.md`](reports/code_review_demo.md).
+
 ## Коды ошибок
 
 | Код | Когда | Тело |
 |---|---|---|
-| `400` | мини-чат: пустое после обрезки пробелов сообщение (`POST /mini-chat/sessions/{session_id}/messages`); RAG: пустой вопрос (`POST /rag/query`, `POST /rag/compare`) и неизвестная стратегия поиска (не `rag_corpus_structural`/`rag_corpus_fixed`); пустой `task_id` после обрезки пробелов в `PUT /memory/task`; недопустимый переход состояния задачи: пропуск этапа, откат больше чем на этап, переход «в себя», выход из этапа без согласования (guard-условие), любой переход из `done`, пауза из `done` и повторная пауза, `advance` и `rollback` на паузе, шаг чужого этапа, несовпадение `to_stage` с целью отката, `resume` не на паузе; цель MCP не разобрана: пустая после обрезки пробелов, URL там, где нужен запуск команды, и наоборот; `POST /mcp/call` — инструмента нет в каталоге сервера или аргументы не подходят по `input_schema` (нет обязательного, лишний, тип не тот); `POST /scheduler/tasks` — инструмент не входит в планировщик дня, лишний/отсутствующий аргумент, значение не того типа или вне границ, `source_url` без `http(s)://`, неразобранное расписание (интервал вне 1…86400, cron не из пяти полей, `date` без `run_date`); неизвестный `status` в фильтрах `/scheduler/tasks` и `/scheduler/reminders`; негодная конфигурация пайплайна (не объект, пустой список `steps`, шагов больше `PIPELINE_STEPS_MAX`, шаг без `tool`, неизвестное условие `op`) и неизвестный `status` в фильтре `/pipelines/runs`; негодный план оркестрации (не объект, пустой список `steps`, шагов больше `ORCH_STEPS_MAX`, шаг без `tool`, `args` не объект, неизвестное условие), невыполнимый сценарий оркестрации (плана нет, а флот не публикует нужных инструментов) неизвестный `status` в фильтре `/orchestration/runs`; неизвестная `strategy` индексации, пустой `query` поиска и отсутствие документов у `/indexing/*`, неизвестный период агрегации расходов у `GET /llm/usage` (не `day`/`week`/`month`/`all`); удалённая LLM (день 30): пустой адрес туннеля — ни в теле запроса, ни в `REMOTE_LLM_URL` (`POST /llm/remote/check`, `POST /llm/remote/step`) — и неизвестный ключ шага демо (не `connection`/`fact`/`logic`/`code`/`rate_limit`) | `HTTPException` с `detail` (у `POST /tasks/{task_id}/transition` — причина и подсказка) |
+| `400` | мини-чат: пустое после обрезки пробелов сообщение (`POST /mini-chat/sessions/{session_id}/messages`); RAG: пустой вопрос (`POST /rag/query`, `POST /rag/compare`) и неизвестная стратегия поиска (не `rag_corpus_structural`/`rag_corpus_fixed`); пустой `task_id` после обрезки пробелов в `PUT /memory/task`; недопустимый переход состояния задачи: пропуск этапа, откат больше чем на этап, переход «в себя», выход из этапа без согласования (guard-условие), любой переход из `done`, пауза из `done` и повторная пауза, `advance` и `rollback` на паузе, шаг чужого этапа, несовпадение `to_stage` с целью отката, `resume` не на паузе; цель MCP не разобрана: пустая после обрезки пробелов, URL там, где нужен запуск команды, и наоборот; `POST /mcp/call` — инструмента нет в каталоге сервера или аргументы не подходят по `input_schema` (нет обязательного, лишний, тип не тот); `POST /scheduler/tasks` — инструмент не входит в планировщик дня, лишний/отсутствующий аргумент, значение не того типа или вне границ, `source_url` без `http(s)://`, неразобранное расписание (интервал вне 1…86400, cron не из пяти полей, `date` без `run_date`); неизвестный `status` в фильтрах `/scheduler/tasks` и `/scheduler/reminders`; негодная конфигурация пайплайна (не объект, пустой список `steps`, шагов больше `PIPELINE_STEPS_MAX`, шаг без `tool`, неизвестное условие `op`) и неизвестный `status` в фильтре `/pipelines/runs`; негодный план оркестрации (не объект, пустой список `steps`, шагов больше `ORCH_STEPS_MAX`, шаг без `tool`, `args` не объект, неизвестное условие), невыполнимый сценарий оркестрации (плана нет, а флот не публикует нужных инструментов) неизвестный `status` в фильтре `/orchestration/runs`; неизвестная `strategy` индексации, пустой `query` поиска и отсутствие документов у `/indexing/*`, неизвестный период агрегации расходов у `GET /llm/usage` (не `day`/`week`/`month`/`all`); удалённая LLM (день 30): пустой адрес туннеля — ни в теле запроса, ни в `REMOTE_LLM_URL` (`POST /llm/remote/check`, `POST /llm/remote/step`) — и неизвестный ключ шага демо (не `connection`/`fact`/`logic`/`code`/`rate_limit`); ревью кода (день 32): нет ни `diff`, ни пары `base`/`head` (`Нужен diff или base и head …`), полученный через MCP diff пуст (`Diff пуст …`) или незнакомый `provider` | `HTTPException` с `detail` (у `POST /tasks/{task_id}/transition` — причина и подсказка) |
 | `404` | неизвестный `session_id` во всех `/mini-chat/sessions/{session_id}/...`; неизвестный `agent_id` во всех `/agents/{agent_id}/...` (а для `DELETE /memory/long-term/{id}` — ещё и отсутствующая запись); нет профиля у `GET`/`PUT`/`DELETE /users/{user_id}/profile`; неизвестный `task_id` во всех `/tasks/{task_id}/...`; неизвестный `task_id` у `/scheduler/tasks/{task_id}/...` и `notification_id` у `POST /scheduler/notifications/{id}/read`; неизвестный `run_id` у `/pipelines/runs/{run_id}`, `…/steps` и `DELETE /pipelines/runs/{run_id}`, а также у `/orchestration/runs/{run_id}`, `…/steps` и `DELETE /orchestration/runs/{run_id}` и у `/indexing/runs/{run_id}`; неизвестное имя сервера у `GET /mcp/servers/{name}/tools` | `HTTPException` с `detail` |
 | `409` | мини-чат: корпус не проиндексирован и неизвестный режим отбора; корпус RAG не проиндексирован (`POST /rag/query`, `POST /rag/compare` без индексных чанков); профиль с таким `user_id` уже есть (`POST /users/{user_id}/profile`); задача с таким `task_id` уже заведена (`POST /agents/{agent_id}/tasks`); `GET /mcp/tools` и `POST /mcp/call` без соединения с MCP-сервером; пауза не активной задачи и возобновление не стоящей на паузе, запуск уже выполненной задачи планировщика; поиск по непостроенному индексу (`GET /indexing/search` без индексации) | `HTTPException` с `detail` |
-| `422` | невалидное тело запроса (Pydantic/FastAPI): у мини-чата — пустой `message` (1…500 символов), `top_k` вне 1…10, `limit` вне 1…500 и `user_id` длиннее 64 символов; невалидные поля профиля, `initial_stage` вне `planning`/`execution`/`validation`, неизвестный этап/шаг, слишком длинные `expected_action`/`reason`, пустой `task_id`, тело `PATCH /tasks/{task_id}/context` без единого флага, пустая цель или неизвестный транспорт у `POST /mcp/connect`, пустое или длиннее 100 символов имя инструмента у `POST /mcp/call`, `schedule_type` вне `date`/`interval`/`cron`, пустой или длиннее 64 символов `tool`, пустое или длиннее 100 символов `name` у `POST /scheduler/tasks`, не объект `pipeline`/`initial_args`, не булево `background` у `POST /pipelines/run`, нечисловой `limit`/`run_id` в `/pipelines/...`, пустая или длиннее 500 символов `query`, не объект `plan`/`initial_args`, не булево `background`, нечисловой `run_id`/`limit` в `/orchestration/...`, `top_k` вне 1…20, `limit` < 1 и не булево `background` в `/indexing/...`; у удалённой LLM (день 30) — `url`/`model`/`api_key` длиннее 500/64/128 символов, `rate_limit` вне 0…30, `max_context` вне 0…8192 и отсутствующий `step` | объект с `detail` — списком ошибок |
-| `502` | сбой генерации `POST /generate` (нет ключа, сеть, лимиты); мини-чат: сбой этапа отбора (`RAGUpstreamError`) до вызова генерации (сбой самой модели даёт не `502`, а `mode: "error"` со статусом `200`); RAG: вызов модели в режиме с контекстом не удался после повторов и откат на ответ без контекста тоже не прошёл (`POST /rag/query`, `POST /rag/compare`); MCP-сервер недоступен, команда запуска не найдена, таймаут `initialize` или ошибка `tools/list`; `POST /mcp/call` — соединение оборвалось и ответа от инструмента не было | `GenerateResponse` со `status:"error"`; у MCP — `HTTPException` с одной строкой текста и подсказкой |
+| `422` | невалидное тело запроса (Pydantic/FastAPI): у мини-чата — пустой `message` (1…500 символов), `top_k` вне 1…10, `limit` вне 1…500 и `user_id` длиннее 64 символов; невалидные поля профиля, `initial_stage` вне `planning`/`execution`/`validation`, неизвестный этап/шаг, слишком длинные `expected_action`/`reason`, пустой `task_id`, тело `PATCH /tasks/{task_id}/context` без единого флага, пустая цель или неизвестный транспорт у `POST /mcp/connect`, пустое или длиннее 100 символов имя инструмента у `POST /mcp/call`, `schedule_type` вне `date`/`interval`/`cron`, пустой или длиннее 64 символов `tool`, пустое или длиннее 100 символов `name` у `POST /scheduler/tasks`, не объект `pipeline`/`initial_args`, не булево `background` у `POST /pipelines/run`, нечисловой `limit`/`run_id` в `/pipelines/...`, пустая или длиннее 500 символов `query`, не объект `plan`/`initial_args`, не булево `background`, нечисловой `run_id`/`limit` в `/orchestration/...`, `top_k` вне 1…20, `limit` < 1 и не булево `background` в `/indexing/...`; у удалённой LLM (день 30) — `url`/`model`/`api_key` длиннее 500/64/128 символов, `rate_limit` вне 0…30, `max_context` вне 0…8192 и отсутствующий `step`; у ревью кода (день 32) — `base`/`head`/`pr_label` длиннее 200 символов, `owner`/`repo` длиннее 120, `pr_number` меньше нуля и `provider` длиннее 16 | объект с `detail` — списком ошибок |
+| `502` | сбой генерации `POST /generate` (нет ключа, сеть, лимиты); мини-чат: сбой этапа отбора (`RAGUpstreamError`) до вызова генерации (сбой самой модели даёт не `502`, а `mode: "error"` со статусом `200`); RAG: вызов модели в режиме с контекстом не удался после повторов и откат на ответ без контекста тоже не прошёл (`POST /rag/query`, `POST /rag/compare`); MCP-сервер недоступен, команда запуска не найдена, таймаут `initialize` или ошибка `tools/list`; `POST /mcp/call` — соединение оборвалось и ответа от инструмента не было; ревью кода (день 32): diff не передан, а MCP-сервер разработки не поднялся — diff не добыть (`MCP-сервер разработки недоступен …`) | `GenerateResponse` со `status:"error"`; у MCP — `HTTPException` с одной строкой текста и подсказкой |
 
 `400` — недопустимый переход состояния задачи. Там, где целевой этап назвал
 пользователь (`POST /tasks/{task_id}/transition`), `detail` — короткая причина

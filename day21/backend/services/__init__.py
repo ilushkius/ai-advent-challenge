@@ -81,13 +81,17 @@
   границы запросов, и строки-ошибки вместо исключений (день 30);
 - ``dev_assistant_service`` — ``handle_help``: ответ ``/help`` по документации
   проекта (индекс дня 22) и состоянию репозитория через свой MCP-сервер
-  ``dev_server``, плюс панели каталога инструментов и git-контекста (день 31).
+  ``dev_server``, плюс панели каталога инструментов и git-контекста (день 31);
+- ``code_review_service`` — ``review_pr``: AI-ревью PR дня 32 — diff из запроса
+  или через MCP (``get_pr_diff``, ``get_changed_files``), контекст документации и
+  кода изменённых файлов из индекса дня 22, структурированный разбор ответа модели.
 
 Сервисы знают про домен и хранилище, но не про HTTP и не про Streamlit.
 """
 
 from . import (
-    apscheduler_bridge, chunker, compressor, dev_assistant_service, document_loader,
+    apscheduler_bridge, chunker, code_review_service, compressor, dev_assistant_service,
+    document_loader,
     embedding_service,
     index_comparison, index_runner, index_service, indexing_service,
     invariant_checker, local_llm_resources, local_tuning_service, mcp_client,
@@ -236,6 +240,7 @@ __all__ = [
     "TaskScheduler",
     "TaskStateMachine",
     "apscheduler_bridge",
+    "code_review_service",
     "dev_assistant_service",
     "chunker",
     "compressor",

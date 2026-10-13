@@ -5,11 +5,12 @@
 типами, а не склеенными строками. Все поля обязательны: инструмент заполняет их
 всегда (пустые значения — пустая строка, пустой список или ``False``).
 
-Два инструмента из четырёх описаны типами здесь: ``get_git_diff`` возвращает
-готовый текст diff (``str``), а ``get_project_structure`` — вложенное дерево
-произвольной формы. Рекурсивный ``TypedDict`` для дерева дал бы ``outputSchema``
-с перекрёстной ссылкой, и SDK собирал бы её на каждом вызове; форма дерева
-описана в докстринге инструмента, а ``dict`` остаётся честной аннотацией.
+Три инструмента из шести описаны типами здесь — ``get_git_branch``, ``list_files``
+и ``get_changed_files``; три остальных отдают готовые значения: ``get_git_diff`` и
+``get_pr_diff`` возвращают текст diff (``str``), а ``get_project_structure`` —
+вложенное дерево произвольной формы. Рекурсивный ``TypedDict`` для дерева дал бы
+``outputSchema`` с перекрёстной ссылкой, и SDK собирал бы её на каждом вызове; форма
+дерева описана в докстринге инструмента, а ``dict`` остаётся честной аннотацией.
 """
 from typing import List, TypedDict
 
@@ -38,6 +39,20 @@ class FileList(TypedDict):
 
     directory: str
     extension: str
+    count: int
+    truncated: bool
+    files: List[str]
+
+
+class ChangedFiles(TypedDict):
+    """Ответ ``get_changed_files``: ref-ы, число имён и сами имена.
+
+    ``base``/``head`` — проверенные ref-ы запроса, ``count`` — длина ``files``,
+    ``truncated`` — файлов было больше ``config.MAX_CHANGED_FILES``.
+    """
+
+    base: str
+    head: str
     count: int
     truncated: bool
     files: List[str]

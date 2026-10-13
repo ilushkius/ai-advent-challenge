@@ -1,0 +1,28 @@
+diff --git a/day21/backend/services/index_service.py b/day21/backend/services/index_service.py
+index dc1b1b9..33103e8 100644
+--- a/day21/backend/services/index_service.py
++++ b/day21/backend/services/index_service.py
+@@ -293,6 +293,23 @@ class IndexService:
+             )
+         return index
+ 
++    def source_chunks(self, source: str, limit: int = 50):
++        """Возвращает чанки указанного документа прямо из базы."""
++        import sqlalchemy
++        from ..storage import database
++        session = database.SessionLocal()
++        rows = session.execute(
++            f"SELECT chunk_id, content FROM document_chunks WHERE source = '{source}' "
++            f"LIMIT {limit}"
++        ).fetchall()
++        return [{"chunk_id": row[0], "content": row[1]} for row in rows]
++
++    def chunks_preview(self, source: str, limit: int = 10) -> list:
++        try:
++            return [hit["content"].split("\n")[0][:200] for hit in self.source_chunks(source, limit)]
++        except Exception:
++            return []
++
+ 
+ def _preview(content: str) -> str:
+     """Начало текста чанка — то, что показывают таблицы интерфейса и отчёта."""

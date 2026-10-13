@@ -10,7 +10,7 @@
 Корпус собирается во временную папку (``tmp_path``): рабочие файлы дня тест не
 трогает. Каталог индекса тоже временный. Git-инструменты читают НАСТОЯЩИЙ
 репозиторий — иначе они и не инструменты: проверяются только устойчивые к содержимому
-факты (непустая ветка, корень репозитория, четыре инструмента в каталоге).
+факты (непустая ветка, корень репозитория, шесть инструментов в каталоге).
 
 Тест медленнее юнит-тестов (поднимается процесс MCP-сервера и собирается корпус),
 поэтому файл помечен ``slow``.
@@ -99,12 +99,13 @@ def test_git_question_calls_real_dev_server(service):
     assert git["repo_root"].replace("\\", "/").endswith("ai-challenge")
 
 
-def test_tools_catalog_lists_four_tools(service):
-    """Каталог сервера: четыре инструмента со схемами аргументов и результата.
+def test_tools_catalog_lists_all_tools(service):
+    """Каталог сервера: шесть инструментов со схемами аргументов и результата.
 
-    ``get_project_structure`` возвращает ``dict``, поэтому SDK не публикует для него
-    ``outputSchema`` — форма дерева описана докстрингом инструмента. Это контракт
-    каталога, а не поломка: у трёх остальных инструментов схема результата есть.
+    ``get_project_structure`` возвращает ``dict``, а ``get_pr_diff`` — строку: SDK не
+    публикует для них ``outputSchema`` (форма дерева описана докстрингом инструмента),
+    это контракт каталога, а не поломка. У ``get_git_branch``, ``list_files`` и
+    ``get_changed_files`` схема результата есть.
     """
     catalog = service.tools()
 
@@ -119,7 +120,7 @@ def test_tools_catalog_lists_four_tools(service):
         assert tool["input_schema"].get("type") == "object"
     assert tools[dev_assistant.TOOL_LIST_FILES]["input_schema"]["properties"]["directory"]
     for name in (dev_assistant.TOOL_GIT_BRANCH, dev_assistant.TOOL_LIST_FILES,
-                 dev_assistant.TOOL_GIT_DIFF):
+                 dev_assistant.TOOL_GIT_DIFF, dev_assistant.TOOL_CHANGED_FILES):
         assert tools[name]["output_schema"].get("properties")
 
 

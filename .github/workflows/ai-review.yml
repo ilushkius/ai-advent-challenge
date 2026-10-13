@@ -1,0 +1,86 @@
+name: AI code review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    # Self-hosted: эндпоинт /review/pr живёт на машине с индексом корпуса и ключом
+    # DeepSeek. Для hosted-раннера задайте переменную репозитория REVIEW_ENDPOINT с
+    # публичным адресом бэкенда и замените runs-on на ubuntu-latest.
+    runs-on: self-hosted
+    timeout-minutes: 20
+    env:
+      REVIEW_ENDPOINT: ${{ vars.REVIEW_ENDPOINT || 'http://127.0.0.1:8000' }}
+      REVIEW_PROVIDER: ${{ vars.REVIEW_PROVIDER || 'deepseek' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Проверить gh CLI
+        run: |
+          if ! command -v gh >/dev/null 2>&1; then
+            echo "::error::gh CLI не установлен на раннере: apt install gh или brew install gh"
+            exit 1
+          fi
+          gh --version
+
+      - name: Поднять бэкенд и запросить ревью
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd day21
+          uv sync --frozen
+          nohup uv run uvicorn backend.api.main:app --port 8000 >"$RUNNER_TEMP/backend.log" 2>&1 &
+          BACKEND_PID=$!
+          trap 'kill $BACKEND_PID 2>/dev/null || true' EXIT
+          for _ in $(seq 1 60); do
+            if curl -sf "${REVIEW_ENDPOINT}/review/health" >/dev/null; then break; fi
+            sleep 2
+          done
+          curl -sf "${REVIEW_ENDPOINT}/review/health" >/dev/null || {
+            echo "::error::бэкенд не поднялся"; tail -50 "$RUNNER_TEMP/backend.log"; exit 1; }
+          cd ..
+          gh pr diff "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" > "$RUNNER_TEMP/pr.diff"
+          gh pr view "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}" --json files \
+            -q '.files[].path' > "$RUNNER_TEMP/changed_files.txt"
+          python - <<'PY'
+          import json, os, pathlib
+          tmp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          owner, _, repo = os.environ["GITHUB_REPOSITORY"].partition("/")
+          payload = {
+              "owner": owner, "repo": repo,
+              "pr_number": int(os.environ["PR_NUMBER"]),
+              "base": os.environ["BASE_REF"], "head": os.environ["HEAD_REF"],
+              "diff": (tmp / "pr.diff").read_text(encoding="utf-8", errors="replace"),
+              "changed_files": [line.strip() for line in
+                                (tmp / "changed_files.txt").read_text(encoding="utf-8").splitlines()
+                                if line.strip()],
+              "provider": os.environ.get("REVIEW_PROVIDER", "deepseek"),
+          }
+          (tmp / "payload.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+          PY
+          curl -fsS -X POST "${REVIEW_ENDPOINT}/review/pr" \
+            -H "Content-Type: application/json" \
+            --data-binary "@$RUNNER_TEMP/payload.json" -o "$RUNNER_TEMP/review.json"
+
+      - name: Опубликовать комментарий в PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd day21
+          python scripts/gh_review_comment.py \
+            --pr ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --input "$RUNNER_TEMP/review.json"

@@ -255,6 +255,8 @@ def root():
                           "GET /dev-assistant/git-context (3 эндпоинта — ассистент "
                           "разработчика: ответ по документации проекта и состоянию "
                           "репозитория через свой MCP-сервер dev_server)"),
+        "code_review": ("POST /review/pr, GET /review/health (2 эндпоинта — AI-ревью PR: "
+                        "diff, контекст корпуса RAG и структурированное ревью от модели)"),
         "endpoints": [
             "POST /agents", "GET /agents", "GET /agents/{agent_id}",
             "PATCH /agents/{agent_id}", "DELETE /agents/{agent_id}",
@@ -373,5 +375,7 @@ def root():
             "POST /dev-assistant/help",
             "GET /dev-assistant/tools",
             "GET /dev-assistant/git-context",
+            "POST /review/pr",
+            "GET /review/health",
         ],
     }
