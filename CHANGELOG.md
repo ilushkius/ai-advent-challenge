@@ -53,9 +53,12 @@ diff и список изменённых файлов приходят из Git
 * Скрипт и отчёт: `scripts/run_github_pr_review.py` (`--repo-url`, `--pr-number`,
   `--post-comment`, `--provider`, `--report`, `--no-report`, `--section-title`,
   `--top-k`; коды 0/1/2) пишет секцию `docs/reports/github_pr_review.md` с блоком
-  «GitHub PR». Живой прогон по `fastapi/fastapi#16481` (4 файла, 222 строки diff-а)
-  зафиксирован в отчёте; публикация комментария живьём не проверялась — в окружении нет
-  `GITHUB_TOKEN`, и это отмечено в отчёте честной строкой.
+  «GitHub PR». Два живых прогона зафиксированы в отчёте: анонимное чтение чужого
+  `fastapi/fastapi#16481` (4 файла, 222 строки diff-а) и свой
+  `ilushkius/go-url-shortener#7` (8 файлов, 524 строки) с публикацией —
+  `--post-comment` создал отзыв `pullrequestreview-5508238833`, ссылка на него стоит в
+  блоке «GitHub PR» секции. Чужие PR скрипт только читает: публикует он лишь там, где у
+  токена есть право на запись.
 * Тесты: `tests/unit/test_github_client.py` (клиент на `httpx.MockTransport`: формы URL,
   заголовки `Accept`/`Authorization`, коды 401/403/404/422, rate limit, публикация
   отзыва, health, маска), новые тесты службы (`github_meta`, публикация и её отказ),

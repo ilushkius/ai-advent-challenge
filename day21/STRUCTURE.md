@@ -338,9 +338,10 @@ day21/
 демо, лимит частоты и окно контекста (день 30),
 `code_review_demo.md` — два примера AI-ревью (реальный diff `day30..day31` и
 синтетический PR из `reports/synthetic_pr.diff`, день 32),
-`github_pr_review.md` — ревью живого PR из GitHub REST API
-(`fastapi/fastapi#16481`: 4 файла, 222 строки diff-а) с блоком «GitHub PR» и пометкой,
-что публикация комментария без `GITHUB_TOKEN` не проверялась живьём (день 32),
+`github_pr_review.md` — два ревью из GitHub REST API (чужой
+`fastapi/fastapi#16481`: 4 файла, 222 строки diff-а — анонимное чтение, публикации не
+было; свой `ilushkius/go-url-shortener#7`: 8 файлов, 524 строки diff-а — комментарий
+опубликован, `pullrequestreview-5508238833`) с блоком «GitHub PR» у каждого (день 32),
 остальные (`orchestration_demo.md`,
 `pipeline_demo.md`, `scheduler_demo.md`, `mcp_tool_demo.md`, `mcp_demo.md`,
 `task_state_demo.md`, `personalization_comparison.md`) унаследованы и читаются как
@@ -623,7 +624,7 @@ Ollama), а параметры вызова уходят аргументами:
 | `scripts/run_github_pr_review.py` | GitHub-прогон: `--repo-url` и `--pr-number` (обязательные), `--post-comment`, `--provider`, `--report`, `--no-report`, `--section-title`, `--top-k`; печатает `github_meta`-числа, предупреждения, источники, ссылки на PR и комментарий, пишет секцию отчёта `docs/reports/github_pr_review.md` с блоком «GitHub PR»; коды 0/1/2 |
 | `scripts/gh_review_comment.py` | Публикация ответа `POST /review/pr` комментарием: `render_markdown` → `gh pr comment --body-file -`; `--dry-run` печатает разметку; коды 0/1/2 |
 | `.github/workflows/ai-review.yml` | Action в корне репозитория: на `opened`/`synchronize`/`reopened` поднимает бэкенд на раннере, ждёт `/review/health`, собирает payload из `gh pr diff` и `gh pr view --json files`, зовёт `/review/pr` и публикует комментарий |
-| `docs/reports/synthetic_pr.diff`, `docs/reports/code_review_demo.md`, `docs/reports/github_pr_review.md` | Вход синтетического примера (два метода `IndexService` с намеренными проблемами; `git apply --check` проходит), отчёт с двумя секциями и отчёт ревью живого PR `fastapi/fastapi#16481` |
+| `docs/reports/synthetic_pr.diff`, `docs/reports/code_review_demo.md`, `docs/reports/github_pr_review.md` | Вход синтетического примера (два метода `IndexService` с намеренными проблемами; `git apply --check` проходит), отчёт с двумя секциями локального режима и отчёт режима GitHub с двумя секциями: анонимное чтение `fastapi/fastapi#16481` и свой `ilushkius/go-url-shortener#7` с опубликованным комментарием |
 | `tests/code_review_fakes.py`, `tests/unit/test_code_review_service.py`, `tests/unit/test_code_review_report.py`, `tests/unit/test_github_client.py`, `tests/integration/test_code_review_flow.py`, `tests/integration/test_github_pr_flow.py` | Фейки (diff трёх файлов, попадания документации и кода, индекс без фрагментов, MCP-клиент с diff-ом, `FakeGitHub` с diff-ом, файлами и записью публикаций, подмена `MCPClient`, пять кейсов) вынесены отдельным модулем — как фейки дня 31. Unit: структура ответа и разбор находок по кейсам, отказы MCP, модели и пустого индекса, отказ «нечего анализировать», запрос по пути файла, порядок приоритетов; разметка отчёта, блок «GitHub PR» и замена секции без дублей; режим GitHub (мета, публикация и её отказ) и клиент REST API на подменённом транспорте. Slow-интеграция: настоящий `git diff day30..day31` через настоящий `dev_server` и живой GitHub API по токену (без токена — skip) |
 
 День 32 не заводит ни таблиц, ни новых индексов: он переиспользует индекс корпуса дня 22,

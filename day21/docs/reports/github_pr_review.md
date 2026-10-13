@@ -77,9 +77,83 @@ _Провайдер: deepseek · 18233 мс · файлов: 4 · источни
 | Строк в diff | 222 |
 | Комментарий | не публиковался |
 
-> Публикация комментария: живой прогон с `--post-comment` не выполнялся — в окружении
-> нет `GITHUB_TOKEN` (`day21/.env` отсутствует). Путь публикации проверен на подменённом
-> транспорте: `tests/unit/test_github_client.py::test_post_review_comment_sends_body_and_event`
-> проверяет тело запроса `POST …/reviews` с событием `COMMENT`, а
-> `tests/unit/test_code_review_service.py::test_review_github_pr_posts_comment` — сам факт
-> публикации (`posted=true`, ссылка на комментарий) и разметку тела ревью.
+> Этот прогон сделан анонимно: токена тогда не было, публичные данные прочитаны без
+> `GITHUB_TOKEN`, поэтому `Комментарий` — «не публиковался». Публикация проверена живьём
+> в секции ниже (`ilushkius/go-url-shortener#7`, отзыв `pullrequestreview-5508238833`).
+
+---
+
+<!-- section: Ревью PR ilushkius/go-url-shortener#7 -->
+
+## Ревью PR ilushkius/go-url-shortener#7
+
+## 🤖 AI-ревью: Ревью PR ilushkius/go-url-shortener#7
+
+_Провайдер: deepseek · 18599 мс · файлов: 8 · источников RAG: 0_
+
+### Изменённые файлы
+
+- `cmd/shortener/main.go`
+- `configs/config.go`
+- `go.mod`
+- `go.sum`
+- `internal/shorturl/handler.go`
+- `internal/shorturl/handler_test.go`
+- `internal/shorturl/infile.go`
+- `internal/shorturl/model.go`
+
+### Потенциальные баги
+
+| Файл | Строка | Приоритет | Проблема |
+| --- | --- | --- | --- |
+| internal/shorturl/infile.go | 60 | P0 (критично) | В Del() первый c.scanner.Scan() вне цикла пропускает первую строку файла и она теряется перед перезаписью |
+| internal/shorturl/handler.go | 110 | P0 (критично) | json.Unmarshal ошибки обрабатываются через log.Panic, что паникует в HTTP-хендлере вместо возврата 400 |
+| internal/shorturl/infile.go | 149 | P0 (критично) | NewProducer открывает файл с O_APPEND, поэтому Del() не удаляет, а дописывает строки в конец файла |
+
+### Архитектурные проблемы
+
+| Файл | Приоритет | Проблема | Рекомендация |
+| --- | --- | --- | --- |
+| internal/shorturl/infile.go | P1 (важно) | Repository in-file хранит весь стейт в файле без блокировок, что нарушает потокобезопасность слоя хранения | Добавить sync.Mutex в inFile или кэш в памяти с синхронизацией записи |
+| configs/config.go | P2 (средне) | cmd/shortener смешивает env-конфиг и pflag, парся флаги поверх GetConfig в main | Перенести разбор флагов в configs и возвращать финальный Config из одного места |
+### Рекомендации
+
+- В handler.go и infile.go возвращать корректные HTTP-статусы (400/404) вместо log.Panic при ошибках JSON и отсутствии записи
+- В infile.Del перезаписывать файл через os.Create (truncate) во временный файл и затем переименовывать
+
+### Риски (P0 — P3)
+
+| Приоритет | Файл | Риск |
+| --- | --- | --- |
+| P0 (критично) | internal/shorturl/infile.go | Потеря данных: Del() дописывает строки из-за O_APPEND и съедает первую запись файла |
+| P0 (критично) | internal/shorturl/handler.go | Паника в PostShortenHandler при невалидном JSON валит воркер и возвращает 500 вместо 400 |
+| P2 (средне) | internal/shorturl/infile.go | Get() использует strings.Contains по строке файла — возможно ложное совпадение подстроки shortURL |
+### Источники RAG
+
+— не найдено
+### Предупреждения
+
+- В контексте нет фрагментов файла cmd/shortener/main.go: его нет среди источников корпуса или фрагменты не попали в выдачу поиска — по этому файлу виден только diff
+- В контексте нет фрагментов файла configs/config.go: его нет среди источников корпуса или фрагменты не попали в выдачу поиска — по этому файлу виден только diff
+- В контексте нет фрагментов файла go.mod: его нет среди источников корпуса или фрагменты не попали в выдачу поиска — по этому файлу виден только diff
+- В контексте нет фрагментов файла go.sum: его нет среди источников корпуса или фрагменты не попали в выдачу поиска — по этому файлу виден только diff
+- В контексте нет фрагментов файла internal/shorturl/handler.go: его нет среди источников корпуса или фрагменты не попали в выдачу поиска — по этому файлу виден только diff
+- В контексте нет фрагментов файла internal/shorturl/handler_test.go: его нет среди источников корпуса или фрагменты не попали в выдачу поиска — по этому файлу виден только diff
+- В контексте нет фрагментов файла internal/shorturl/infile.go: его нет среди источников корпуса или фрагменты не попали в выдачу поиска — по этому файлу виден только diff
+- В контексте нет фрагментов файла internal/shorturl/model.go: его нет среди источников корпуса или фрагменты не попали в выдачу поиска — по этому файлу виден только diff
+
+<details><summary>Полный ответ модели</summary>
+
+{"bugs": [{"file": "internal/shorturl/infile.go", "line": "60", "issue": "В Del() первый c.scanner.Scan() вне цикла пропускает первую строку файла и она теряется перед перезаписью", "priority": "P0"}, {"file": "internal/shorturl/handler.go", "line": "110", "issue": "json.Unmarshal ошибки обрабатываются через log.Panic, что паникует в HTTP-хендлере вместо возврата 400", "priority": "P0"}, {"file": "internal/shorturl/infile.go", "line": "149", "issue": "NewProducer открывает файл с O_APPEND, поэтому Del() не удаляет, а дописывает строки в конец файла", "priority": "P0"}], "architecture_issues": [{"file": "internal/shorturl/infile.go", "issue": "Repository in-file хранит весь стейт в файле без блокировок, что нарушает потокобезопасность слоя хранения", "recommendation": "Добавить sync.Mutex в inFile или кэш в памяти с синхронизацией записи", "priority": "P1"}, {"file": "configs/config.go", "issue": "cmd/shortener смешивает env-конфиг и pflag, парся флаги поверх GetConfig в main", "recommendation": "Перенести разбор флагов в configs и возвращать финальный Config из одного места", "priority": "P2"}], "recommendations": ["В handler.go и infile.go возвращать корректные HTTP-статусы (400/404) вместо log.Panic при ошибках JSON и отсутствии записи", "В infile.Del перезаписывать файл через os.Create (truncate) во временный файл и затем переименовывать"], "risks": [{"priority": "P0", "file": "internal/shorturl/infile.go", "risk": "Потеря данных: Del() дописывает строки из-за O_APPEND и съедает первую запись файла"}, {"priority": "P0", "file": "internal/shorturl/handler.go", "risk": "Паника в PostShortenHandler при невалидном JSON валит воркер и возвращает 500 вместо 400"}, {"priority": "P2", "file": "internal/shorturl/infile.go", "risk": "Get() использует strings.Contains по строке файла — возможно ложное совпадение подстроки shortURL"}]}
+
+</details>
+
+### GitHub PR
+
+| Параметр | Значение |
+| --- | --- |
+| PR | [https://github.com/ilushkius/go-url-shortener/pull/7](https://github.com/ilushkius/go-url-shortener/pull/7) |
+| Репозиторий | `ilushkius/go-url-shortener` |
+| Изменённых файлов | 8 |
+| Строк в diff | 524 |
+| Комментарий | [опубликован](https://github.com/ilushkius/go-url-shortener/pull/7#pullrequestreview-5508238833) |
