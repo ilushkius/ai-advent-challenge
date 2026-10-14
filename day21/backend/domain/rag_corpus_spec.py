@@ -40,9 +40,10 @@ RAG_CORPUS_MIN_CHUNKS = 50
 #: Корень репозитория: ``day21/backend/domain/rag_corpus_spec.py`` → ``day21`` → корень.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
-#: Таблица источников корпуса: 41 файл: двенадцать документов проекта (включая
+#: Таблица источников корпуса: 44 файла: пятнадцать документов проекта (включая
 #: документацию репозитория — README, AGENTS, WORKFLOW, ARCHITECT_PROMPT,
-#: docs/api.md) и двадцать девять модулей, скриптов и тестов. Порядок таблицы =
+#: docs/api.md — и документацию поддержки дня 33) и двадцать девять модулей,
+#: скриптов и тестов. Порядок таблицы =
 #: порядок записей в манифесте корпуса и в отчёте.
 
 RAG_CORPUS_SOURCES: tuple[DocumentSource, ...] = (
@@ -54,6 +55,11 @@ RAG_CORPUS_SOURCES: tuple[DocumentSource, ...] = (
     DocumentSource(path="day21/docs/usage.md", kind=KIND_DOCS, max_chars=12000),
     DocumentSource(path="day21/docs/reports/indexing_demo.md", kind=KIND_DOCS, max_chars=12000),
     DocumentSource(path="day21/docs/api.md", kind=KIND_DOCS, max_chars=24000),
+    # Документация поддержки (день 33): FAQ, разборы симптомов и справочник API —
+    # источник ответов ассистента поддержки (``domain/support.SUPPORT_SOURCES``).
+    DocumentSource(path="day21/docs/support/faq.md", kind=KIND_DOCS, max_chars=20000),
+    DocumentSource(path="day21/docs/support/troubleshooting.md", kind=KIND_DOCS, max_chars=20000),
+    DocumentSource(path="day21/docs/support/api_reference.md", kind=KIND_DOCS, max_chars=20000),
     DocumentSource(path="README.md", kind=KIND_README, max_chars=24000),
     DocumentSource(path="ARCHITECT_PROMPT.md", kind=KIND_GUIDE, max_chars=4000),
     DocumentSource(path="WORKFLOW.md", kind=KIND_GUIDE, max_chars=6000),

@@ -18,15 +18,17 @@ Swagger-документация:  http://127.0.0.1:8000/docs
 день 31 (``backend/api/dev_assistant.py``) — ассистента разработчика: вопрос ``/help`` отвечает
 по документации проекта (RAG) и состоянию репозитория (свой MCP-сервер ``dev_server``); день 32
 (``backend/api/code_review.py``) — AI-ревью PR: diff двух ref через тот же сервер, контекст корпуса
-и структурированное ревью (баги, архитектура, рекомендации, риски P0–P3).
+и структурированное ревью (баги, архитектура, рекомендации, риски P0–P3); день 33
+(``backend/api/support.py``) — ассистента поддержки: FAQ и документация поддержки из корпуса плюс
+профиль клиента и тикет из своего MCP-сервера ``support_server``.
 
 Здесь только сборка приложения: эндпоинты живут в ``backend/api/``, доступ к службам — в
 ``backend/core/dependencies.py``; функции ``get_manager``, ``get_mcp_registry``, ``get_scheduler``,
 ``get_schedule_service``, ``get_pipeline_service``, ``get_orchestration_service``,
 ``get_indexing_service``, ``get_index_service``, ``get_embedding_service``, ``get_llm_client``,
 ``get_rag_service``, ``get_mini_chat_service``, ``get_dev_assistant_service``,
-``get_code_review_service`` и ``get_rerank_service`` импортированы сюда как точки подмены
-для тестов.
+``get_code_review_service``, ``get_support_service`` и ``get_rerank_service`` импортированы сюда
+как точки подмены для тестов.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,10 +49,11 @@ from ..services.rag_service import get_rag_service
 from ..services.rerank_service import get_rerank_service
 from ..services.schedule_service import get_schedule_service
 from ..services.scheduler import get_scheduler
+from ..services.support_service import get_support_service
 from . import (
     agents, code_review, context, dev_assistant, indexing, invariants, llm, mcp,
     mcp_servers, memory, mini_chat, orchestration, pipelines, profiles, rag,
-    remote_llm, scheduler, tasks,
+    remote_llm, scheduler, support, tasks,
 )
 from .lifespan import lifespan
 
@@ -72,5 +75,5 @@ app.add_middleware(
 # Пути в роутерах абсолютные (префиксов нет); порядок списка = порядок регистрации.
 for _router in (agents, code_review, context, dev_assistant, indexing, invariants, llm,
                 mcp, mcp_servers, memory, mini_chat, orchestration, pipelines, profiles,
-                rag, remote_llm, scheduler, tasks):
+                rag, remote_llm, scheduler, support, tasks):
     app.include_router(_router.router)

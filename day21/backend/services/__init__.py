@@ -84,7 +84,10 @@
   ``dev_server``, плюс панели каталога инструментов и git-контекста (день 31);
 - ``code_review_service`` — ``review_pr``: AI-ревью PR дня 32 — diff из запроса
   или через MCP (``get_pr_diff``, ``get_changed_files``), контекст документации и
-  кода изменённых файлов из индекса дня 22, структурированный разбор ответа модели.
+  кода изменённых файлов из индекса дня 22, структурированный разбор ответа модели;
+- ``support_service`` — ``answer``: ответ ассистента поддержки дня 33 — фрагменты
+  документации поддержки из индекса дня 22 плюс профиль клиента, его тикет и
+  раздел продукта через свой MCP-сервер ``support_server``.
 
 Сервисы знают про домен и хранилище, но не про HTTP и не про Streamlit.
 """
@@ -103,7 +106,7 @@ from . import (
     schedule_service, scheduled_jobs, scheduler, source_fetch, task_state,
     rag_corpus_index, rag_corpus_loader, rag_demo_service, rag_errors, rag_llm,
     rag_records, rag_retrieval, rag_service, remote_llm_client, remote_llm_service,
-    rerank_service,
+    rerank_service, support_service,
 )
 from .apscheduler_bridge import RECONCILE_JOB_ID, TASK_JOB_PREFIX
 from .compressor import SUMMARY_SYSTEM_PROMPT, CompressionError, ContextCompressor
@@ -291,6 +294,7 @@ __all__ = [
     "scheduled_jobs",
     "scheduler",
     "source_fetch",
+    "support_service",
     "task_state",
     "tick",
     "tool_names",

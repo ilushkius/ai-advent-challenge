@@ -260,6 +260,12 @@ def root():
                         "файлы из запроса или через MCP, либо из GitHub REST API по URL "
                         "и номеру PR; контекст корпуса RAG, структурированное ревью и "
                         "публикация комментария)"),
+        "support": ("POST /support/ask, GET /support/users, "
+                    "GET /support/users/{user_id}, GET /support/tickets, "
+                    "GET /support/tickets/{ticket_id} (5 эндпоинтов — ассистент "
+                    "поддержки: FAQ и документация поддержки из корпуса RAG плюс "
+                    "профиль клиента и его тикет через свой MCP-сервер "
+                    "support_server)"),
         "endpoints": [
             "POST /agents", "GET /agents", "GET /agents/{agent_id}",
             "PATCH /agents/{agent_id}", "DELETE /agents/{agent_id}",
@@ -382,5 +388,10 @@ def root():
             "GET /review/health",
             "POST /review/github-pr",
             "GET /review/github-health",
+            "POST /support/ask",
+            "GET /support/users",
+            "GET /support/users/{user_id}",
+            "GET /support/tickets",
+            "GET /support/tickets/{ticket_id}",
         ],
     }

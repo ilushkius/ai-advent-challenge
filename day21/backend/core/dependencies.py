@@ -32,6 +32,7 @@ if TYPE_CHECKING:  # только для аннотаций
     from ..services.rag_service import RAGService
     from ..services.rerank_service import RerankService
     from ..services.scheduler import TaskScheduler
+    from ..services.support_service import SupportService
 
 
 def get_manager() -> "AgentManager":
@@ -195,6 +196,18 @@ def get_code_review_service() -> "CodeReviewService":
     """Служба AI-ревью PR (день 32): diff, контекст корпуса и ответ модели."""
     from ..api import main
     return main.get_code_review_service()
+
+
+def get_support_service() -> "SupportService":
+    """Служба ассистента поддержки (день 33): FAQ из корпуса плюс профиль и тикет.
+
+    Та же точка подмены, что у остальных служб: тесты подменяют
+    ``monkeypatch.setattr(main, "get_support_service", ...)``, и подмену видят роутер
+    ``/support``, скрипт демо и раздел «🎧 Поддержка пользователей».
+    """
+    from ..api import main
+
+    return main.get_support_service()
 
 
 def get_prompt_builder() -> "PromptBuilder":

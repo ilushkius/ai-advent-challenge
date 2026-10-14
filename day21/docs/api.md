@@ -148,7 +148,7 @@ LLM, прогноз экономии и поле `llm` генерации),
 
 ## Эндпоинты
 
-Всего 123 записи эндпоинтов (в списке `GET /` — все, кроме самой подсказки): 10 в
+Всего 129 записей эндпоинтов (в списке `GET /` — все, кроме самой подсказки): 10 в
 разделе агентов (CRUD, генерация и статистика), 9 контекста (сжатие, стратегии,
 ветки, факты), 10 памяти, 6 профилей пользователей, 11 состояния задачи, 6
 инвариантов, 5 MCP активного соединения, 3 флота MCP-серверов, 14 планировщика, 5
@@ -159,9 +159,11 @@ LLM, прогноз экономии и поле `llm` генерации),
 7 RAG (поиск по
 корпусу, режим без RAG, сравнение, сравнение режимов отбора, вопросы демо, прогон
 демо и сравнение провайдеров), 5 мини-чата (сессия, реплика, память задачи, история
-реплик и закрытие сессии), 3 ассистента разработчика и 2 ревью кода (запрос ревью
-diff-а и проверка доступности службы). Вместе с корневым
-`GET /` приложение объявляет 123 эндпоинта, а уникальных путей в OpenAPI — 104:
+реплик и закрытие сессии), 3 ассистента разработчика, 4 ревью кода (запрос ревью
+diff-а, проверка доступности службы, ревью реального PR из GitHub и проверка GitHub)
+и 5 ассистента поддержки (вопрос с контекстом клиента, каталог клиентов, один
+профиль, тикеты клиента и один тикет). Вместе с корневым
+`GET /` приложение объявляет 129 эндпоинтов, а уникальных путей в OpenAPI — 111:
 FastAPI сводит методы одного пути
 (`GET`/`POST`/`DELETE /orchestration/runs/{run_id}` — это три записи одного пути) в
 одну запись схемы.
@@ -174,8 +176,9 @@ FastAPI сводит методы одного пути
 [«Индексация документов»](#индексация-документов),
 [«RAG-режим»](#rag-режим), [«Расходы на LLM»](#расходы-на-llm),
 [«Мини-чат с RAG и памятью задачи»](#мини-чат-с-rag-и-памятью-задачи-день-25),
-[«MCP-серверы»](#mcp-серверы) и
-[«AI-ревью кода»](#ai-ревью-кода-день-32).
+[«MCP-серверы»](#mcp-серверы),
+[«AI-ревью кода»](#ai-ревью-кода-день-32) и
+[«Ассистент поддержки»](#ассистент-поддержки-день-33).
 
 | Метод | Путь | Назначение | Успех |
 |---|---|---|---|
@@ -303,6 +306,11 @@ FastAPI сводит методы одного пути
 | GET | `/review/health` | готовность службы ревью: провайдер по умолчанию, список провайдеров, инструменты MCP, стратегия поиска по корпусу, предел diff-а и путь отчёта (всегда 200, ни MCP, ни индекс не трогаются) | 200 CodeReviewHealthOut |
 | POST | `/review/github-pr` | AI-ревью реального PR: `repo_url` и `pr_number` обязательны, diff и список изменённых файлов берутся из GitHub REST API (без MCP и без локальной копии репозитория), контекст — из корпуса RAG; `post_comment=true` публикует ревью комментарием в PR; ответ — как у `/review/pr` плюс `github_meta`, `pr_url`, `posted`, `comment_url` (400 — негодный URL, ненайденные репозиторий или PR, исчерпанный rate limit, незнакомый провайдер, пустой diff; 502 GitHub-путь не отдаёт; отказ публикации не отменяет ревью — 200, `posted=false` и предупреждение) | 200 GitHubPrReviewOut |
 | GET | `/review/github-health` | готовность GitHub-режима: `GET /rate_limit` (доступность API, `authenticated`, маска токена, остаток лимита) — всегда 200, недоступность отдаётся `status="degraded"` и полем `error` | 200 GitHubHealthOut |
+| POST | `/support/ask` | ответ ассистента поддержки: документация поддержки (фрагменты корпуса RAG) плюс профиль клиента (`user_id`) и его тикет (`ticket_id`) из MCP-сервера `support_server` и раздел продукта по словам вопроса (области `auth`/`billing`/`api`/`integrations`/`notifications`); ответ несёт `answer`, `sources`, `user_context`, `ticket_context`, `product_context`, `mcp_tools_used` и `warnings` (400 — пустой вопрос или незнакомый провайдер; 502 — сбой модели, когда ни одного блока контекста собрать не удалось) | 200 SupportAskOut |
+| GET | `/support/users` | каталог клиентов поддержки по инструменту `list_users`: число, профили и причина отказа в поле `error` (всегда 200) | 200 SupportUserListOut |
+| GET | `/support/users/{user_id}` | профиль клиента по инструменту `get_user`: id, имя, email, тариф, даты регистрации и последней активности (404 — записи нет; 502 — MCP-сервер не поднялся) | 200 SupportUserOut |
+| GET | `/support/tickets` | тикеты клиента по инструменту `list_user_tickets` (`user_id` обязателен): тема, статус, приоритет и число сообщений без истории (всегда 200; ненайденный клиент — `count=0` и `error="not found"`) | 200 SupportTicketsOut |
+| GET | `/support/tickets/{ticket_id}` | тикет целиком по инструменту `get_ticket`: тема, статус, приоритет, дата и история сообщений (404 — записи нет; 502 — MCP-сервер не поднялся) | 200 SupportTicketOut |
 | GET | `/` | список доступных эндпоинтов | 200 объект-подсказка |
 
 ## GET /
@@ -312,9 +320,9 @@ FastAPI сводит методы одного пути
 инвариантов, MCP (активное соединение), флота MCP-серверов (ключ `mcp_servers`),
 планировщика, пайплайна, оркестрации, индексации документов (ключ `indexing`),
 расходов на LLM (ключ `llm`), RAG (ключ `rag`), мини-чата с RAG и памятью задачи
-(ключ `mini_chat`), ассистента разработчика (ключ `dev_assistant`) и ревью кода
-(ключ `code_review`), а также перечень эндпоинтов (124 строки — все, кроме самого
-`GET /`).
+(ключ `mini_chat`), ассистента разработчика (ключ `dev_assistant`), ревью кода
+(ключ `code_review`) и ассистента поддержки (ключ `support`), а также перечень
+эндпоинтов (129 строк — все, кроме самого `GET /`).
 
 ```bash
 curl.exe http://127.0.0.1:8000/
@@ -340,6 +348,7 @@ curl.exe http://127.0.0.1:8000/
   "mini_chat": "POST /mini-chat/sessions, POST /mini-chat/sessions/{session_id}/messages, GET /mini-chat/sessions/{session_id}/memory, GET /mini-chat/sessions/{session_id}/history, DELETE /mini-chat/sessions/{session_id} (5 эндпоинтов — мини-чат с RAG и памятью задачи)",
   "dev_assistant": "POST /dev-assistant/help, GET /dev-assistant/tools, GET /dev-assistant/git-context (3 эндпоинта — ассистент разработчика: ответ по документации проекта и состоянию репозитория через свой MCP-сервер dev_server)",
   "code_review": "POST /review/pr, GET /review/health, POST /review/github-pr, GET /review/github-health (4 эндпоинта — AI-ревью PR: diff, контекст корпуса RAG и структурированное ревью от модели, в том числе по URL и номеру реального PR из GitHub)",
+  "support": "POST /support/ask, GET /support/users, GET /support/users/{user_id}, GET /support/tickets, GET /support/tickets/{ticket_id} (5 эндпоинтов — ассистент поддержки: FAQ и документация поддержки из корпуса RAG плюс профиль клиента и его тикет через свой MCP-сервер support_server)",
   "endpoints": [
     "POST /agents",
     "GET /agents",
@@ -6483,9 +6492,9 @@ curl.exe http://127.0.0.1:8000/rag/config
   "ready": true,
   "corpus": {
     "corpus_dir": "…/day21/documents/rag_corpus",
-    "documents": 41,
-    "chars": 382652,
-    "pages": 212,
+    "documents": 44,
+    "chars": 422147,
+    "pages": 234,
     "min_pages": 25,
     "subdir": "rag_corpus",
     "ready": true
@@ -7077,6 +7086,140 @@ curl.exe http://127.0.0.1:8000/review/github-health
 https://github.com/fastapi/fastapi --pr-number 16481` (отчёт
 [`reports/github_pr_review.md`](reports/github_pr_review.md)), раздел интерфейса —
 «🔎 AI-ревью кода (Day 32)», вкладка «🐙 GitHub PR».
+
+## Ассистент поддержки (день 33)
+
+Пять эндпоинтов мини-сервиса поддержки: вопрос клиента с контекстом, каталог клиентов,
+один профиль, тикеты клиента и один тикет. Контекст ответа собирается из трёх
+источников: документация поддержки из корпуса RAG (FAQ, разборы симптомов, справочник
+API — `docs/support/*.md`), профиль клиента и его тикет из MCP-сервера
+`mcp_servers/support_server` и раздел продукта по словам вопроса. Схемы лежат в
+`backend/schemas/support.py`, роутер — в `backend/api/support.py`, служба —
+`backend/services/support_service.py`. Инструкция — раздел 15 в
+[docs/usage.md](usage.md); устройство и поток данных — раздел «Ассистент поддержки —
+день 33» в [docs/architecture.md](architecture.md).
+
+### POST /support/ask
+
+Вопрос клиента. `user_id` и `ticket_id` необязательны: тикет знает своего владельца,
+поэтому профиль подтягивается из тикета, если `user_id` не передан. Раздел продукта
+приходит только тогда, когда слова вопроса определили область (`auth`, `billing`,
+`api`, `integrations`, `notifications`) — определение идёт по ключевым словам домена
+(`support.detect_area`), а не моделью.
+
+Тело запроса (`SupportAskIn`):
+
+| Поле | Тип и границы | Смысл |
+|---|---|---|
+| `question` | строка, 1…500 | вопрос клиента о продукте |
+| `user_id` | строка ≤ 64, по умолчанию `""` | идентификатор клиента (`user_003`); пусто — без профиля |
+| `ticket_id` | строка ≤ 64, по умолчанию `""` | идентификатор тикета (`ticket_007`); пусто — без тикета |
+| `provider` | строка ≤ 16 | `deepseek` (по умолчанию) или `local`; незнакомое имя — `400` |
+
+Ответ (`SupportAskOut`): `answer` (ответ модели либо объяснение отказа), `sources[]`
+(фрагменты документации поддержки: `source`, `title`, `section`, `chunk_id`, `score`,
+`vector_score`, `lexical_score`, `rerank_score`), `user_context` (`id`, `name`, `email`,
+`plan`, `registered_at`, `last_seen` — или `null`), `ticket_context` (`id`, `user_id`,
+`subject`, `status`, `priority`, `created_at`, `messages[]` — или `null`; в промпт
+уходят последние 5 сообщений длиной до 600 символов), `product_context` (`area`,
+`title`, `description`, `faq[]`), `mcp_tools_used[]` (`tool`, `ok`, `duration_ms`,
+`error`), `duration_ms`, `provider`, `warnings[]` (пустой индекс поддержки,
+недоступный MCP, ненайденный профиль или тикет, сбой модели).
+
+```bash
+# вопрос про вход с контекстом тикета: профиль клиента подтянется из тикета
+curl.exe -X POST http://127.0.0.1:8000/support/ask \
+  -H "Content-Type: application/json" \
+  -d "{\"question\": \"Почему не работает авторизация?\", \"ticket_id\": \"ticket_007\"}"
+```
+
+```json
+{
+  "answer": "Здравствуйте, Мария! По вашему тикету «Не работает авторизация» (статус: open, приоритет: high) — похоже, дело в смене пароля: вчера вы меняли пароль, а после смены все остальные сеансы завершаются автоматически…",
+  "sources": [{"source": "day21-docs-support-faq.md", "title": "FAQ и документация поддержки", "section": "Что делать, если вход возвращает на форму без ошибки?", "chunk_id": "structural:day21-docs-support-faq.md:0007", "score": 0.512, "vector_score": 0.41, "lexical_score": 0.34, "rerank_score": null}],
+  "user_context": {"id": "user_003", "name": "Мария Кузнецова", "email": "m.kuznetsova@example.com", "plan": "pro", "registered_at": "2026-05-21", "last_seen": "2026-10-14"},
+  "ticket_context": {"id": "ticket_007", "user_id": "user_003", "subject": "Не работает авторизация", "status": "open", "priority": "high", "created_at": "2026-10-06T08:45:00", "messages": [{"author": "support", "text": "Проверьте токен сессии: если он истёк, поможет очистка cookies и повторный вход", "timestamp": "2026-10-06T10:20:00"}]},
+  "product_context": {"area": "auth", "title": "Авторизация и вход", "description": "Вход в продукт идёт по email и паролю…", "faq": ["Как сменить пароль? — Откройте «Настройки → Безопасность»…"]},
+  "mcp_tools_used": [
+    {"tool": "get_ticket", "ok": true, "duration_ms": 55, "error": ""},
+    {"tool": "get_user", "ok": true, "duration_ms": 40, "error": ""},
+    {"tool": "get_product_info", "ok": true, "duration_ms": 58, "error": ""}
+  ],
+  "duration_ms": 7029,
+  "provider": "deepseek",
+  "warnings": []
+}
+```
+
+Отказы приходят ДАННЫМИ: пустой индекс поддержки, недоступный MCP-сервер, ненайденный
+профиль или тикет не мешают ответу — они попадают в `warnings[]`, а в `mcp_tools_used[]`
+остаётся запись инструмента с `ok=false` и текстом причины. Модель не ответила —
+честный текст в `answer` (шаблон отличается у локального провайдера); `502` роутер
+отдаёт только тогда, когда модель недоступна и ни одного блока контекста не собралось.
+
+### GET /support/users и GET /support/users/{user_id}
+
+Каталог клиентов (инструмент `list_users`) наполняет селектор пользователей раздела;
+одиночный профиль (инструмент `get_user`) отвечает теми же полями. Каталог отвечает
+`200` ВСЕГДА — недоступный сервер заполняет `error`, а `count`/`users` остаются пустыми,
+потому что селектор обязан показать причину, а не упасть. Одиночная запись, наоборот,
+отвечает `404` (если записи нет — текст причины приходит из инструмента, `not found`)
+или `502` (если MCP-сервер не поднялся).
+
+```bash
+curl.exe http://127.0.0.1:8000/support/users
+curl.exe http://127.0.0.1:8000/support/users/user_003
+```
+
+```json
+{
+  "count": 5,
+  "users": [
+    {"id": "user_003", "name": "Мария Кузнецова", "email": "m.kuznetsova@example.com", "plan": "pro", "registered_at": "2026-05-21", "last_seen": "2026-10-14"}
+  ],
+  "error": ""
+}
+```
+
+### GET /support/tickets и GET /support/tickets/{ticket_id}
+
+`GET /support/tickets?user_id=…` (инструмент `list_user_tickets`) отдаёт тикеты клиента
+для селектора тикета: тему, статус, приоритет и ЧИСЛО сообщений без истории. Всегда
+`200`: у ненайденного клиента `count=0` и `error="not found"`, у недоступного сервера —
+текст причины в `error`. `GET /support/tickets/{ticket_id}` (инструмент `get_ticket`)
+отдаёт тикет целиком с историей сообщений: `404` — записи нет, `502` — сервер не поднялся.
+
+```bash
+curl.exe "http://127.0.0.1:8000/support/tickets?user_id=user_003"
+curl.exe http://127.0.0.1:8000/support/tickets/ticket_007
+```
+
+```json
+{
+  "user_id": "user_003",
+  "count": 2,
+  "tickets": [
+    {"id": "ticket_007", "subject": "Не работает авторизация", "status": "open", "priority": "high", "created_at": "2026-10-06T08:45:00", "messages": 4},
+    {"id": "ticket_009", "subject": "Не приходит код подтверждения по SMS", "status": "open", "priority": "normal", "created_at": "2026-10-09T13:40:00", "messages": 2}
+  ],
+  "error": ""
+}
+```
+
+Инструменты MCP, которыми пользуется служба (сервер `mcp_servers/support_server`,
+база — `backend/data/support_db.json`, читается на каждый вызов):
+
+| Инструмент | Аргументы | Результат |
+|---|---|---|
+| `get_user` | `user_id` | профиль (`id`, `name`, `email`, `plan`, `registered_at`, `last_seen`); ненайденный id — пустые поля и `error="not found"` |
+| `get_ticket` | `ticket_id` | тикет целиком: тема, статус, приоритет, дата и `messages[]` (`author`, `text`, `timestamp`) |
+| `list_user_tickets` | `user_id` | объект `{user_id, count, tickets[]}`; у тикета в списке `messages` — ЧИСЛО сообщений |
+| `get_product_info` | `product_area` (`auth`/`billing`/`api`/`integrations`/`notifications`) | раздел продукта: `area`, `title`, `description`, `faq[]` |
+| `list_users` | — | объект `{count, users[]}` — каталог клиентов для селектора раздела |
+
+Проверить сервер руками (вызывать инструменты напрямую, без интерфейса) можно пробой
+`scripts/support_mcp_probe.py`: она печатает каталог инструментов и структурированный
+результат одного вызова, код возврата `1` — инструмент вернул ошибку или записи нет.
 
 ## Коды ошибок
 

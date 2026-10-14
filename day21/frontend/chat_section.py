@@ -2,8 +2,8 @@
 
 Единственная точка входа — ``render_main_area()``: заголовок и подпись,
 непрочитанные уведомления планировщика (день 18), флеш-сообщение предыдущего прохода,
-ветка «бэкенд недоступен», переключатель разделов (восемнадцать: от чата с памятью до
-AI-ревью кода), карточка агента, панели стратегии и слоёв памяти, диалог,
+ветка «бэкенд недоступен», переключатель разделов (девятнадцать: от чата с памятью до
+поддержки пользователей), карточка агента, панели стратегии и слоёв памяти, диалог,
 сравнение режимов, блок отказа по инвариантам, форма ввода и очистка истории.
 Сводка хода показывает шаг планировщика, прогон пайплайна и индексацию: строки
 «🗓 Планировщик: …», «🔀 Пайплайн: …», «📦 Индексация: …» появляются рядом с токенами
@@ -12,11 +12,10 @@ AI-ревью кода), карточка агента, панели страт�
 import streamlit as st
 
 from . import (
-    api_client, code_review_section, common, context_panels, cost_section,
-    dev_assistant_section, indexing_section, invariant_panel, local_llm_section,
-    local_rag_section, local_tuning_section, mcp_section, memory_panels, notifications,
-    orchestration_section, pipeline_section, profile_section, rag_demo_section,
-    rag_section, remote_llm_section, scheduler_section, task_panel,
+    api_client, code_review_section, common, context_panels, cost_section, dev_assistant_section,
+    indexing_section, invariant_panel, local_llm_section, local_rag_section, local_tuning_section,
+    mcp_section, memory_panels, notifications, orchestration_section, pipeline_section, profile_section,
+    rag_demo_section, rag_section, remote_llm_section, scheduler_section, support_section, task_panel,
 )
 
 
@@ -78,7 +77,7 @@ def render_main_area() -> None:
              "🌐 Оркестрация", "📦 Индексация", "🖥 Локальная LLM", "💰 Расходы",
              "⚙️ Оптимизация локальной LLM", "🆚 RAG-сравнение", "🧪 RAG-демо",
              "🏠 Локальный RAG", "🛰 Удалённая LLM", "🧑‍💻 Ассистент разработчика (Day 31)",
-             "🔎 AI-ревью кода (Day 32)"],
+             "🔎 AI-ревью кода (Day 32)", "🎧 Поддержка пользователей (Day 33)"],
             horizontal=True, key="main_section", label_visibility="collapsed",
         )
         if section.startswith("👤"):
@@ -135,6 +134,8 @@ def render_main_area() -> None:
             dev_assistant_section.render_dev_assistant_section()
         elif section.startswith("🔎"):  # AI-ревью кода (день 32).
             code_review_section.render_code_review_section()
+        elif section.startswith("🎧"):  # Поддержка пользователей (день 33).
+            support_section.render_support_section()
         else:
             if not agents:
                 st.info("Агентов пока нет — создайте первого в боковой панели. "
