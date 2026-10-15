@@ -2,8 +2,9 @@
 
 Единственная точка входа — ``render_main_area()``: заголовок и подпись,
 непрочитанные уведомления планировщика (день 18), флеш-сообщение предыдущего прохода,
-ветка «бэкенд недоступен», переключатель разделов (девятнадцать: от чата с памятью до
-поддержки пользователей), карточка агента, панели стратегии и слоёв памяти, диалог,
+ветка «бэкенд недоступен», переключатель разделов (он живёт в ``main_sections.py``:
+там подписи и цепочка отрисовки разделов дней, а здесь — сам чат), карточка агента,
+панели стратегии и слоёв памяти, диалог,
 сравнение режимов, блок отказа по инвариантам, форма ввода и очистка истории.
 Сводка хода показывает шаг планировщика, прогон пайплайна и индексацию: строки
 «🗓 Планировщик: …», «🔀 Пайплайн: …», «📦 Индексация: …» появляются рядом с токенами
@@ -12,10 +13,8 @@
 import streamlit as st
 
 from . import (
-    api_client, code_review_section, common, context_panels, cost_section, dev_assistant_section,
-    indexing_section, invariant_panel, local_llm_section, local_rag_section, local_tuning_section,
-    mcp_section, memory_panels, notifications, orchestration_section, pipeline_section, profile_section,
-    rag_demo_section, rag_section, remote_llm_section, scheduler_section, support_section, task_panel,
+    api_client, common, context_panels, cost_section, indexing_section, main_sections,
+    memory_panels, notifications, orchestration_section, pipeline_section, rag_section,
 )
 
 
@@ -67,76 +66,8 @@ def render_main_area() -> None:
             st.caption(f"Причина: {st.session_state['backend_error']}")
     else:
         agents = st.session_state["agents"]
-        # Разделы переключаются st.radio, а не st.tabs: выбор вкладки Streamlit не
-        # сохраняет между перезапусками скрипта, а после «Сохранить профиль» нужен
-        # st.rerun — с radio пользователь остаётся в том же разделе.
-        section = st.radio(
-            "Раздел",
-            ["💬 Чат и память", "👤 Профиль пользователя", "🧭 Состояние задачи",
-             "📏 Инварианты", "🔌 MCP", "🗓 Планировщик", "🔀 Пайплайны",
-             "🌐 Оркестрация", "📦 Индексация", "🖥 Локальная LLM", "💰 Расходы",
-             "⚙️ Оптимизация локальной LLM", "🆚 RAG-сравнение", "🧪 RAG-демо",
-             "🏠 Локальный RAG", "🛰 Удалённая LLM", "🧑‍💻 Ассистент разработчика (Day 31)",
-             "🔎 AI-ревью кода (Day 32)", "🎧 Поддержка пользователей (Day 33)"],
-            horizontal=True, key="main_section", label_visibility="collapsed",
-        )
-        if section.startswith("👤"):
-            profile_section.render_profile_section(common.active_agent())
-        elif section.startswith("🧭"):
-            task_panel.render_task_panel(common.active_agent())
-        elif section.startswith("📏"):
-            # Инварианты глобальны: активный агент разделу не нужен.
-            invariant_panel.render_invariant_panel()
-        elif section.startswith("🔌"):
-            # MCP-подключение у процесса одно: активный агент разделу не нужен.
-            mcp_section.render_mcp_section()
-        elif section.startswith("🗓"):
-            # Планировщик — тоже служба процесса, а не свойство агента.
-            scheduler_section.render_scheduler_section()
-        elif section.startswith("🔀"):
-            # Пайплайны дня 19: один прогон по одной цепочке инструментов.
-            # Пайплайн — тоже служба процесса: он вызывает инструменты сервера дня.
-            pipeline_section.render_pipeline_section()
-        elif section.startswith("🌐"):
-            # Оркестрация дня 20: флот серверов, план шагов и один флот на процесс.
-            orchestration_section.render_orchestration_section()
-        elif section.startswith("📦"):
-            # Индексация дня 21: документы, два индекса FAISS и поиск — служба процесса.
-            indexing_section.render_indexing_section()
-        elif section.startswith("🖥"):
-            # Локальная LLM (день 26): второй провайдер — Ollama по HTTP. Раздел
-            # глобальный: модель живёт вне агентов и вне корпуса.
-            local_llm_section.render_local_llm_section()
-        elif section.startswith("⚙️"):
-            # Оптимизация локальной LLM (день 29): профили настройки и кванты
-            # на контрольных вопросах корпуса — служба процесса, не свойство агента.
-            local_tuning_section.render_local_tuning_section()
-        elif section.startswith("💰"):
-            # Расходы на LLM (день 21): журнал, кэш контекста, непиковые часы.
-            # Раздел глобальный: считает запросы всех агентов процесса.
-            cost_section.render_cost_section()
-        elif section.startswith("🆚"):
-            # Сравнение ответов с корпусом и без него (день 22): корпус и индекс —
-            # тоже служба процесса, а не свойство агента.
-            rag_section.render_rag_compare_section()
-        elif section.startswith("🧪"):
-            # Демо дня 24: десять контрольных вопросов, источники, цитаты и режим
-            # «не знаю» — тоже про корпус процесса, а не про агента.
-            rag_demo_section.render_rag_demo_section()
-        elif section.startswith("🏠"):
-            # Локальный RAG (день 28): retrieval локальный, отличается только генератор.
-            local_rag_section.render_local_rag_section()
-        elif section.startswith("🛰"):
-            # Удалённая LLM (день 30): Ollama в Google Colab через туннель Cloudflare.
-            # Раздел глобальный: адрес туннеля живёт часами и агентов не касается.
-            remote_llm_section.render_remote_llm_section()
-        elif section.startswith("🧑‍💻"):  # Ассистент разработчика (день 31).
-            dev_assistant_section.render_dev_assistant_section()
-        elif section.startswith("🔎"):  # AI-ревью кода (день 32).
-            code_review_section.render_code_review_section()
-        elif section.startswith("🎧"):  # Поддержка пользователей (день 33).
-            support_section.render_support_section()
-        else:
+        section = main_sections.render_switcher()
+        if not main_sections.render_section(section):
             if not agents:
                 st.info("Агентов пока нет — создайте первого в боковой панели. "
                         "Его диалог, слои памяти и метрики сохранятся в "

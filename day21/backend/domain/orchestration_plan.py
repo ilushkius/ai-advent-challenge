@@ -29,6 +29,7 @@ import json
 import re
 from typing import Any, Mapping, Sequence
 
+from .json_text import first_json_object
 from .mcp_tools import MCPFleetTool
 from .orchestration_spec import (
     HEURISTIC_PLAN_NAME,
@@ -107,11 +108,12 @@ def parse_plan(text: str) -> dict | None:
     """План из ответа модели: ``None``, если ответ не разобран или негоден.
 
     Разбор намеренно терпимый: модель может обернуть JSON в markdown или добавить
-    пояснение после него. Берётся первый сбалансированный ``{...}``-блок, из него
-    читается JSON и проверяется ``validate_plan`` — негодный план равен отсутствию
-    плана (оркестратор перейдёт на эвристику и запишет это в журнал).
+    пояснение после него. Берётся первый сбалансированный ``{...}``-блок
+    (``json_text.first_json_object``), из него читается JSON и проверяется
+    ``validate_plan`` — негодный план равен отсутствию плана (оркестратор перейдёт
+    на эвристику и запишет это в журнал).
     """
-    payload = _first_json_object(text or "")
+    payload = first_json_object(text or "")
     if payload is None:
         return None
     try:
@@ -119,45 +121,6 @@ def parse_plan(text: str) -> dict | None:
     except OrchestrationRejected:
         return None
     return plan
-
-
-def _first_json_object(text: str) -> dict | None:
-    """Первый сбалансированный объект JSON в тексте (``None`` — не найден).
-
-    Скобки считаются с учётом строк и экранирования: ``{`` внутри строкового
-    значения не должен сдвигать баланс, иначе план с текстом в аргументах
-    («{"content": "}"}») разбирался бы неверно.
-    """
-    start = text.find("{")
-    while start != -1:
-        depth = 0
-        in_string = False
-        escaped = False
-        for index in range(start, len(text)):
-            char = text[index]
-            if in_string:
-                if escaped:
-                    escaped = False
-                elif char == "\\":
-                    escaped = True
-                elif char == '"':
-                    in_string = False
-                continue
-            if char == '"':
-                in_string = True
-            elif char == "{":
-                depth += 1
-            elif char == "}":
-                depth -= 1
-                if depth == 0:
-                    chunk = text[start:index + 1]
-                    try:
-                        parsed = json.loads(chunk)
-                    except ValueError:
-                        break
-                    return parsed if isinstance(parsed, dict) else None
-        start = text.find("{", start + 1)
-    return None
 
 
 def heuristic_plan(query: str, tool_names: Sequence[str]) -> dict:

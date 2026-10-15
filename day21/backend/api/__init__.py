@@ -1,9 +1,10 @@
 """FastAPI-слой дня 18: роутеры по доменам и точка сборки приложения.
 
-- ``agents`` / ``code_review`` / ``context`` / ``dev_assistant`` / ``indexing`` / ``invariants`` /
-  ``llm`` / ``mcp`` / ``mcp_servers`` / ``memory`` / ``mini_chat`` / ``orchestration`` /
-  ``pipelines`` / ``profiles`` / ``rag`` / ``remote_llm`` / ``scheduler`` / ``support`` /
-  ``tasks`` — роутеры API с абсолютными путями (префиксов нет);
+- ``agents`` / ``code_review`` / ``context`` / ``dev_assistant`` / ``file_assistant`` /
+  ``indexing`` / ``invariants`` / ``llm`` / ``mcp`` / ``mcp_servers`` / ``memory`` /
+  ``mini_chat`` / ``orchestration`` / ``pipelines`` / ``profiles`` / ``rag`` /
+  ``remote_llm`` / ``scheduler`` / ``support`` / ``tasks`` — роутеры API с абсолютными
+  путями (префиксов нет);
 - ``lifespan`` — старт и остановка фоновых служб (таблицы, агенты, планировщик,
   флот MCP-серверов, индексы FAISS и прогрев модели эмбеддингов, закрытие
   соединений);
@@ -23,7 +24,9 @@
   пустой адрес удалённой модели, незнакомый шаг её демо, пустой вопрос ассистента
   разработчика и незнакомый провайдер этого вопроса, отсутствие diff-а и ref-ов в
   запросе ревью PR, пустой вопрос ассистента поддержки и незнакомый провайдер
-  этого вопроса;
+  этого вопроса, пустая цель ассистента файлов и незнакомый провайдер прогона;
+- 422 у ассистента файлов — план не разобран или нарушает правила (в ``detail``
+  лежат ``problems`` и ``raw``), а 500 — недоступная модель или MCP-сервер файлов;
 - 409 — повторный task_id/имя инварианта, обращение к инструментам без соединения,
   пауза не активной задачи, возобновление не стоящей на паузе задачи, поиск по
   непостроенному индексу и непроиндексированный корпус режима RAG;
@@ -43,6 +46,7 @@ from . import (
     code_review,
     context,
     dev_assistant,
+    file_assistant,
     indexing,
     llm,
     invariants,
@@ -66,6 +70,7 @@ __all__ = [
     "code_review",
     "context",
     "dev_assistant",
+    "file_assistant",
     "indexing",
     "llm",
     "invariants",

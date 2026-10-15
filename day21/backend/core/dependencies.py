@@ -22,6 +22,7 @@ if TYPE_CHECKING:  # только для аннотаций
     from ..services.llm_client import LLMClient
     from ..services.dev_assistant_service import DevAssistantService
     from ..services.embedding_service import EmbeddingService
+    from ..services.file_assistant_service import FileAssistantService
     from ..services.index_service import IndexService
     from ..services.indexing_service import IndexingService
     from ..services.mcp_registry import MCPRegistry
@@ -208,6 +209,18 @@ def get_support_service() -> "SupportService":
     from ..api import main
 
     return main.get_support_service()
+
+
+def get_file_assistant_service() -> "FileAssistantService":
+    """Служба ассистента файлов (день 34): цель в план шагов и исполнение через MCP.
+
+    Та же точка подмены, что у остальных служб: тесты подменяют
+    ``monkeypatch.setattr(main, "get_file_assistant_service", ...)``, и подмену видят
+    роутер ``/file-assistant``, скрипт демо и раздел «🗂 Ассистент файлов».
+    """
+    from ..api import main
+
+    return main.get_file_assistant_service()
 
 
 def get_prompt_builder() -> "PromptBuilder":

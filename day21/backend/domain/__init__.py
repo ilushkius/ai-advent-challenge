@@ -37,16 +37,17 @@
   ``baseline``/``tuned`` и правило сравнения вариантов прогона;
 - ``rag_mode``/``rag_quotes``/``rag_demo``/``rag_eval`` — RAG дней 22–24: промпт и
   лимиты контекста, порог с режимом «не знаю» и цитаты, вопросы демо и замера;
-- ``indexing_fsm``/``indexing_prompt`` — FSM прогона и блок фрагментов в промпте.
+- ``indexing_fsm``/``indexing_prompt`` — FSM прогона и блок фрагментов в промпте;
+- ``file_assistant``/``file_assistant_plan``/``file_assistant_report``/``json_text`` —
+  ассистент файлов (день 34): инструменты, промпты, правила плана, журнал, вердикт.
 
-Импорт ``AVAILABLE_CATEGORIES`` из ``invariant_values`` переименован на входе слоя
-в ``AVAILABLE_INVARIANT_CATEGORIES``: имя занято памятью (``memory_layers``).
+Импорт ``AVAILABLE_CATEGORIES`` переименован на входе слоя в
+``AVAILABLE_INVARIANT_CATEGORIES``: имя занято памятью (``memory_layers``).
 """
 
 # Планировщик (день 18), пайплайн (день 19), оркестрация (день 20), индексация
 # (день 21) и RAG-режим (день 22) импортируются МОДУЛЯМИ, а не именами: у них десятки
-# публичных имён, и общий список имён слоя вышел бы за лимит 400 строк. Код дня берёт
-# имена из своего модуля: ``backend.domain.indexing_fsm.IndexingFSM``.
+# публичных имён, и общий список имён слоя вышел бы за лимит 400 строк.
 from . import (
     aggregation,
     chunking, rag_corpus_spec, rag_eval, rag_mode,

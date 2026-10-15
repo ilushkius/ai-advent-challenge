@@ -21,7 +21,7 @@ from shared.logging_utils import get_logger
 
 from ..agents.memory import MemoryManager
 from ..core import config
-from ..domain import orchestration_plan
+from ..domain.json_text import first_json_object
 from . import rag_llm
 from .llm_client import LLMClient
 
@@ -82,10 +82,11 @@ def _clean_goal(value: Any) -> str:
 def _extract_payload(text: str) -> Optional[dict]:
     """Память задачи из ответа модели: ``None``, если JSON не разобран.
 
-    Разбор толерантный и общий с оркестрацией дня 20: берётся первый сбалансированный
-    ``{...}``, поэтому markdown-обёртка вокруг JSON не считается сбоем.
+    Разбор толерантный и общий со всем днём: берётся первый сбалансированный
+    ``{...}`` (``domain.json_text``), поэтому markdown-обёртка вокруг JSON не считается
+    сбоем.
     """
-    parsed = orchestration_plan._first_json_object(str(text or ""))
+    parsed = first_json_object(str(text or ""))
     if parsed is None:
         return None
     return {

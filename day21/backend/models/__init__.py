@@ -23,7 +23,9 @@
   метаданными, текстом и id вектора в FAISS) и ``index_runs`` (запуск с этапом,
   счётчиками, метриками сравнения стратегий и ошибкой);
 - ``llm_usage.py`` — журнал расходов дня 21: ``llm_usage`` (запрос к модели с
-  токенами, разметкой кэша, оценкой стоимости и типом задачи).
+  токенами, разметкой кэша, оценкой стоимости и типом задачи);
+- ``file_assistant.py`` — таблица дня 34: ``file_assistant_runs`` (цель, план шагов,
+  журнал выполненных шагов, прочитанные/изменённые/созданные файлы, diff, статус).
 
 ORM-классы реэкспортируются через ``backend.storage.database`` (``Base``,
 ``AgentRecord``, ``ShortTermMessage``, ``Summary``, ``TokenUsage``, ``Fact``,
@@ -31,7 +33,7 @@ ORM-классы реэкспортируются через ``backend.storage.d
 ``TaskState``, ``TaskTransition``, ``Invariant``, ``ScheduledTask``,
 ``SchedulerTaskRun``, ``Reminder``, ``SchedulerNotification``, ``CollectedRecord``,
 ``PeriodicSummary``, ``PipelineRun``, ``PipelineStep``, ``OrchestrationRun``,
-``OrchestrationStep``, ``LLMUsage``), поэтому остальной код дня
+``OrchestrationStep``, ``LLMUsage``, ``FileAssistantRun``), поэтому остальной код дня
 импортирует их оттуда, а не отсюда. Импорт всех модулей пакета — он же и
 регистрация таблиц в ``Base.metadata``, по которой ``init_db`` создаёт схему.
 
@@ -40,6 +42,7 @@ Pydantic-схемы API — отдельный пакет ``backend/schemas/``.
 
 from .agent import AgentRecord
 from .context import Checkpoint, Fact, Summary, TokenUsage
+from .file_assistant import FileAssistantRun
 from .indexing import DocumentChunk, IndexRun
 from .invariant import Invariant
 from .llm_usage import LLMUsage
@@ -64,6 +67,7 @@ __all__ = [
     "CollectedRecord",
     "DocumentChunk",
     "Fact",
+    "FileAssistantRun",
     "IndexRun",
     "Invariant",
     "LLMUsage",
