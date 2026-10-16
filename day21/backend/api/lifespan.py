@@ -38,6 +38,8 @@
 (``support_server``, день 33): его закрывает ``dependencies.get_support_service()``.
 Пятое — сервер файлов (``file_server``, день 34): его закрывает
 ``dependencies.get_file_assistant_service()``.
+Шестое — тот же сервер файлов службы подготовки релиза (день 35), запущенный с
+``--file-root ..``: его закрывает ``dependencies.get_release_service()``.
 Индексы перед этим
 записываются на диск (``save_all``): в памяти они могли измениться после последней
 записи файла.
@@ -94,8 +96,9 @@ async def lifespan(_app):
     dependencies.get_code_review_service().close()
     dependencies.get_support_service().close()
     dependencies.get_file_assistant_service().close()
+    dependencies.get_release_service().close()
     logger.debug(
         "Остановка бэкенда: планировщик остановлен, индексы записаны, "
         "соединения MCP закрыты (включая серверы ассистента разработчика, ревью, "
-        "поддержки и файлов)"
+        "поддержки, файлов и подготовки релиза)"
     )

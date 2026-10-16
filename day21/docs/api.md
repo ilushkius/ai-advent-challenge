@@ -311,6 +311,15 @@ FastAPI сводит методы одного пути
 | GET | `/support/users/{user_id}` | профиль клиента по инструменту `get_user`: id, имя, email, тариф, даты регистрации и последней активности (404 — записи нет; 502 — MCP-сервер не поднялся) | 200 SupportUserOut |
 | GET | `/support/tickets` | тикеты клиента по инструменту `list_user_tickets` (`user_id` обязателен): тема, статус, приоритет и число сообщений без истории (всегда 200; ненайденный клиент — `count=0` и `error="not found"`) | 200 SupportTicketsOut |
 | GET | `/support/tickets/{ticket_id}` | тикет целиком по инструменту `get_ticket`: тема, статус, приоритет, дата и история сообщений (404 — записи нет; 502 — MCP-сервер не поднялся) | 200 SupportTicketOut |
+| POST | `/file-assistant/execute` | прогон цели ассистента файлов: `goal`, `provider` (`deepseek`/`local`) и `dry_run`; план шагов от модели исполняется через свой MCP-сервер `file_server`, ответ несёт `plan`, `steps_executed`, `files_read`/`files_modified`/`files_created`, `diff`, `summary`, `duration_ms` и `status` (400 — пустая цель или незнакомый провайдер; 422 — план не разобран или нарушает правила, в `detail` лежат `problems[]` и `raw`; 500 — модель или MCP-сервер файлов) | 200 FileAssistantRunOut |
+| GET | `/file-assistant/history` | история прогонов от свежих к старым без `diff` и `summary` (необязательный `limit`, всегда 200) | 200 FileAssistantHistoryOut |
+| GET | `/file-assistant/diff/{run_id}` | diff и файлы одного прогона (404 — запуска нет) | 200 FileAssistantDiffOut |
+| POST | `/release/prepare` | подготовка релиза: `from_tag`, `to_tag`, `version` (`auto` или `X.Y.Z`), `provider` и `dry_run`; коммиты диапазона и изменённые файлы читает MCP-сервер `file_server`, тип версии и пункты CHANGELOG предлагает модель, проверки готовности идут подпроцессами `pytest`; ответ несёт `version` с `version_reason`, `version_bump`, списки `breaking_changes`/`features`/`fixes`, `changelog` (группы, счётчики и готовый раздел), `release_notes`, `checks` с `checks_passed`, `files_to_modify`, `diff_preview`, `metrics`, `notes`, `status` и `duration_ms` (400 — пустой диапазон тегов, версия не `X.Y.Z`, версия ниже предложенной или незнакомый провайдер; 500 — MCP-сервер файлов или модель) | 200 ReleasePrepareOut |
+| GET | `/release/tags` | теги репозитория с датами и коммитами для селекторов раздела (500 — MCP-сервер файлов недоступен) | 200 ReleaseTagsOut |
+| GET | `/release/health` | проверки готовности без MCP: признак тестов, процент покрытия, наличие файлов и хвост вывода команд (всегда 200) | 200 ReleaseHealthOut |
+| GET | `/release/metrics` | метрики проекта инструментом `get_project_metrics`: теги, коммиты, файлы `.py`, тесты, MCP-серверы, ассистенты (500 — MCP-сервер файлов недоступен) | 200 ReleaseMetricsOut |
+| GET | `/release/history` | релизы от свежих к старым без текстов разделов (необязательный `limit`, всегда 200) | 200 ReleaseHistoryOut |
+| POST | `/release/export` | выгрузка файлов релиза из записи запуска: `file` = `changelog` или `release_notes` отдаются текстом `text/markdown`, `both` — ZIP-архивом с обоими файлами (400 — неизвестное значение `file`; 404 — запуска с таким `run_id` нет) | 200 файл или `application/zip` |
 | GET | `/` | список доступных эндпоинтов | 200 объект-подсказка |
 
 ## GET /
@@ -321,8 +330,9 @@ FastAPI сводит методы одного пути
 планировщика, пайплайна, оркестрации, индексации документов (ключ `indexing`),
 расходов на LLM (ключ `llm`), RAG (ключ `rag`), мини-чата с RAG и памятью задачи
 (ключ `mini_chat`), ассистента разработчика (ключ `dev_assistant`), ревью кода
-(ключ `code_review`) и ассистента поддержки (ключ `support`), а также перечень
-эндпоинтов (129 строк — все, кроме самого `GET /`).
+(ключ `code_review`), ассистента поддержки (ключ `support`), ассистента файлов
+(ключ `file_assistant`) и подготовки релиза (ключ `release`), а также перечень
+эндпоинтов (138 строк — все, кроме самого `GET /`).
 
 ```bash
 curl.exe http://127.0.0.1:8000/
@@ -349,6 +359,8 @@ curl.exe http://127.0.0.1:8000/
   "dev_assistant": "POST /dev-assistant/help, GET /dev-assistant/tools, GET /dev-assistant/git-context (3 эндпоинта — ассистент разработчика: ответ по документации проекта и состоянию репозитория через свой MCP-сервер dev_server)",
   "code_review": "POST /review/pr, GET /review/health, POST /review/github-pr, GET /review/github-health (4 эндпоинта — AI-ревью PR: diff, контекст корпуса RAG и структурированное ревью от модели, в том числе по URL и номеру реального PR из GitHub)",
   "support": "POST /support/ask, GET /support/users, GET /support/users/{user_id}, GET /support/tickets, GET /support/tickets/{ticket_id} (5 эндпоинтов — ассистент поддержки: FAQ и документация поддержки из корпуса RAG плюс профиль клиента и его тикет через свой MCP-сервер support_server)",
+  "file_assistant": "POST /file-assistant/execute, GET /file-assistant/history, GET /file-assistant/diff/{run_id} (3 эндпоинта — ассистент файлов: цель в план шагов и исполнение через свой MCP-сервер file_server с diff-ом прогона)",
+  "release": "POST /release/prepare, GET /release/tags, GET /release/health, GET /release/metrics, GET /release/history, POST /release/export (6 эндпоинтов — подготовка релиза: версия по коммитам диапазона, раздел CHANGELOG, проверки готовности, выгрузка и запись файлов через MCP)",
   "endpoints": [
     "POST /agents",
     "GET /agents",
@@ -470,7 +482,21 @@ curl.exe http://127.0.0.1:8000/
     "POST /review/pr",
     "GET /review/health",
     "POST /review/github-pr",
-    "GET /review/github-health"
+    "GET /review/github-health",
+    "POST /support/ask",
+    "GET /support/users",
+    "GET /support/users/{user_id}",
+    "GET /support/tickets",
+    "GET /support/tickets/{ticket_id}",
+    "POST /file-assistant/execute",
+    "GET /file-assistant/history",
+    "GET /file-assistant/diff/{run_id}",
+    "POST /release/prepare",
+    "GET /release/tags",
+    "GET /release/health",
+    "GET /release/metrics",
+    "GET /release/history",
+    "POST /release/export"
   ]
 }
 ```
@@ -7308,6 +7334,103 @@ Diff и файлы одного запуска: `run_id`, `status`, `goal`, `dif
 curl.exe http://127.0.0.1:8000/file-assistant/diff/2
 ```
 
+## Подготовка релиза (день 35)
+
+Шесть эндпоинтов раздела «🚀 Подготовка релиза»: прогон, данные для его формы, проверки,
+история и выгрузка. Коммиты диапазона и изменённые файлы читает свой MCP-сервер
+`file_server` (пять инструментов git-истории, запускается целью
+`uv run python mcp_servers/file_server/server.py --file-root ..` — рабочая область
+инструментов равна корню репозитория, иначе `CHANGELOG.md` и `README.md` оказались бы вне
+области записи), тип версии и пункты CHANGELOG предлагает модель, проверки идут
+подпроцессами `uv run pytest` в папке дня.
+
+### POST /release/prepare
+
+Тело (`ReleasePrepareIn`):
+
+```json
+{ "from_tag": "day22", "to_tag": "HEAD", "version": "auto",
+  "provider": "deepseek", "dry_run": true }
+```
+
+`version` — `auto` (тип изменения определяет модель, число считается от первой шапки
+`## [X.Y.Z]` текущего `CHANGELOG.md`; файла нет — `1.0.0`) или явная версия `X.Y.Z`, не
+ниже предложенной. `dry_run=true` (по умолчанию в разделе интерфейса) выполняет весь
+прогон, но НЕ вызывает инструменты записи: файлы не меняются, `status` равен `dry_run`.
+
+Ответ (`ReleasePrepareOut`) несёт: `run_id`, подписи диапазона `from_label`/`to_label`
+(«day1 (нет тега → корень истории)», когда тега нет), `version`, `version_reason`,
+`version_bump`, три списка `breaking_changes`/`features`/`fixes`, `changelog` (пять групп
+пунктов, `minor_count` свёрнутых коммитов, `dropped_count` отброшенных сверх предела 20 и
+готовый `section`), `release_notes`, `checks` с `checks_passed`, `files_to_modify` (путь,
+инструмент записи, признак `skipped`, причина отказа в `error` и `note`),
+`diff_preview` по каждому пути, `metrics` проекта, `notes` прогона, `commits_count`,
+`changed_files`, `duration_ms`, `provider`, `status` и `dry_run`.
+
+Когда проверки не пройдены, `checks_passed` равно `false`, а заметка называет
+непройденные проверки — запись файлов при этом НЕ отменяется.
+
+```bash
+curl.exe -X POST http://127.0.0.1:8000/release/prepare \
+  -H "Content-Type: application/json" \
+  -d '{"from_tag":"day22","to_tag":"HEAD","version":"auto","dry_run":true}'
+```
+
+### GET /release/tags
+
+Теги репозитория с датами и коммитами (`{"count": 14, "tags": [{"name": "day34", "date":
+"…", "commit": "99c82f0"}, …]`) — ими заполняются селекторы диапазона; `500`, если
+сервер файлов не поднялся.
+
+```bash
+curl.exe -s http://127.0.0.1:8000/release/tags
+```
+
+### GET /release/health
+
+Проверки готовности без MCP: `{"checks": {…}, "checks_passed": true}`. Поля `checks`:
+`tests_passed`, `coverage_percent` (из строк `TOTAL` вывода `pytest --cov`),
+`readme_exists`, `docs_exists`, `passed`, `notes`, `files` и `commands` (имя, команда,
+код возврата, длительность и хвост вывода). Всегда `200`: проверок не может «не быть».
+
+```bash
+curl.exe -s http://127.0.0.1:8000/release/health
+```
+
+### GET /release/metrics
+
+Метрики проекта инструментом `get_project_metrics`: `tags`, `commits`, `py_files`,
+`tests`, `mcp_servers`, `assistants`. `500` — сервер файлов недоступен.
+
+```bash
+curl.exe -s http://127.0.0.1:8000/release/metrics
+```
+
+### GET /release/history
+
+История релизов от свежих к старым (`limit` по умолчанию 20): `id`, `from_tag`, `to_tag`,
+`version`, `version_reason`, `checks_passed`, `files_modified[]`, `status`
+(`running`/`completed`/`failed`/`dry_run`), `started_at`, `finished_at`. Тексты разделов в
+список НЕ входят — их отдаёт выгрузка. Всегда `200`.
+
+```bash
+curl.exe "http://127.0.0.1:8000/release/history?limit=5"
+```
+
+### POST /release/export
+
+Тело (`ReleaseExportIn`): `{"run_id": 1, "file": "both"}`. `file` = `changelog` или
+`release_notes` → файл `text/markdown; charset=utf-8` с именем в заголовке
+`Content-Disposition`; `both` → ZIP-архив `release-X.Y.Z.zip` с двумя файлами. Тексты
+берутся ИЗ ЗАПИСИ запуска, поэтому один и тот же релиз можно скачать и после правок файлов
+на диске, и скачать репетицию `dry_run`. Коды: `400` — неизвестное значение `file`, `404`
+— запуска с таким `run_id` нет.
+
+```bash
+curl.exe -X POST http://127.0.0.1:8000/release/export \
+  -H "Content-Type: application/json" -d '{"run_id":1,"file":"both"}' -o release.zip
+```
+
 ## Коды ошибок
 
 | Код | Когда | Тело |
@@ -7324,6 +7447,16 @@ curl.exe http://127.0.0.1:8000/file-assistant/diff/2
 MCP-сервер файлов. Остальные эндпоинты дня так не ошибаются: `GET
 /file-assistant/history` отвечает `200` и с пустой историей, а
 `GET /file-assistant/diff/{run_id}` — `404`, если запуска с таким id нет.
+
+**Коды дня 35 (подготовка релиза).** `400` — пустой диапазон тегов, версия не формата
+`X.Y.Z`, версия ниже предложенной (в `detail` — предложенная версия и причина) или
+незнакомый провайдер, а у выгрузки — неизвестное значение `file`; `404` — в
+`POST /release/export` нет запуска с таким `run_id`; `500` — MCP-сервер файлов не поднялся
+(и у `POST /release/prepare`, и у читающих `GET /release/tags` и `GET /release/metrics`) или
+не сработал инструмент записи. `GET /release/health` и `GET /release/history` не ошибаются
+никогда: первый считает проверки без MCP, второй отдаёт пустую историю как `count: 0`.
+Отказ модели прогон не прерывает — тип версии и пункты CHANGELOG определяет правило, и
+причина этого видна в `version_reason` и в `notes`.
 
 `400` — недопустимый переход состояния задачи. Там, где целевой этап назвал
 пользователь (`POST /tasks/{task_id}/transition`), `detail` — короткая причина

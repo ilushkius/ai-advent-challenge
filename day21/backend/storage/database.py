@@ -3,14 +3,14 @@
 ORM-таблицы дня описаны в ``backend/models/*.py`` (``agent``, ``message``,
 ``memory``, ``context``, ``user_profile``, ``task_state``, ``invariant``,
 ``scheduler``, ``pipeline``, ``orchestration``, ``indexing``, ``llm_usage``,
-``file_assistant``) и реэкспортируются
+``file_assistant``, ``release``) и реэкспортируются
 отсюда (``Base``, ``AgentRecord``, ``ShortTermMessage``, ``Summary``,
 ``TokenUsage``, ``Fact``, ``WorkingMemory``, ``LongTermMemory``, ``Checkpoint``,
 ``UserProfile``, ``TaskState``, ``TaskTransition``, ``Invariant``,
 ``ScheduledTask``, ``SchedulerTaskRun``, ``Reminder``, ``SchedulerNotification``,
 ``CollectedRecord``, ``PeriodicSummary``, ``PipelineRun``, ``PipelineStep``,
 ``OrchestrationRun``, ``OrchestrationStep``, ``DocumentChunk``, ``IndexRun``,
-``LLMUsage``, ``FileAssistantRun``),
+``LLMUsage``, ``FileAssistantRun``, ``ReleaseRun``),
 поэтому остальной код дня по-прежнему импортирует их из
 ``backend.storage.database``.
 
@@ -44,6 +44,7 @@ from ..models.memory import LongTermMemory, WorkingMemory
 from ..models.message import ShortTermMessage
 from ..models.orchestration import OrchestrationRun, OrchestrationStep
 from ..models.pipeline import PipelineRun, PipelineStep
+from ..models.release import ReleaseRun
 from ..models.scheduler import (
     CollectedRecord,
     PeriodicSummary,

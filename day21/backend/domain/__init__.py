@@ -39,7 +39,7 @@
   лимиты контекста, порог с режимом «не знаю» и цитаты, вопросы демо и замера;
 - ``indexing_fsm``/``indexing_prompt`` — FSM прогона и блок фрагментов в промпте;
 - ``file_assistant``/``file_assistant_plan``/``file_assistant_report``/``json_text`` —
-  ассистент файлов (день 34): инструменты, промпты, правила плана, журнал, вердикт.
+  ассистент файлов (день 34) и ``release``/``release_text`` — релиз (день 35).
 
 Импорт ``AVAILABLE_CATEGORIES`` переименован на входе слоя в
 ``AVAILABLE_INVARIANT_CATEGORIES``: имя занято памятью (``memory_layers``).

@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 
 from backend.core import config
-from backend.domain import file_assistant
+from backend.domain import file_assistant, release
 from mcp_servers.file_server import config as file_server_config
 from backend.services.file_assistant_service import FileAssistantService
 from backend.storage.file_assistant_store import FileAssistantStore
@@ -124,7 +124,8 @@ def test_tools_work_on_real_files(flow_service, root):
     реальная запись у правки и создания файла — и отказ на путь вне корня.
     """
     tools = {tool.name: tool for tool in flow_service.server.list_tools()}
-    assert set(tools) == set(file_assistant.TOOLS)
+    assert set(file_assistant.TOOLS) <= set(tools)
+    assert set(release.GIT_TOOLS) <= set(tools)
     for name in file_assistant.TOOLS:
         assert tools[name].input_schema.get("properties"), name
 

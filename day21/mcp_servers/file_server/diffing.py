@@ -2,7 +2,8 @@
 
 Модуль вынесен из ``tools.py``, потому что diff — не операция с файлом, а работа с
 git: две команды, разбор кода возврата и сборка diff-а для файла, которого git ещё
-не знает. Инструменты (``tools.py``) вызывают три функции отсюда, а правило «что
+не знает. Инструменты (``tools.py``) вызывают три функции отсюда, а инструменты
+git-истории дня 35 (``git_history.py``) переиспользуют публичный ``run_git``: правило «что
 делать с неотслеживаемым файлом» живёт в одном месте.
 
 Почему не ``git diff`` для всего. ``git diff HEAD`` показывает изменения
@@ -24,7 +25,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from mcp_servers.file_server import config
 
-__all__ = ["git_diff", "is_tracked", "synthetic_diff"]
+__all__ = ["git_diff", "is_tracked", "run_git", "synthetic_diff"]
 
 
 def is_tracked(rel: str) -> bool:
@@ -56,7 +57,7 @@ def git_diff(rel: str) -> str:
     Пустая строка означает «файл не менялся»: решение о тексте ``config.NO_CHANGES``
     принимает инструмент, потому что это формулировка для модели, а не свойство git.
     """
-    return _git("diff", "--no-color", "HEAD", "--", rel).strip()
+    return run_git("diff", "--no-color", "HEAD", "--", rel).strip()
 
 
 def synthetic_diff(rel: str, text: str) -> str:
@@ -66,8 +67,13 @@ def synthetic_diff(rel: str, text: str) -> str:
     return "\n".join([f"diff --git a/{rel} b/{rel}", "new file mode 100644", *body])
 
 
-def _git(*args: str) -> str:
-    """Вывод команды git в корне репозитория; сбой — ``ToolError``."""
+def run_git(*args: str) -> str:
+    """Вывод команды git в корне репозитория; сбой — ``ToolError``.
+
+    Функция публичная (не ``_git``), потому что её переиспользуют инструменты
+    git-истории дня 35 (``git_history.py``): один вызов ``subprocess`` с теми же
+    таймаутом, кодировкой и разбором кода возврата на весь сервер файлов.
+    """
     try:
         completed = subprocess.run(
             ["git", *args], cwd=config.REPO_ROOT, capture_output=True, text=True,

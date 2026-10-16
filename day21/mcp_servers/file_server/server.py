@@ -1,8 +1,9 @@
 """Сборка MCP-сервера файлов (день 34): каталог инструментов и точка входа.
 
-Шесть инструментов регистрируются здесь, а их тела лежат в ``tools.py``: так их
-читают и тестируют отдельно от сборки сервера, а SDK собирает контракт из самой
-функции — имя, докстринг и аннотации. Регистрация внешних функций
+Одиннадцать инструментов регистрируются здесь — шесть инструментов файлов из
+``tools.py`` и пять инструментов git-истории из ``git_history.py``: так их читают и
+тестируют отдельно от сборки сервера, а SDK собирает контракт из самой функции —
+имя, докстринг и аннотации. Регистрация внешних функций
 (``server.tool()(tools.read_file)``), а не объявления в этом файле, по той же
 причине, что у серверов дней 31 и 33.
 
@@ -42,6 +43,7 @@ from mcp.server.mcpserver import MCPServer  # noqa: E402
 from mcp_servers.file_server import config  # noqa: E402
 from shared.logging_utils import configure_logging  # noqa: E402
 
+from mcp_servers.file_server import git_history  # noqa: E402
 from mcp_servers.file_server import tools  # noqa: E402
 
 server = MCPServer(name=config.SERVER_NAME, version=config.SERVER_VERSION,
@@ -52,12 +54,18 @@ server.tool()(tools.list_files)
 server.tool()(tools.write_file)
 server.tool()(tools.apply_patch)
 server.tool()(tools.get_file_diff)
+server.tool()(git_history.get_tags)
+server.tool()(git_history.get_commits_between)
+server.tool()(git_history.get_changed_files_between)
+server.tool()(git_history.get_commit_stats)
+server.tool()(git_history.get_project_metrics)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Разбирает аргументы командной строки сервера (основной транспорт — stdio)."""
     parser = argparse.ArgumentParser(
-        description="MCP-сервер файлов проекта дня 34 (read/search/list/write/patch/diff).",
+        description="MCP-сервер файлов проекта дня 34 (read/search/list/write/patch/diff) "
+                    "и git-истории релиза дня 35 (tags/commits/changed-files/stats/metrics).",
     )
     parser.add_argument("--file-root", default=str(config.DAY_ROOT),
                         help="корень рабочей области инструментов "

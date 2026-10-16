@@ -13,18 +13,20 @@ Swagger-документация:  http://127.0.0.1:8000/docs
 
 Дни 22–25 — режим RAG (``backend/api/rag.py``), последний день дал мини-чат
 (``mini_chat.py``): поиск по корпусу, цитаты, режим «не знаю» и история сессий; день 30
-(``remote_llm.py``) — удалённую LLM в Colab. Дни 31–34 поднимают СВОИ MCP-серверы вне
+(``remote_llm.py``) — удалённую LLM в Colab. Дни 31–35 поднимают СВОИ MCP-серверы вне
 флота: ассистент разработчика (``dev_assistant.py``), AI-ревью PR (``code_review.py``),
 поддержка по FAQ и тикетам (``support.py``) и ассистент файлов (``file_assistant.py``) —
-цель пользователя превращается в план шагов, а шаги читают и меняют файлы папки дня.
+цель пользователя превращается в план шагов, а шаги читают и меняют файлы папки дня;
+день 35 (``release.py``) — подготовка релиза: теги, авто-версия, CHANGELOG и проверки.
 
 Здесь только сборка приложения: эндпоинты живут в ``backend/api/``, доступ к службам — в
 ``backend/core/dependencies.py``; функции ``get_manager``, ``get_mcp_registry``, ``get_scheduler``,
 ``get_schedule_service``, ``get_pipeline_service``, ``get_orchestration_service``,
 ``get_indexing_service``, ``get_index_service``, ``get_embedding_service``, ``get_llm_client``,
 ``get_rag_service``, ``get_mini_chat_service``, ``get_dev_assistant_service``,
-``get_code_review_service``, ``get_support_service``, ``get_file_assistant_service`` и
-``get_rerank_service`` импортированы сюда как точки подмены для тестов.
+``get_code_review_service``, ``get_support_service``, ``get_file_assistant_service``,
+``get_release_service`` и ``get_rerank_service`` импортированы сюда как точки подмены
+для тестов.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,6 +45,7 @@ from ..services.mini_chat_service import get_mini_chat_service
 from ..services.orchestration_service import get_orchestration_service
 from ..services.pipeline_service import get_pipeline_service
 from ..services.rag_service import get_rag_service
+from ..services.release_service import get_release_service
 from ..services.rerank_service import get_rerank_service
 from ..services.schedule_service import get_schedule_service
 from ..services.scheduler import get_scheduler
@@ -50,7 +53,7 @@ from ..services.support_service import get_support_service
 from . import (
     agents, code_review, context, dev_assistant, file_assistant, indexing, invariants, llm,
     mcp, mcp_servers, memory, mini_chat, orchestration, pipelines, profiles, rag,
-    remote_llm, scheduler, support, tasks,
+    release, remote_llm, scheduler, support, tasks,
 )
 from .lifespan import lifespan
 
@@ -72,5 +75,5 @@ app.add_middleware(
 # Пути в роутерах абсолютные (префиксов нет); порядок списка = порядок регистрации.
 for _router in (agents, code_review, context, dev_assistant, file_assistant, indexing,
                 invariants, llm, mcp, mcp_servers, memory, mini_chat, orchestration,
-                pipelines, profiles, rag, remote_llm, scheduler, support, tasks):
+                pipelines, profiles, rag, release, remote_llm, scheduler, support, tasks):
     app.include_router(_router.router)

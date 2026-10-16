@@ -23,8 +23,8 @@ from . import (
     code_review_section, common, cost_section, dev_assistant_section, file_assistant_section,
     indexing_section, invariant_panel, local_llm_section, local_rag_section,
     local_tuning_section, mcp_section, orchestration_section, pipeline_section, profile_section,
-    rag_demo_section, rag_section, remote_llm_section, scheduler_section, support_section,
-    task_panel,
+    rag_demo_section, rag_section, release_section, remote_llm_section, scheduler_section,
+    support_section, task_panel,
 )
 
 #: Подписи разделов в порядке переключателя (последним — самый новый день).
@@ -34,7 +34,7 @@ SECTIONS = ("💬 Чат и память", "👤 Профиль пользова
             "⚙️ Оптимизация локальной LLM", "🆚 RAG-сравнение", "🧪 RAG-демо",
             "🏠 Локальный RAG", "🛰 Удалённая LLM", "🧑‍💻 Ассистент разработчика (Day 31)",
             "🔎 AI-ревью кода (Day 32)", "🎧 Поддержка пользователей (Day 33)",
-            "🗂 Ассистент файлов (Day 34)")
+            "🗂 Ассистент файлов (Day 34)", "🚀 Подготовка релиза (Day 35)")
 
 
 def render_switcher() -> str:
@@ -108,6 +108,8 @@ def render_section(section: str) -> bool:
         support_section.render_support_section()
     elif section.startswith("🗂"):  # Ассистент файлов (день 34).
         file_assistant_section.render_file_assistant_section()
+    elif section.startswith("🚀"):  # Подготовка релиза (день 35).
+        release_section.render_release_section()
     else:
         return False
     return True

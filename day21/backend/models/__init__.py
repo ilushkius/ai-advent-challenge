@@ -25,7 +25,10 @@
 - ``llm_usage.py`` — журнал расходов дня 21: ``llm_usage`` (запрос к модели с
   токенами, разметкой кэша, оценкой стоимости и типом задачи);
 - ``file_assistant.py`` — таблица дня 34: ``file_assistant_runs`` (цель, план шагов,
-  журнал выполненных шагов, прочитанные/изменённые/созданные файлы, diff, статус).
+  журнал выполненных шагов, прочитанные/изменённые/созданные файлы, diff, статус);
+- ``release.py`` — таблица дня 35: ``release_runs`` (диапазон тегов, версия с причиной
+  выбора, тексты раздела CHANGELOG и заметок о релизе, признак пройденных проверок,
+  записанные файлы, статус).
 
 ORM-классы реэкспортируются через ``backend.storage.database`` (``Base``,
 ``AgentRecord``, ``ShortTermMessage``, ``Summary``, ``TokenUsage``, ``Fact``,
@@ -33,7 +36,8 @@ ORM-классы реэкспортируются через ``backend.storage.d
 ``TaskState``, ``TaskTransition``, ``Invariant``, ``ScheduledTask``,
 ``SchedulerTaskRun``, ``Reminder``, ``SchedulerNotification``, ``CollectedRecord``,
 ``PeriodicSummary``, ``PipelineRun``, ``PipelineStep``, ``OrchestrationRun``,
-``OrchestrationStep``, ``LLMUsage``, ``FileAssistantRun``), поэтому остальной код дня
+``OrchestrationStep``, ``LLMUsage``, ``FileAssistantRun``, ``ReleaseRun``), поэтому
+остальной код дня
 импортирует их оттуда, а не отсюда. Импорт всех модулей пакета — он же и
 регистрация таблиц в ``Base.metadata``, по которой ``init_db`` создаёт схему.
 
@@ -50,6 +54,7 @@ from .memory import LongTermMemory, WorkingMemory
 from .message import ShortTermMessage
 from .orchestration import OrchestrationRun, OrchestrationStep
 from .pipeline import PipelineRun, PipelineStep
+from .release import ReleaseRun
 from .scheduler import (
     CollectedRecord,
     PeriodicSummary,
@@ -77,6 +82,7 @@ __all__ = [
     "PeriodicSummary",
     "PipelineRun",
     "PipelineStep",
+    "ReleaseRun",
     "Reminder",
     "ScheduledTask",
     "SchedulerNotification",

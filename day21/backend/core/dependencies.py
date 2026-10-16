@@ -31,6 +31,7 @@ if TYPE_CHECKING:  # только для аннотаций
     from ..services.orchestration_service import OrchestrationService
     from ..services.pipeline_service import PipelineService
     from ..services.rag_service import RAGService
+    from ..services.release_service import ReleaseService
     from ..services.rerank_service import RerankService
     from ..services.scheduler import TaskScheduler
     from ..services.support_service import SupportService
@@ -221,6 +222,19 @@ def get_file_assistant_service() -> "FileAssistantService":
     from ..api import main
 
     return main.get_file_assistant_service()
+
+
+def get_release_service() -> "ReleaseService":
+    """Служба подготовки релиза (день 35): версия, CHANGELOG, проверки и запись файлов.
+
+    Та же точка подмены, что у остальных служб: тесты подменяют
+    ``monkeypatch.setattr(main, "get_release_service", ...)``, и подмену видят роутер
+    ``/release``, раздел «🚀 Подготовка релиза» и ``lifespan`` (он же закрывает
+    соединение со своим сервером файлов при остановке).
+    """
+    from ..api import main
+
+    return main.get_release_service()
 
 
 def get_prompt_builder() -> "PromptBuilder":
